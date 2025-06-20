@@ -1,0 +1,89 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 230 19% 7%;
+    --foreground: 0 0% 98%;
+
+    --card: 230 16% 12%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 230 19% 7%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 262 86% 69%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 230 13% 18%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 230 13% 18%;
+    --muted-foreground: 230 4% 70%;
+
+    --accent: 262 86% 69%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 230 13% 18%;
+    --input: 230 13% 18%;
+    --ring: 262 86% 69%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 230 19% 7%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 262 86% 69%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 230 13% 18%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 230 13% 18%;
+    --sidebar-ring: 262 86% 69%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply overflow-hidden;
+  }
+
+  body {
+    @apply bg-dark text-foreground antialiased overflow-hidden bg-gradient-main;
+    font-feature-settings: "ss01", "ss02", "cv01", "cv02", "cv03";
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-1.5;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-dark-secondary rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dark-tertiary rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-violet/30;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-dark-secondary/80 backdrop-blur-lg border border-white/5 shadow-soft-md;
+  }
+  
+  .text-gradient {
+    @apply bg-gradient-violet bg-clip-text text-transparent;
+  }
+}
