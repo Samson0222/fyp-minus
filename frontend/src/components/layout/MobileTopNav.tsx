@@ -15,19 +15,19 @@ const MobileTopNav: React.FC<MobileTopNavProps> = ({ onMenuClick }) => {
   const getPageInfo = (pathname: string) => {
     switch (pathname) {
       case "/":
-        return { icon: <Home size={16} />, title: "Home" };
+        return { icon: <Home size={20} />, title: "Home" };
       case "/tasks":
-        return { icon: <CheckSquare size={16} />, title: "Tasks" };
+        return { icon: <CheckSquare size={20} />, title: "Tasks" };
       case "/calendar":
-        return { icon: <Calendar size={16} />, title: "Calendar" };
+        return { icon: <Calendar size={20} />, title: "Calendar" };
       case "/inboxes":
-        return { icon: <Inbox size={16} />, title: "Inboxes" };
+        return { icon: <Inbox size={20} />, title: "Inboxes" };
       case "/documents":
-        return { icon: <FileText size={16} />, title: "Docs" };
+        return { icon: <FileText size={20} />, title: "Docs" };
       case "/settings":
-        return { icon: <Settings size={16} />, title: "Settings" };
+        return { icon: <Settings size={20} />, title: "Settings" };
       default:
-        return { icon: <Home size={16} />, title: "Home" };
+        return { icon: <Home size={20} />, title: "Home" };
     }
   };
 
@@ -53,9 +53,9 @@ const MobileTopNav: React.FC<MobileTopNavProps> = ({ onMenuClick }) => {
         </button>
         
         {/* Current Page Title with Icon */}
-        <div className="flex items-center gap-2 text-white">
+        <div className="flex items-center gap-3 text-white">
           {currentPage.icon}
-          <span className="text-sm font-medium">{currentPage.title}</span>
+          <span className="text-base font-semibold">{currentPage.title}</span>
         </div>
         
         {/* Search Bar and Tutorials */}

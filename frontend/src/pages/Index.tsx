@@ -24,9 +24,9 @@ const Index = () => {
       id: Date.now().toString(),
       text,
       sender: "user",
-      timestamp: new Date()
+      timestamp: new Date(),
     };
-    setMessages(prev => [...prev, userMessage]);
+    setMessages((prev) => [...prev, userMessage]);
 
     // Simulate AI response
     setTimeout(() => {
@@ -35,18 +35,18 @@ const Index = () => {
         id: (Date.now() + 1).toString(),
         text: responseText,
         sender: "ai",
-        timestamp: new Date()
+        timestamp: new Date(),
       };
-      setMessages(prev => [...prev, aiMessage]);
+      setMessages((prev) => [...prev, aiMessage]);
     }, 1000);
   };
 
   const handleToggleListening = () => {
-    setIsListening(prev => !prev);
+    setIsListening((prev) => !prev);
     if (!isListening) {
       toast({
         title: "Listening...",
-        description: "Say something or click again to stop."
+        description: "Say something or click again to stop.",
       });
 
       // Simulate stopping the recording after 5 seconds
@@ -70,12 +70,12 @@ const Index = () => {
       reminderSubtitle: "3 due today",
       tasks: [
         "Complete project proposal",
-        "Review team performance reports", 
+        "Review team performance reports",
         "Schedule client meeting for next week",
         "Update documentation for API endpoints",
         "Prepare presentation slides for stakeholders",
-        "Fix bug in user authentication system"
-      ]
+        "Fix bug in user authentication system",
+      ],
     },
     {
       title: "Upcoming",
@@ -87,8 +87,8 @@ const Index = () => {
         "Team standup meeting - 10:30 AM",
         "Client presentation review - 2:00 PM",
         "Project planning session - 4:00 PM",
-        "Weekly team sync - Tomorrow 9:00 AM"
-      ]
+        "Weekly team sync - Tomorrow 9:00 AM",
+      ],
     },
     {
       title: "Recent",
@@ -101,8 +101,8 @@ const Index = () => {
         "Updated client requirements document",
         "Fixed authentication bug in login system",
         "Reviewed and approved design mockups",
-        "Pushed code changes to staging environment"
-      ]
+        "Pushed code changes to staging environment",
+      ],
     },
     {
       title: "Inboxes",
@@ -114,23 +114,25 @@ const Index = () => {
         "Sarah: Project timeline updated",
         "Mike: Code review completed",
         "System: Deployment successful",
-        "Anna: Meeting rescheduled to 3 PM"
-      ]
-    }
+        "Anna: Meeting rescheduled to 3 PM",
+      ],
+    },
   ];
 
   return (
     <Layout>
       <div className="flex flex-col h-full w-full">
-                 {/* Content Area - Entire content scrolls */}
-         <div className="flex-1 overflow-y-auto main-content-scrollbar mt-20 md:mt-0">
-           {/* Spacing for Header */}
-           <div className="h-4" />
+        {/* Content Area - Entire content scrolls */}
+        <div className="flex-1 overflow-y-auto main-content-scrollbar mt-20 md:mt-0">
+          {/* Spacing for Header */}
+          <div className="h-4" />
 
           {/* Welcome Section */}
           <div className="px-6 text-center">
             <h2 className="text-3xl font-bold mb-2 relative">
-              <span className="relative text-transparent bg-gradient-to-r from-violet-light to-violet bg-clip-text">Welcome to Minus AI</span>
+              <span className="relative text-transparent bg-gradient-to-r from-violet-light to-violet bg-clip-text">
+                Welcome to Minus AI
+              </span>
             </h2>
             <p className="text-foreground/70 max-w-md mx-auto">
               Your Personal AI Assistant.
@@ -164,25 +166,37 @@ const Index = () => {
                     <CardContent className="p-6 flex flex-col h-full">
                       {/* Reminder Area */}
                       <div className="mb-4 pb-4 border-b border-white/10 flex-shrink-0">
-                        <p className="text-white/90 font-medium mb-1">{card.reminderContent}</p>
-                        <p className="text-white/60 text-sm">{card.reminderSubtitle}</p>
+                        <p className="text-white/90 font-medium mb-1">
+                          {card.reminderContent}
+                        </p>
+                        <p className="text-white/60 text-sm">
+                          {card.reminderSubtitle}
+                        </p>
                       </div>
-                      
+
                       {/* List Area */}
                       <div className="flex-1 overflow-hidden">
-                        <div className="space-y-3 h-full overflow-y-auto pr-3 scrollbar-custom">
-                          {(card.tasks || card.items)?.map((item, itemIndex) => (
-                            <div key={itemIndex} className="flex items-start gap-3 p-3 bg-white/8 hover:bg-white/12 rounded-lg transition-colors group">
-                              {card.type === "tasks" && (
-                                <div className="flex-shrink-0 mt-0.5">
-                                  <div className="w-4 h-4 rounded-full border-2 border-white/40 group-hover:border-violet-light/60 transition-colors cursor-pointer" />
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p className="text-white/85 text-base leading-6 break-words">{item}</p>
-                              </div>
-                            </div>
-                          ))}
+                        <div className="space-y-0 h-full overflow-y-auto pr-3 scrollbar-custom">
+                          {(card.tasks || card.items)?.map(
+                                                         (item, itemIndex) => (
+                               <div
+                                 key={itemIndex}
+                                 className="flex items-center gap-3 p-3 bg-dark-secondary border border-white/10 hover:bg-white/8 hover:border-violet-light/30 rounded-lg transition-all duration-200 group cursor-pointer select-none"
+                                 onClick={() => console.log(`Selected: ${item}`)}
+                               >
+                                 {card.type === "tasks" && (
+                                   <div className="flex-shrink-0">
+                                     <div className="w-4 h-4 rounded-full border-2 border-white/40 group-hover:border-violet-light/60 transition-colors cursor-pointer" />
+                                   </div>
+                                 )}
+                                 <div className="flex-1 min-w-0">
+                                   <p className="text-white/85 text-base leading-6 truncate" title={item}>
+                                     {item}
+                                   </p>
+                                 </div>
+                               </div>
+                             )
+                          )}
                         </div>
                       </div>
                     </CardContent>
@@ -191,7 +205,7 @@ const Index = () => {
               ))}
             </div>
           </div>
-          
+
           {/* Spacing at the end of content */}
           <div className="h-4" />
         </div>
@@ -203,13 +217,13 @@ const Index = () => {
             <TranscriptArea messages={messages} />
           </div>
         )}
-        
+
         {/* Interaction Area - Always at bottom */}
         <div className="flex-shrink-0 z-20">
-          <InteractionArea 
-            onSendMessage={handleSendMessage} 
-            onToggleListening={handleToggleListening} 
-            isListening={isListening} 
+          <InteractionArea
+            onSendMessage={handleSendMessage}
+            onToggleListening={handleToggleListening}
+            isListening={isListening}
           />
         </div>
       </div>
