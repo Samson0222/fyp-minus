@@ -29,7 +29,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         {isMobile && <MobileTopNav onMenuClick={handleMenuClick} />}
         {!isMobile && <ContentHeader />}
         
-        <div className={`w-full flex-1 flex flex-col h-full overflow-hidden ${isMobile ? 'pt-16' : ''}`}>
+        <div className="w-full flex-1 flex flex-col h-full overflow-hidden">
           {children}
         </div>
       </main>
