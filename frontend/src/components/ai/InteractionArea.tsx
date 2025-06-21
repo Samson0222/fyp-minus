@@ -36,10 +36,19 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = '48px'; // Reset to button height
+      // Reset height to minimum
+      textareaRef.current.style.height = '48px';
+      
+      // Calculate new height based on content
       const scrollHeight = textareaRef.current.scrollHeight;
-      const maxHeight = 48 + (6 * 24); // 48px base + 6 additional lines (7 total lines)
-      textareaRef.current.style.height = Math.min(scrollHeight, maxHeight) + 'px';
+      const lineHeight = 24; // Approximate line height
+      const maxLines = 7;
+      const minHeight = 48; // Same as button height
+      const maxHeight = minHeight + ((maxLines - 1) * lineHeight); // 48 + (6 * 24) = 192px
+      
+      // Set the height, but don't exceed max
+      const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+      textareaRef.current.style.height = newHeight + 'px';
     }
   }, [inputValue]);
   
@@ -52,7 +61,7 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
           {/* <span className="text-white/70 text-sm font-medium">AI Assistant</span> */}
         </div>
         
-        {/* Text Area - Fixed width, expandable height */}
+        {/* Text Area - Same initial size as button, expandable */}
         <form onSubmit={handleSubmit} className="w-full max-w-2xl flex items-start gap-3 bg-dark-secondary border border-white/10 rounded-lg p-3 shadow-lg">
           <div className="relative flex-1">
             <textarea
@@ -61,9 +70,15 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="w-full bg-dark-tertiary text-white placeholder-white/50 rounded-lg px-4 py-3 focus:outline-none focus:ring-1 focus:ring-violet resize-none h-[48px] leading-6 scrollbar-custom overflow-y-auto"
+              className="w-full bg-dark-tertiary text-white placeholder-white/50 rounded-lg px-4 focus:outline-none focus:ring-1 focus:ring-violet resize-none overflow-y-auto scrollbar-custom border-0 outline-none"
               rows={1}
               style={{
+                height: '48px',
+                minHeight: '48px',
+                maxHeight: '192px',
+                lineHeight: '24px',
+                paddingTop: '12px',
+                paddingBottom: '12px',
                 scrollbarWidth: 'thin',
                 scrollbarColor: 'rgba(255,255,255,0.3) transparent'
               }}
@@ -73,13 +88,13 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
           <button
             type="submit"
             disabled={!inputValue.trim()}
-            className="bg-violet rounded-lg p-3 text-white disabled:opacity-50 transition-opacity hover:opacity-90 active:scale-95 flex-shrink-0 h-[48px] w-[48px] flex items-center justify-center"
+            className="bg-violet rounded-lg text-white disabled:opacity-50 transition-opacity hover:opacity-90 active:scale-95 flex-shrink-0 h-[48px] w-[48px] flex items-center justify-center"
           >
             <Send size={18} />
           </button>
         </form>
 
-        {/* Slogan - Smaller font */}
+        {/* Slogan */}
         <div className="text-center">
           <h3 className="text-sm font-medium relative">
             <span className="relative text-transparent bg-gradient-to-r from-violet-light to-violet bg-clip-text">Less clicking. More doing.</span>
