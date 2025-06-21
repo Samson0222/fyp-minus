@@ -36,8 +36,10 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+      textareaRef.current.style.height = '48px'; // Reset to button height
+      const scrollHeight = textareaRef.current.scrollHeight;
+      const maxHeight = 48 + (6 * 24); // 48px base + 6 additional lines (7 total lines)
+      textareaRef.current.style.height = Math.min(scrollHeight, maxHeight) + 'px';
     }
   }, [inputValue]);
   
@@ -51,7 +53,7 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
         </div>
         
         {/* Text Area - Fixed width, expandable height */}
-        <form onSubmit={handleSubmit} className="w-full max-w-2xl flex items-stretch gap-3 bg-dark-secondary border border-white/10 rounded-lg p-3 shadow-lg">
+        <form onSubmit={handleSubmit} className="w-full max-w-2xl flex items-start gap-3 bg-dark-secondary border border-white/10 rounded-lg p-3 shadow-lg">
           <div className="relative flex-1">
             <textarea
               ref={textareaRef}
@@ -59,7 +61,7 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="w-full bg-dark-tertiary text-white placeholder-white/50 rounded-lg px-4 py-3 focus:outline-none focus:ring-1 focus:ring-violet resize-none min-h-[48px] max-h-32 overflow-y-auto scrollbar-custom"
+              className="w-full bg-dark-tertiary text-white placeholder-white/50 rounded-lg px-4 py-3 focus:outline-none focus:ring-1 focus:ring-violet resize-none h-[48px] leading-6 scrollbar-custom overflow-y-auto"
               rows={1}
               style={{
                 scrollbarWidth: 'thin',
