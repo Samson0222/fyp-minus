@@ -39,7 +39,7 @@ const ContentHeader = () => {
   };
 
   return (
-    <header className="bg-dark-secondary px-6 py-6 relative flex items-center">
+    <header className="bg-dark-secondary px-6 py-3 relative flex items-center">
       {/* Header content with page info, search, and tutorials - centered vertically */}
       <div className="flex items-center justify-between w-full">
         {/* Page icon and title */}

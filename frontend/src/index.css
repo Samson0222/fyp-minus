@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -75,6 +74,62 @@
 
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-violet/30;
+  }
+
+  /* Custom scrollbar for task lists */
+  .scrollbar-custom::-webkit-scrollbar {
+    @apply w-1;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb {
+    @apply bg-white/20 rounded-full;
+    border-radius: 4px;
+  }
+
+  .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/40;
+  }
+
+  /* Only show scrollbar when needed */
+  .scrollbar-custom {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.2) transparent;
+  }
+
+  /* Main content scrollbar (mobile and desktop) */
+  .main-content-scrollbar::-webkit-scrollbar {
+      @apply w-2; /* 8px width */
+  }
+  .main-content-scrollbar::-webkit-scrollbar-track {
+      @apply bg-transparent;
+      /* Add margin to top and bottom to make it shorter */
+      margin-block: 0.5rem; /* 8px */
+  }
+  .main-content-scrollbar::-webkit-scrollbar-thumb {
+      @apply bg-transparent rounded-full;
+  }
+  
+  /* Show scrollbar thumb on hover of the container */
+  .main-content-scrollbar:hover::-webkit-scrollbar-thumb {
+      @apply bg-white/20;
+  }
+  .main-content-scrollbar::-webkit-scrollbar-thumb:hover {
+      @apply bg-white/40; /* Make it slightly more visible on direct hover */
+  }
+
+  /* Firefox support */
+  .main-content-scrollbar {
+      scrollbar-width: thin;
+      /* Hide by default */
+      scrollbar-color: transparent transparent;
+  }
+  .main-content-scrollbar:hover {
+      /* Show on hover */
+      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
   }
 }
 
