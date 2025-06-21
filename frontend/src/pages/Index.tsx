@@ -214,7 +214,7 @@ const Index = () => {
         {messages.length > 0 && (
           <div className="absolute inset-0 bg-dark-primary/95 backdrop-blur-sm flex flex-col z-10">
             <div className="h-16 md:h-24" /> {/* Spacer for header */}
-            <TranscriptArea messages={messages} />
+        <TranscriptArea messages={messages} />
           </div>
         )}
 
