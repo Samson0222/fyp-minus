@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import Layout from '@/components/layout/Layout';
 import InteractionArea from '@/components/ai/InteractionArea';
-import { Plus, Circle, CheckCircle, List, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Settings, Filter, ChevronDown, MoreHorizontal, Trash2, Edit, Archive, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Circle, CheckCircle, List, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Settings, Filter, ChevronDown, MoreHorizontal, Trash2, Edit, Archive, X } from 'lucide-react';
 
 // Define types locally to avoid import issues
 interface Task {
@@ -13,10 +13,8 @@ interface Task {
   startTime?: string;
   endTime?: string;
   priority: 'low' | 'medium' | 'high';
-  status: 'todo' | 'inprogress' | 'done';
+  isCompleted: boolean;
   syncedToCalendar: boolean;
-  createDateTime: Date;
-  lastUpdateDateTime: Date;
 }
 
 type TaskView = 'list' | 'calendar';
@@ -59,19 +57,14 @@ const TasksWorking: React.FC = () => {
   const [tempValue, setTempValue] = useState<any>('');
   const [showFloatingMenu, setShowFloatingMenu] = useState<{ taskId: string; field: string; position: { x: number; y: number } } | null>(null);
   
-  // Calendar state for custom date picker
-  const [calendarDate, setCalendarDate] = useState(new Date());
-  
   // Column configuration with intelligent minimum widths
   const [columns, setColumns] = useState<TableColumn[]>([
     { id: 'title', label: 'Task', width: 300, visible: true, sortable: true, filterable: true },
-    { id: 'description', label: 'Description', width: 250, visible: false, sortable: false, filterable: true },
+    { id: 'description', label: 'Description', width: 250, visible: true, sortable: false, filterable: true },
     { id: 'dueDate', label: 'Due Date', width: 120, visible: true, sortable: true, filterable: true },
     { id: 'time', label: 'Time', width: 120, visible: true, sortable: false, filterable: false },
-    { id: 'priority', label: 'Priority', width: 120, visible: true, sortable: true, filterable: true },
-    { id: 'status', label: 'Status', width: 110, visible: true, sortable: true, filterable: true },
-    { id: 'created', label: 'Created', width: 150, visible: true, sortable: true, filterable: false },
-    { id: 'lastUpdate', label: 'Last Update', width: 150, visible: true, sortable: true, filterable: false },
+    { id: 'priority', label: 'Priority', width: 110, visible: true, sortable: true, filterable: true },
+    { id: 'status', label: 'Status', width: 100, visible: true, sortable: true, filterable: true },
   ]);
 
   // Column minimum widths based on content (includes space for sort buttons where applicable)
@@ -81,10 +74,8 @@ const TasksWorking: React.FC = () => {
       case 'description': return 120; // "Description" (not sortable, longer title)  
       case 'dueDate': return 110; // "Due Date" + sort button (sortable)
       case 'time': return 60; // "Time" (not sortable, short title)
-      case 'priority': return 105; // "Priority" + sort button (sortable) - increased for full display
-      case 'status': return 95; // "Status" + sort button (sortable) - increased for full display
-      case 'created': return 95; // "Created" + sort button (sortable)
-      case 'lastUpdate': return 110; // "Last Update" + sort button (sortable)
+      case 'priority': return 95; // "Priority" + sort button (sortable)
+      case 'status': return 85; // "Status" + sort button (sortable)
       default: return 50;
     }
   };
@@ -98,10 +89,8 @@ const TasksWorking: React.FC = () => {
       dueDate: new Date(2024, 11, 25),
       isAllDay: true,
       priority: 'high',
-      status: 'todo',
+      isCompleted: false,
       syncedToCalendar: true,
-      createDateTime: new Date(),
-      lastUpdateDateTime: new Date(),
     },
     {
       id: '2',
@@ -112,10 +101,8 @@ const TasksWorking: React.FC = () => {
       startTime: '10:00',
       endTime: '11:00',
       priority: 'medium',
-      status: 'inprogress',
+      isCompleted: false,
       syncedToCalendar: true,
-      createDateTime: new Date(),
-      lastUpdateDateTime: new Date(),
     },
     {
       id: '3',
@@ -126,33 +113,20 @@ const TasksWorking: React.FC = () => {
       startTime: '14:00',
       endTime: '15:30',
       priority: 'medium',
-      status: 'done',
+      isCompleted: true,
       syncedToCalendar: true,
-      createDateTime: new Date(),
-      lastUpdateDateTime: new Date(),
     },
   ]);
 
   const handleTaskToggle = useCallback((taskId: string) => {
-    // Determine which tasks to update: if the current task is selected and there are multiple selections,
-    // update all selected tasks. Otherwise, just update the current task.
-    const shouldBatchEdit = selectedTasks.has(taskId) && selectedTasks.size > 1;
-    const tasksToUpdate = shouldBatchEdit ? Array.from(selectedTasks) : [taskId];
-    
-    // Get the current task to determine the new status
-    const currentTask = tasks.find(task => task.id === taskId);
-    if (!currentTask) return;
-    
-    const newStatus = currentTask.status === 'todo' ? 'done' : 'todo';
-    
     setTasks(prevTasks =>
       prevTasks.map(task =>
-        tasksToUpdate.includes(task.id)
-          ? { ...task, status: newStatus, lastUpdateDateTime: new Date() }
+        task.id === taskId
+          ? { ...task, isCompleted: !task.isCompleted }
           : task
       )
     );
-  }, [selectedTasks, tasks]);
+  }, []);
 
   // Table handlers
   const handleSort = useCallback((columnId: string) => {
@@ -190,7 +164,8 @@ const TasksWorking: React.FC = () => {
             case 'priority':
               return Array.isArray(value) ? value.includes(task.priority) : task.priority === value;
             case 'status':
-              return Array.isArray(value) ? value.includes(task.status) : task.status === value;
+              const status = task.isCompleted ? 'completed' : 'pending';
+              return Array.isArray(value) ? value.includes(status) : status === value;
             default:
               return true;
           }
@@ -218,16 +193,8 @@ const TasksWorking: React.FC = () => {
             bValue = priorityOrder[b.priority];
             break;
           case 'status':
-            aValue = a.status === 'done' ? 1 : a.status === 'inprogress' ? 2 : 0;
-            bValue = b.status === 'done' ? 1 : b.status === 'inprogress' ? 2 : 0;
-            break;
-          case 'created':
-            aValue = a.createDateTime.getTime();
-            bValue = b.createDateTime.getTime();
-            break;
-          case 'lastUpdate':
-            aValue = a.lastUpdateDateTime.getTime();
-            bValue = b.lastUpdateDateTime.getTime();
+            aValue = a.isCompleted ? 1 : 0;
+            bValue = b.isCompleted ? 1 : 0;
             break;
           default:
             return 0;
@@ -258,7 +225,7 @@ const TasksWorking: React.FC = () => {
         setTasks(prevTasks =>
           prevTasks.map(task =>
             selectedTaskIds.includes(task.id)
-              ? { ...task, status: 'done' }
+              ? { ...task, isCompleted: true }
               : task
           )
         );
@@ -267,7 +234,7 @@ const TasksWorking: React.FC = () => {
         setTasks(prevTasks =>
           prevTasks.map(task =>
             selectedTaskIds.includes(task.id)
-              ? { ...task, status: 'todo' }
+              ? { ...task, isCompleted: false }
               : task
           )
         );
@@ -314,68 +281,28 @@ const TasksWorking: React.FC = () => {
   };
 
   const handleSendMessage = (message: string) => {
-    console.log('Sending message:', message);
+    // Voice interaction handling - can be enhanced later
+    console.log('Voice message:', message);
   };
 
   const handleToggleListening = () => {
-    setIsListening(prev => !prev);
+    setIsListening(!isListening);
   };
 
   const getPriorityColor = (priority: Task['priority']) => {
     switch (priority) {
-      case 'high': return 'bg-red-500/20 text-red-400';
-      case 'medium': return 'bg-yellow-500/20 text-yellow-400';
-      case 'low': return 'bg-green-500/20 text-green-400';
+      case 'high': return 'text-red-500';
+      case 'medium': return 'text-yellow-500';
+      case 'low': return 'text-green-500';
+      default: return 'text-white/50';
     }
   };
-
-  // Status helper functions
-  const getStatusColor = (status: Task['status']) => {
-    switch (status) {
-      case 'done': return 'bg-green-500/20 text-green-400';
-      case 'inprogress': return 'bg-blue-500/20 text-blue-400';
-      case 'todo': return 'bg-orange-500/20 text-orange-400';
-    }
-  };
-
-  const getStatusText = (status: Task['status']) => {
-    switch (status) {
-      case 'done': return 'Done';
-      case 'inprogress': return 'In Progress';
-      case 'todo': return 'To Do';
-    }
-  };
-
-  const getStatusHoverColor = (status: Task['status']) => {
-    switch (status) {
-      case 'done': return 'hover:bg-green-500/30';
-      case 'inprogress': return 'hover:bg-blue-500/30';
-      case 'todo': return 'hover:bg-orange-500/30';
-    }
-  };
-
-  // Delete task function
-  const handleDeleteTask = useCallback((taskId: string) => {
-    setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
-  }, []);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', { 
       month: 'short', 
       day: 'numeric', 
       year: 'numeric' 
-    });
-  };
-
-  const formatDateTime = (date: Date) => {
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric',
-      year: 'numeric'
-    }) + ' ' + date.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      hour12: true 
     });
   };
 
@@ -395,6 +322,14 @@ const TasksWorking: React.FC = () => {
           switch (field) {
             case 'dueDate':
               return { ...task, dueDate: new Date(tempValue) };
+            case 'priority':
+              return { ...task, priority: tempValue as Task['priority'] };
+            case 'status':
+              return { ...task, isCompleted: tempValue === 'completed' };
+            case 'startTime':
+              return { ...task, startTime: tempValue, isAllDay: false };
+            case 'endTime':
+              return { ...task, endTime: tempValue, isAllDay: false };
             default:
               return task;
           }
@@ -424,21 +359,12 @@ const TasksWorking: React.FC = () => {
   const showFloatingMenuFor = useCallback((taskId: string, field: string, event: React.MouseEvent) => {
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
-    
-    // Initialize calendar with current task's due date for date picker
-    if (field === 'dueDate') {
-      const task = tasks.find(t => t.id === taskId);
-      if (task) {
-        setCalendarDate(new Date(task.dueDate));
-      }
-    }
-    
     setShowFloatingMenu({
       taskId,
       field,
       position: { x: rect.left, y: rect.bottom + 4 }
     });
-  }, [tasks]);
+  }, []);
 
   const hideFloatingMenu = useCallback(() => {
     setShowFloatingMenu(null);
@@ -448,28 +374,20 @@ const TasksWorking: React.FC = () => {
     if (!showFloatingMenu) return;
     
     const { taskId, field } = showFloatingMenu;
-    
-    // Determine which tasks to update: if the current task is selected and there are multiple selections,
-    // update all selected tasks. Otherwise, just update the current task.
-    const shouldBatchEdit = selectedTasks.has(taskId) && selectedTasks.size > 1;
-    const tasksToUpdate = shouldBatchEdit ? Array.from(selectedTasks) : [taskId];
-    
     setTasks(prevTasks =>
       prevTasks.map(task => {
-        if (tasksToUpdate.includes(task.id)) {
+        if (task.id === taskId) {
           switch (field) {
             case 'priority':
-              return { ...task, priority: value as Task['priority'], lastUpdateDateTime: new Date() };
+              return { ...task, priority: value as Task['priority'] };
             case 'status':
-              return { ...task, status: value as Task['status'], lastUpdateDateTime: new Date() };
+              return { ...task, isCompleted: value === 'completed' };
             case 'time':
               if (value.isAllDay) {
-                return { ...task, isAllDay: true, startTime: undefined, endTime: undefined, lastUpdateDateTime: new Date() };
+                return { ...task, isAllDay: true, startTime: undefined, endTime: undefined };
               } else {
-                return { ...task, isAllDay: false, startTime: value.startTime, endTime: value.endTime, lastUpdateDateTime: new Date() };
+                return { ...task, isAllDay: false, startTime: value.startTime, endTime: value.endTime };
               }
-            case 'dueDate':
-              return { ...task, dueDate: new Date(value), lastUpdateDateTime: new Date() };
             default:
               return task;
           }
@@ -479,7 +397,7 @@ const TasksWorking: React.FC = () => {
     );
     
     hideFloatingMenu();
-  }, [showFloatingMenu, hideFloatingMenu, selectedTasks]);
+  }, [showFloatingMenu, hideFloatingMenu]);
 
   // Close floating menu when clicking outside
   const handleClickOutside = useCallback((e: MouseEvent) => {
@@ -496,42 +414,6 @@ const TasksWorking: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [handleClickOutside]);
-
-  // Calendar helper functions
-  const getDaysInMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  };
-
-  const getFirstDayOfMonth = (date: Date) => {
-    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
-  };
-
-  const isSameDay = (date1: Date, date2: Date) => {
-    return date1.getDate() === date2.getDate() &&
-           date1.getMonth() === date2.getMonth() &&
-           date1.getFullYear() === date2.getFullYear();
-  };
-
-  const isToday = (date: Date) => {
-    return isSameDay(date, new Date());
-  };
-
-  const navigateMonth = (direction: 'prev' | 'next') => {
-    setCalendarDate(prev => {
-      const newDate = new Date(prev);
-      if (direction === 'prev') {
-        newDate.setMonth(prev.getMonth() - 1);
-      } else {
-        newDate.setMonth(prev.getMonth() + 1);
-      }
-      return newDate;
-    });
-  };
-
-  const selectDate = (day: number) => {
-    const selectedDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), day);
-    selectFloatingMenuOption(selectedDate.toISOString().split('T')[0]);
-  };
 
   return (
     <Layout>
@@ -551,22 +433,17 @@ const TasksWorking: React.FC = () => {
                   </div>
                   <span className="text-white/30">•</span>
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-orange-400">{tasks.filter(task => task.status === 'todo').length}</span>
-                    <span>To Do</span>
-                  </div>
-                  <span className="text-white/30">•</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-blue-400">{tasks.filter(task => task.status === 'inprogress').length}</span>
-                    <span>In Progress</span>
-                  </div>
-                  <span className="text-white/30">•</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-green-400">{tasks.filter(task => task.status === 'done').length}</span>
+                    <span className="font-semibold text-green-400">{tasks.filter(task => task.isCompleted).length}</span>
                     <span>Done</span>
                   </div>
                   <span className="text-white/30">•</span>
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-red-400">{tasks.filter(task => task.priority === 'high' && task.status !== 'done').length}</span>
+                    <span className="font-semibold text-orange-400">{tasks.filter(task => !task.isCompleted).length}</span>
+                    <span>Pending</span>
+                  </div>
+                  <span className="text-white/30">•</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-red-400">{tasks.filter(task => task.priority === 'high' && !task.isCompleted).length}</span>
                     <span>Priority</span>
                   </div>
                 </div>
@@ -605,16 +482,13 @@ const TasksWorking: React.FC = () => {
                   <span className="font-semibold text-white">{tasks.length}</span>
                   <span>Total</span>
                   <span className="mx-1">•</span>
-                  <span className="font-semibold text-orange-400">{tasks.filter(task => task.status === 'todo').length}</span>
-                  <span>To Do</span>
-                  <span className="mx-1">•</span>
-                  <span className="font-semibold text-blue-400">{tasks.filter(task => task.status === 'inprogress').length}</span>
-                  <span>In Progress</span>
-                  <span className="mx-1">•</span>
-                  <span className="font-semibold text-green-400">{tasks.filter(task => task.status === 'done').length}</span>
+                  <span className="font-semibold text-green-400">{tasks.filter(task => task.isCompleted).length}</span>
                   <span>Done</span>
                   <span className="mx-1">•</span>
-                  <span className="font-semibold text-red-400">{tasks.filter(task => task.priority === 'high' && task.status !== 'done').length}</span>
+                  <span className="font-semibold text-orange-400">{tasks.filter(task => !task.isCompleted).length}</span>
+                  <span>Pending</span>
+                  <span className="mx-1">•</span>
+                  <span className="font-semibold text-red-400">{tasks.filter(task => task.priority === 'high' && !task.isCompleted).length}</span>
                   <span>Priority</span>
                 </div>
                 
@@ -652,7 +526,51 @@ const TasksWorking: React.FC = () => {
                 {/* Table Controls */}
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-2">
-                    {/* Bulk actions removed - batch editing now happens automatically */}
+                    {/* Bulk Actions */}
+                    {selectedTasks.size > 0 && (
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowBatchActions(!showBatchActions)}
+                          className="flex items-center gap-2 px-3 py-2 bg-violet/20 text-violet-300 rounded-lg border border-violet/30 hover:bg-violet/30 transition-colors"
+                        >
+                          <MoreHorizontal size={16} />
+                          {selectedTasks.size} selected
+                        </button>
+                        {showBatchActions && (
+                          <div className="absolute top-full mt-2 left-0 bg-dark-secondary border border-white/10 rounded-lg shadow-lg p-2 z-10 min-w-48">
+                            <button
+                              onClick={() => handleBatchAction('complete')}
+                              className="w-full text-left px-3 py-2 hover:bg-white/5 rounded text-sm text-white flex items-center gap-2"
+                            >
+                              <CheckCircle size={14} />
+                              Mark as Complete
+                            </button>
+                            <button
+                              onClick={() => handleBatchAction('incomplete')}
+                              className="w-full text-left px-3 py-2 hover:bg-white/5 rounded text-sm text-white flex items-center gap-2"
+                            >
+                              <Circle size={14} />
+                              Mark as Pending
+                            </button>
+                            <button
+                              onClick={() => handleBatchAction('high-priority')}
+                              className="w-full text-left px-3 py-2 hover:bg-white/5 rounded text-sm text-white flex items-center gap-2"
+                            >
+                              <ArrowUp size={14} />
+                              Set High Priority
+                            </button>
+                            <hr className="my-2 border-white/10" />
+                            <button
+                              onClick={() => handleBatchAction('delete')}
+                              className="w-full text-left px-3 py-2 hover:bg-red-500/20 rounded text-sm text-red-400 flex items-center gap-2"
+                            >
+                              <Trash2 size={14} />
+                              Delete Tasks
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -693,27 +611,6 @@ const TasksWorking: React.FC = () => {
                         </div>
                       )}
                     </div>
-
-                    {/* Delete Button */}
-                    <button
-                      onClick={() => {
-                        // This will be used for bulk delete when tasks are selected
-                        if (selectedTasks.size > 0) {
-                          const selectedTaskIds = Array.from(selectedTasks);
-                          setTasks(prevTasks => prevTasks.filter(task => !selectedTaskIds.includes(task.id)));
-                          setSelectedTasks(new Set());
-                        }
-                      }}
-                      disabled={selectedTasks.size === 0}
-                      className={`p-2 rounded-lg border transition-colors ${
-                        selectedTasks.size > 0 
-                          ? 'bg-red-500/20 border-red-500/30 text-red-400 hover:bg-red-500/30' 
-                          : 'bg-dark-tertiary border-white/10 text-white/30 cursor-not-allowed'
-                      }`}
-                      title={selectedTasks.size > 0 ? `Delete ${selectedTasks.size} selected task(s)` : 'Select tasks to delete'}
-                    >
-                      <Trash2 size={16} />
-                    </button>
                   </div>
                 </div>
 
@@ -752,9 +649,8 @@ const TasksWorking: React.FC = () => {
                           className="w-full px-3 py-2 bg-dark-secondary border border-white/10 rounded-lg text-white focus:border-violet/50 focus:outline-none"
                         >
                           <option value="">All statuses</option>
-                          <option value="todo">To Do</option>
-                          <option value="inprogress">In Progress</option>
-                          <option value="done">Done</option>
+                          <option value="pending">Pending</option>
+                          <option value="completed">Completed</option>
                         </select>
                       </div>
                     </div>
@@ -769,8 +665,6 @@ const TasksWorking: React.FC = () => {
                     )}
                   </div>
                 )}
-
-                {/* Batch editing indicator removed - seamless batch editing is now enabled */}
 
                 {/* Advanced Data Table */}
                 <div className="bg-dark-tertiary/50 rounded-lg overflow-hidden">
@@ -844,7 +738,7 @@ const TasksWorking: React.FC = () => {
                         <div
                           key={task.id}
                           className={`flex hover:bg-white/5 transition-colors min-w-max ${
-                            task.status === 'done' ? 'opacity-60' : ''
+                            task.isCompleted ? 'opacity-60' : ''
                           } ${selectedTasks.has(task.id) ? 'bg-violet/10' : ''}`}
                           onMouseEnter={() => setHoveredRow(task.id)}
                           onMouseLeave={() => setHoveredRow(null)}
@@ -875,7 +769,7 @@ const TasksWorking: React.FC = () => {
                               {column.id === 'title' && (
                                 <div className="min-w-0 flex-1">
                                   <h3 className={`font-medium text-sm ${
-                                    task.status === 'done' ? 'line-through text-white/50' : 'text-white'
+                                    task.isCompleted ? 'line-through text-white/50' : 'text-white'
                                   }`}>
                                     {task.title}
                                   </h3>
@@ -888,21 +782,36 @@ const TasksWorking: React.FC = () => {
                               )}
                               {column.id === 'dueDate' && (
                                 <div className="w-full">
-                                  <button
-                                    onClick={(e) => showFloatingMenuFor(task.id, 'dueDate', e)}
-                                    className={`text-sm text-white/80 hover:text-white hover:bg-white/5 px-2 py-1 rounded transition-colors w-full text-left ${
-                                      column.width >= 120 ? 'whitespace-nowrap' : 'break-words'
-                                    }`}
-                                  >
-                                    {formatDate(task.dueDate)}
-                                  </button>
+                                  {editingCell?.taskId === task.id && editingCell?.field === 'dueDate' ? (
+                                    <input
+                                      type="date"
+                                      value={tempValue}
+                                      onChange={(e) => setTempValue(e.target.value)}
+                                      onBlur={saveEdit}
+                                      onKeyDown={handleKeyDown}
+                                      autoFocus
+                                      className="w-full px-2 py-1 text-xs bg-dark-secondary border border-violet/30 rounded text-white focus:outline-none focus:border-violet"
+                                    />
+                                  ) : (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        startEditing(task.id, 'dueDate', task.dueDate.toISOString().split('T')[0]);
+                                      }}
+                                      className={`text-sm text-white/80 hover:text-white hover:bg-white/5 px-2 py-1 rounded transition-colors w-full text-left ${
+                                        column.width >= 120 ? 'whitespace-nowrap' : 'break-words'
+                                      }`}
+                                    >
+                                      {formatDate(task.dueDate)}
+                                    </button>
+                                  )}
                                 </div>
                               )}
                               {column.id === 'time' && (
                                 <div className="w-full">
                                   <button
                                     onClick={(e) => showFloatingMenuFor(task.id, 'time', e)}
-                                    className="w-full hover:bg-white/5 px-2 py-1 rounded transition-colors text-left"
+                                    className="w-full hover:bg-white/5 px-2 py-1 rounded transition-colors"
                                   >
                                     {!task.isAllDay && task.startTime ? (
                                       column.width >= 110 ? (
@@ -949,30 +858,14 @@ const TasksWorking: React.FC = () => {
                                 <div className="w-full">
                                   <button
                                     onClick={(e) => showFloatingMenuFor(task.id, 'status', e)}
-                                    className={`text-xs px-2 py-1 rounded-full transition-colors w-full whitespace-nowrap ${
-                                      task.status === 'done' 
+                                    className={`text-xs px-2 py-1 rounded-full transition-colors w-full ${
+                                      task.isCompleted 
                                         ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' 
-                                        : task.status === 'inprogress'
-                                        ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
                                         : 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30'
                                     }`}
                                   >
-                                    {task.status === 'done' ? 'Done' : task.status === 'inprogress' ? 'In Progress' : 'To Do'}
+                                    {task.isCompleted ? 'Done' : 'Pending'}
                                   </button>
-                                </div>
-                              )}
-                              {column.id === 'created' && (
-                                <div className="w-full">
-                                  <span className="text-sm text-white/70">
-                                    {formatDateTime(task.createDateTime)}
-                                  </span>
-                                </div>
-                              )}
-                              {column.id === 'lastUpdate' && (
-                                <div className="w-full">
-                                  <span className="text-sm text-white/70">
-                                    {formatDateTime(task.lastUpdateDateTime)}
-                                  </span>
                                 </div>
                               )}
                             </div>
@@ -997,7 +890,7 @@ const TasksWorking: React.FC = () => {
                         <div
                           key={task.id}
                           className={`grid grid-cols-[40px_1fr_auto] gap-3 p-4 hover:bg-white/5 transition-colors ${
-                            task.status === 'done' ? 'opacity-60' : ''
+                            task.isCompleted ? 'opacity-60' : ''
                           }`}
                         >
                           {/* Completion Checkbox */}
@@ -1006,7 +899,7 @@ const TasksWorking: React.FC = () => {
                               onClick={() => handleTaskToggle(task.id)}
                               className="flex-shrink-0"
                             >
-                              {task.status === 'done' ? (
+                              {task.isCompleted ? (
                                 <CheckCircle className="w-4 h-4 text-green-500" />
                               ) : (
                                 <Circle className="w-4 h-4 text-white/40 hover:text-white/60" />
@@ -1017,7 +910,7 @@ const TasksWorking: React.FC = () => {
                           {/* Task Title */}
                           <div className="flex items-center min-w-0">
                             <h3 className={`font-medium text-sm truncate ${
-                              task.status === 'done' 
+                              task.isCompleted 
                                 ? 'line-through text-white/50' 
                                 : 'text-white'
                             }`}>
@@ -1027,14 +920,12 @@ const TasksWorking: React.FC = () => {
 
                           {/* Status */}
                           <div className="flex items-center">
-                            <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${
-                              task.status === 'done' 
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              task.isCompleted 
                                 ? 'bg-green-500/20 text-green-400' 
-                                : task.status === 'inprogress'
-                                ? 'bg-blue-500/20 text-blue-400'
                                 : 'bg-orange-500/20 text-orange-400'
                             }`}>
-                              {task.status === 'done' ? 'Done' : task.status === 'inprogress' ? 'In Progress' : 'To Do'}
+                              {task.isCompleted ? 'Done' : 'Pending'}
                             </span>
                           </div>
                         </div>
@@ -1121,22 +1012,18 @@ const TasksWorking: React.FC = () => {
             )}
             
             {showFloatingMenu.field === 'status' && (
-              <div className="space-y-2 p-1">
-                {(['todo', 'inprogress', 'done'] as const).map((status) => (
+              <div className="space-y-1">
+                {(['pending', 'completed'] as const).map((status) => (
                   <button
                     key={status}
                     onClick={() => selectFloatingMenuOption(status)}
-                    className="w-full px-3 py-2 hover:bg-white/5 rounded transition-colors flex justify-start"
-                  >
-                    <span className={`text-xs px-2 py-1 rounded-full transition-colors ${
-                      status === 'done' 
+                    className={`w-full text-left px-3 py-2 hover:bg-white/5 rounded text-sm transition-colors flex items-center ${
+                      status === 'completed' 
                         ? 'bg-green-500/20 text-green-400' 
-                        : status === 'inprogress'
-                        ? 'bg-blue-500/20 text-blue-400'
                         : 'bg-orange-500/20 text-orange-400'
-                    }`}>
-                      {status === 'done' ? 'Done' : status === 'inprogress' ? 'In Progress' : 'To Do'}
-                    </span>
+                    }`}
+                  >
+                    {status === 'completed' ? 'Done' : 'Pending'}
                   </button>
                 ))}
               </div>
@@ -1194,122 +1081,6 @@ const TasksWorking: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {showFloatingMenu.field === 'dueDate' && (() => {
-              const currentTask = tasks.find(t => t.id === showFloatingMenu?.taskId);
-              const currentDate = new Date();
-              const displayDate = calendarDate || currentDate;
-              
-              const daysInMonth = getDaysInMonth(displayDate);
-              const firstDayOfMonth = getFirstDayOfMonth(displayDate);
-              const monthNames = [
-                'January', 'February', 'March', 'April', 'May', 'June',
-                'July', 'August', 'September', 'October', 'November', 'December'
-              ];
-              
-              const days = [];
-              const totalCells = Math.ceil((daysInMonth + firstDayOfMonth) / 7) * 7;
-              
-              // Previous month's trailing days
-              for (let i = 0; i < firstDayOfMonth; i++) {
-                days.push(null);
-              }
-              
-              // Current month's days
-              for (let day = 1; day <= daysInMonth; day++) {
-                days.push(day);
-              }
-              
-              // Next month's leading days
-              while (days.length < totalCells) {
-                days.push(null);
-              }
-
-              return (
-                <div className="p-4 min-w-80">
-                  {/* Calendar Header */}
-                  <div className="flex items-center justify-between mb-4">
-                    <button
-                      onClick={() => navigateMonth('prev')}
-                      className="p-2 hover:bg-white/5 rounded transition-colors"
-                    >
-                      <ChevronLeft size={16} className="text-white/70 hover:text-white" />
-                    </button>
-                    
-                    <div className="text-sm font-medium text-white">
-                      {monthNames[displayDate.getMonth()]} {displayDate.getFullYear()}
-                    </div>
-                    
-                    <button
-                      onClick={() => navigateMonth('next')}
-                      className="p-2 hover:bg-white/5 rounded transition-colors"
-                    >
-                      <ChevronRight size={16} className="text-white/70 hover:text-white" />
-                    </button>
-                  </div>
-
-                  {/* Calendar Grid */}
-                  <div className="space-y-2">
-                    {/* Day Headers */}
-                    <div className="grid grid-cols-7 gap-1 text-xs text-white/60 font-medium">
-                      {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => (
-                        <div key={index} className="text-center py-2">
-                          {day}
-                        </div>
-                      ))}
-                    </div>
-                    
-                    {/* Calendar Days */}
-                    <div className="grid grid-cols-7 gap-1">
-                      {days.map((day, index) => {
-                        if (day === null) {
-                          return <div key={index} className="aspect-square" />;
-                        }
-                        
-                        const date = new Date(displayDate.getFullYear(), displayDate.getMonth(), day);
-                        const isSelected = currentTask && isSameDay(date, currentTask.dueDate);
-                        const isTodayDate = isToday(date);
-                        
-                        return (
-                          <button
-                            key={index}
-                            onClick={() => selectDate(day)}
-                            className={`aspect-square text-sm rounded transition-colors flex items-center justify-center ${
-                              isSelected
-                                ? 'bg-violet text-white font-medium'
-                                : isTodayDate
-                                ? 'bg-white/10 text-white font-medium border border-white/20'
-                                : 'text-white/70 hover:bg-white/5 hover:text-white'
-                            }`}
-                          >
-                            {day}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex justify-between items-center mt-4 pt-3 border-t border-white/10">
-                    <button
-                      onClick={() => hideFloatingMenu()}
-                      className="px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/5 rounded transition-colors"
-                    >
-                      Clear
-                    </button>
-                    <button
-                      onClick={() => {
-                        const today = new Date();
-                        selectFloatingMenuOption(today.toISOString().split('T')[0]);
-                      }}
-                      className="px-3 py-1.5 text-xs bg-violet/20 text-violet-300 hover:bg-violet/30 rounded transition-colors"
-                    >
-                      Today
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
           </div>
         )}
       </div>
