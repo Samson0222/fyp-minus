@@ -1,9 +1,17 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import Layout from '@/components/layout/Layout';
 import InteractionArea from '@/components/ai/InteractionArea';
-import { Plus, Circle, CheckCircle, List, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Settings, Filter, ChevronDown, MoreHorizontal, Trash2, Edit, Archive, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import CreateTaskModal from '@/components/tasks/CreateTaskModal';
+import { Plus, Circle, CheckCircle, List, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Settings, Filter, ChevronDown, MoreHorizontal, Trash2, Edit, Archive, X, ChevronLeft, ChevronRight, Hash, Tag, Sparkles } from 'lucide-react';
 
 // Define types locally to avoid import issues
+interface TaskTag {
+  id: string;
+  name: string;
+  color: string;
+  category: 'project' | 'department' | 'priority' | 'type' | 'status' | 'custom';
+}
+
 interface Task {
   id: string;
   title: string;
@@ -14,6 +22,7 @@ interface Task {
   endTime?: string;
   priority: 'low' | 'medium' | 'high';
   status: 'todo' | 'inprogress' | 'done';
+  tags?: TaskTag[];
   syncedToCalendar: boolean;
   createDateTime: Date;
   lastUpdateDateTime: Date;
@@ -44,6 +53,29 @@ const TasksWorking: React.FC = () => {
   const [currentView, setCurrentView] = useState<TaskView>('list');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [showTagPanel, setShowTagPanel] = useState(false);
+  const [tagPanelPosition, setTagPanelPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState('#60a5fa');
+  const [newTagCategory, setNewTagCategory] = useState<TaskTag['category']>('custom');
+  
+  // Available tags (predefined + custom)
+  const [availableTags, setAvailableTags] = useState<TaskTag[]>([
+    { id: 'eng', name: 'Engineering', color: '#60a5fa', category: 'department' },
+    { id: 'admin', name: 'Admin', color: '#fbbf24', category: 'department' },
+    { id: 'bug', name: 'Bug', color: '#f87171', category: 'type' },
+    { id: 'design', name: 'Design', color: '#a78bfa', category: 'department' },
+    { id: 'feature', name: 'Feature', color: '#34d399', category: 'type' },
+    { id: 'finance', name: 'Finance', color: '#10b981', category: 'department' },
+    { id: 'hiring', name: 'Hiring', color: '#38bdf8', category: 'department' },
+    { id: 'marketing', name: 'Marketing', color: '#fb7185', category: 'department' },
+    { id: 'operations', name: 'Operations', color: '#9ca3af', category: 'department' },
+    { id: 'personal', name: 'Personal', color: '#c084fc', category: 'custom' },
+    { id: 'product', name: 'Product', color: '#fb923c', category: 'department' },
+    { id: 'sales', name: 'Sales', color: '#4ade80', category: 'department' },
+  ]);
   
   // Advanced table state
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set());
@@ -70,6 +102,7 @@ const TasksWorking: React.FC = () => {
     { id: 'time', label: 'Time', width: 120, visible: true, sortable: false, filterable: false },
     { id: 'priority', label: 'Priority', width: 120, visible: true, sortable: true, filterable: true },
     { id: 'status', label: 'Status', width: 110, visible: true, sortable: true, filterable: true },
+    { id: 'tags', label: 'Tags', width: 200, visible: true, sortable: false, filterable: true },
     { id: 'created', label: 'Created', width: 150, visible: true, sortable: true, filterable: false },
     { id: 'lastUpdate', label: 'Last Update', width: 150, visible: true, sortable: true, filterable: false },
   ]);
@@ -79,6 +112,7 @@ const TasksWorking: React.FC = () => {
     switch (columnId) {
       case 'title': return 100; // "Task" + sort button (sortable)
       case 'description': return 120; // "Description" (not sortable, longer title)  
+      case 'tags': return 150; // "Tags" (not sortable, needs space for tag chips)
       case 'dueDate': return 110; // "Due Date" + sort button (sortable)
       case 'time': return 60; // "Time" (not sortable, short title)
       case 'priority': return 105; // "Priority" + sort button (sortable) - increased for full display
@@ -89,7 +123,7 @@ const TasksWorking: React.FC = () => {
     }
   };
 
-  // Sample tasks
+  // Sample tasks with tags
   const [tasks, setTasks] = useState<Task[]>([
     {
       id: '1',
@@ -99,6 +133,10 @@ const TasksWorking: React.FC = () => {
       isAllDay: true,
       priority: 'high',
       status: 'todo',
+      tags: [
+        { id: 'eng-1', name: 'Engineering', color: '#3b82f6', category: 'department' },
+        { id: 'feat-1', name: 'Feature', color: '#10b981', category: 'type' }
+      ],
       syncedToCalendar: true,
       createDateTime: new Date(),
       lastUpdateDateTime: new Date(),
@@ -113,6 +151,10 @@ const TasksWorking: React.FC = () => {
       endTime: '11:00',
       priority: 'medium',
       status: 'inprogress',
+      tags: [
+        { id: 'admin-1', name: 'Admin', color: '#f59e0b', category: 'department' },
+        { id: 'oper-1', name: 'Operations', color: '#6b7280', category: 'department' }
+      ],
       syncedToCalendar: true,
       createDateTime: new Date(),
       lastUpdateDateTime: new Date(),
@@ -127,6 +169,10 @@ const TasksWorking: React.FC = () => {
       endTime: '15:30',
       priority: 'medium',
       status: 'done',
+      tags: [
+        { id: 'eng-1', name: 'Engineering', color: '#3b82f6', category: 'department' },
+        { id: 'bug-1', name: 'Bug', color: '#ef4444', category: 'type' }
+      ],
       syncedToCalendar: true,
       createDateTime: new Date(),
       lastUpdateDateTime: new Date(),
@@ -187,6 +233,13 @@ const TasksWorking: React.FC = () => {
               return task.title.toLowerCase().includes(value.toString().toLowerCase());
             case 'description':
               return task.description?.toLowerCase().includes(value.toString().toLowerCase()) || false;
+            case 'tags':
+              if (typeof value === 'string') {
+                return task.tags?.some(tag => tag.name.toLowerCase().includes(value.toLowerCase())) || false;
+              }
+              return Array.isArray(value) ? 
+                task.tags?.some(tag => value.includes(tag.name)) || false : 
+                true;
             case 'priority':
               return Array.isArray(value) ? value.includes(task.priority) : task.priority === value;
             case 'status':
@@ -313,6 +366,10 @@ const TasksWorking: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const handleCreateTask = useCallback((newTask: Task) => {
+    setTasks(prevTasks => [newTask, ...prevTasks]);
+  }, []);
+
   const handleSendMessage = (message: string) => {
     console.log('Sending message:', message);
   };
@@ -358,6 +415,191 @@ const TasksWorking: React.FC = () => {
   const handleDeleteTask = useCallback((taskId: string) => {
     setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
   }, []);
+
+  // Tag operations
+  const handleAddTagToSelected = useCallback((tag: TaskTag) => {
+    const selectedTaskIds = Array.from(selectedTasks);
+    if (selectedTaskIds.length === 0) return;
+
+    setTasks(prevTasks =>
+      prevTasks.map(task =>
+        selectedTaskIds.includes(task.id)
+          ? {
+              ...task,
+              tags: task.tags ? 
+                task.tags.some(t => t.id === tag.id) ? 
+                  task.tags : // Don't add duplicate
+                  [...task.tags, tag] :
+                [tag],
+              lastUpdateDateTime: new Date()
+            }
+          : task
+      )
+    );
+    // Don't clear selection - allow multiple tag additions
+  }, [selectedTasks]);
+
+  const handleRemoveTagFromSelected = useCallback((tagId: string) => {
+    const selectedTaskIds = Array.from(selectedTasks);
+    if (selectedTaskIds.length === 0) return;
+
+    setTasks(prevTasks =>
+      prevTasks.map(task =>
+        selectedTaskIds.includes(task.id)
+          ? {
+              ...task,
+              tags: task.tags?.filter(t => t.id !== tagId) || [],
+              lastUpdateDateTime: new Date()
+            }
+          : task
+      )
+    );
+  }, [selectedTasks]);
+
+  const handleQuickTagFilter = useCallback((tagName: string) => {
+    setFilters(prev => ({ ...prev, tags: tagName }));
+    setShowFilters(true);
+  }, []);
+
+  // Custom tag creation
+  const handleCreateCustomTag = useCallback(() => {
+    if (!newTagName.trim()) return;
+    
+    const newTag: TaskTag = {
+      id: `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: newTagName.trim(),
+      color: newTagColor,
+      category: newTagCategory
+    };
+
+    setAvailableTags(prev => [...prev, newTag]);
+    
+    // Reset form
+    setNewTagName('');
+  }, [newTagName, newTagColor, newTagCategory]);
+
+  // Handle clicking on tags column header or cell
+  const handleTagsColumnClick = useCallback((taskId?: string, event?: React.MouseEvent) => {
+    if (taskId) {
+      // If clicking on a specific task's tags cell, select that task
+      setSelectedTasks(new Set([taskId]));
+    }
+    
+    // Position the panel near the click location
+    if (event) {
+      setTagPanelPosition({
+        x: Math.min(event.clientX - 160, window.innerWidth - 340), // Center panel on click, keep in bounds
+        y: Math.min(event.clientY - 100, window.innerHeight - 400)
+      });
+    } else {
+      // Default position if no event (header click)
+      setTagPanelPosition({
+        x: window.innerWidth - 340,
+        y: 100
+      });
+    }
+    
+    setShowTagPanel(true);
+  }, []);
+
+  // Handle removing a tag from applied tags
+  const handleRemoveAppliedTag = useCallback((tagId: string) => {
+    const selectedTaskIds = Array.from(selectedTasks);
+    if (selectedTaskIds.length === 0) return;
+
+    setTasks(prevTasks =>
+      prevTasks.map(task =>
+        selectedTaskIds.includes(task.id)
+          ? {
+              ...task,
+              tags: task.tags?.filter(t => t.id !== tagId) || [],
+              lastUpdateDateTime: new Date()
+            }
+          : task
+      )
+    );
+  }, [selectedTasks]);
+
+  // AI Fill with Minus functionality
+  const handleAIFillWithMinus = useCallback(() => {
+    console.log('AI Fill with Minus triggered - this would analyze selected tasks and suggest relevant tags');
+    // This would integrate with your AI system to suggest tags based on task content
+  }, []);
+
+  // Get applied tags for selected tasks
+  const getAppliedTags = useCallback(() => {
+    const selectedTaskIds = Array.from(selectedTasks);
+    if (selectedTaskIds.length === 0) return [];
+
+    const selectedTasksData = tasks.filter(task => selectedTaskIds.includes(task.id));
+    const appliedTagsMap = new Map<string, TaskTag>();
+    
+    // Collect all unique tags from selected tasks
+    selectedTasksData.forEach(task => {
+      task.tags?.forEach(tag => {
+        appliedTagsMap.set(tag.id, tag);
+      });
+    });
+
+    // Return the actual tag objects sorted alphabetically
+    return Array.from(appliedTagsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [selectedTasks, tasks]);
+
+  // Get available tags (excluding already applied ones)
+  const getAvailableOptions = useCallback(() => {
+    const appliedTagIds = new Set(getAppliedTags().map(tag => tag.id));
+    return availableTags.filter(tag => !appliedTagIds.has(tag.id)).sort((a, b) => a.name.localeCompare(b.name));
+  }, [availableTags, getAppliedTags]);
+
+  // Close panel when clicking outside
+  const handleClickOutsideTagPanel = useCallback((e: MouseEvent) => {
+    if (showTagPanel) {
+      const target = e.target as Element;
+      if (!target.closest('.tag-panel') && !target.closest('[data-tag-trigger]')) {
+        setShowTagPanel(false);
+      }
+    }
+  }, [showTagPanel]);
+
+  // Drag handlers for movable panel
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.target === e.currentTarget || (e.target as Element).closest('.panel-header') || (e.target as Element).closest('.drag-handle')) {
+      setIsDragging(true);
+      setDragOffset({
+        x: e.clientX - tagPanelPosition.x,
+        y: e.clientY - tagPanelPosition.y
+      });
+    }
+  }, [tagPanelPosition]);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (isDragging) {
+      setTagPanelPosition({
+        x: Math.max(0, Math.min(e.clientX - dragOffset.x, window.innerWidth - 320)),
+        y: Math.max(0, Math.min(e.clientY - dragOffset.y, window.innerHeight - 400))
+      });
+    }
+  }, [isDragging, dragOffset]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  React.useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  React.useEffect(() => {
+    document.addEventListener('mousedown', handleClickOutsideTagPanel);
+    return () => document.removeEventListener('mousedown', handleClickOutsideTagPanel);
+  }, [handleClickOutsideTagPanel]);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', { 
@@ -720,7 +962,7 @@ const TasksWorking: React.FC = () => {
                 {/* Filters */}
                 {showFilters && (
                   <div className="bg-dark-tertiary/50 border border-white/10 rounded-lg p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-white/80 mb-1">Search</label>
                         <input
@@ -728,6 +970,16 @@ const TasksWorking: React.FC = () => {
                           placeholder="Search tasks..."
                           value={filters.title || ''}
                           onChange={(e) => setFilters(prev => ({ ...prev, title: e.target.value }))}
+                          className="w-full px-3 py-2 bg-dark-secondary border border-white/10 rounded-lg text-white placeholder-white/50 focus:border-violet/50 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-white/80 mb-1">Tags</label>
+                        <input
+                          type="text"
+                          placeholder="Filter by tags..."
+                          value={filters.tags || ''}
+                          onChange={(e) => setFilters(prev => ({ ...prev, tags: e.target.value }))}
                           className="w-full px-3 py-2 bg-dark-secondary border border-white/10 rounded-lg text-white placeholder-white/50 focus:border-violet/50 focus:outline-none"
                         />
                       </div>
@@ -798,7 +1050,18 @@ const TasksWorking: React.FC = () => {
                           className="p-4 text-xs font-medium text-white/70 uppercase tracking-wide relative group"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="truncate mr-2">{column.label}</span>
+                            {column.id === 'tags' ? (
+                              <button
+                                onClick={(e) => handleTagsColumnClick(undefined, e)}
+                                className="truncate mr-2 hover:text-white transition-colors"
+                                title="Click to manage tags"
+                                data-tag-trigger
+                              >
+                                {column.label}
+                              </button>
+                            ) : (
+                              <span className="truncate mr-2">{column.label}</span>
+                            )}
                             {column.sortable && (
                               <button
                                 onClick={() => handleSort(column.id)}
@@ -885,6 +1148,47 @@ const TasksWorking: React.FC = () => {
                                 <p className="text-sm text-white/70 truncate">
                                   {task.description || '-'}
                                 </p>
+                              )}
+                              {column.id === 'tags' && (
+                                <button
+                                  onClick={(e) => handleTagsColumnClick(task.id, e)}
+                                  className="w-full text-left hover:bg-white/5 px-2 py-1 rounded transition-colors"
+                                  data-tag-trigger
+                                >
+                                  <div className="flex flex-wrap gap-1">
+                                    {task.tags && task.tags.length > 0 ? (
+                                      (() => {
+                                        const maxWidth = column.width - 32; // Account for padding
+                                        const estimatedTagWidth = 60; // Estimated width per tag
+                                        const maxVisibleTags = Math.max(1, Math.floor(maxWidth / estimatedTagWidth));
+                                        const visibleTags = task.tags!.sort((a, b) => a.name.localeCompare(b.name)).slice(0, maxVisibleTags);
+                                        const remainingCount = task.tags!.length - maxVisibleTags;
+                                        
+                                        return (
+                                          <>
+                                            {visibleTags.map((tag) => (
+                                                                                             <span
+                                                  key={tag.id}
+                                                  className="inline-flex items-center px-2 py-1 rounded text-xs font-medium text-[#8a6bf4] border transition-colors truncate max-w-[80px]"
+                                                  style={{ backgroundColor: 'rgba(138, 107, 244, 0.1)', borderColor: 'rgba(138, 107, 244, 0.3)' }}
+                                                  title={tag.name}
+                                                >
+                                                {tag.name.length > 8 ? `${tag.name.substring(0, 8)}...` : tag.name}
+                                              </span>
+                                            ))}
+                                                                                         {remainingCount > 0 && (
+                                               <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-white/10 text-white/60 border border-white/20">
+                                                 +{remainingCount}
+                                               </span>
+                                             )}
+                                          </>
+                                        );
+                                      })()
+                                    ) : (
+                                      <span className="text-xs text-white/40">Click to add tags</span>
+                                    )}
+                                  </div>
+                                </button>
                               )}
                               {column.id === 'dueDate' && (
                                 <div className="w-full">
@@ -1014,8 +1318,8 @@ const TasksWorking: React.FC = () => {
                             </button>
                           </div>
 
-                          {/* Task Title */}
-                          <div className="flex items-center min-w-0">
+                          {/* Task Title & Tags */}
+                          <div className="flex flex-col min-w-0 gap-1">
                             <h3 className={`font-medium text-sm truncate ${
                               task.status === 'done' 
                                 ? 'line-through text-white/50' 
@@ -1023,6 +1327,24 @@ const TasksWorking: React.FC = () => {
                             }`}>
                               {task.title}
                             </h3>
+                            {task.tags && task.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                                                 {task.tags.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 2).map((tag) => (
+                                   <span
+                                     key={tag.id}
+                                     className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium text-[#8a6bf4] border"
+                                     style={{ backgroundColor: 'rgba(138, 107, 244, 0.1)', borderColor: 'rgba(138, 107, 244, 0.3)' }}
+                                   >
+                                     {tag.name}
+                                   </span>
+                                 ))}
+                                {task.tags.length > 2 && (
+                                  <span className="text-xs text-white/40">
+                                    +{task.tags.length - 2}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
 
                           {/* Status */}
@@ -1083,6 +1405,123 @@ const TasksWorking: React.FC = () => {
           <Plus size={20} />
           <span className="text-sm font-medium">Create Task</span>
         </button>
+
+
+
+                {/* Tag Panel */}
+        {showTagPanel && (
+          <div 
+            className="tag-panel fixed z-50 bg-dark-secondary border border-white/10 rounded-lg shadow-xl w-80 max-h-[500px] flex flex-col select-none"
+            style={{
+              left: tagPanelPosition.x,
+              top: tagPanelPosition.y,
+              cursor: isDragging ? 'grabbing' : 'grab'
+            }}
+            onMouseDown={handleMouseDown}
+          >
+
+            {/* Applied Tags Section */}
+            <div className="p-5 pb-4 pointer-events-auto panel-header cursor-grab">
+              <div className="mb-3">
+                <span className="text-sm font-medium text-white/70">Applied Tags ({selectedTasks.size} task{selectedTasks.size !== 1 ? 's' : ''})</span>
+              </div>
+              <div className="flex flex-wrap gap-2 min-h-[32px]">
+                {getAppliedTags().length > 0 ? (
+                  getAppliedTags().map((tag) => (
+                    <button
+                      key={tag.id}
+                      onClick={() => handleRemoveAppliedTag(tag.id)}
+                      className="inline-flex items-center px-3 py-1.5 rounded text-sm font-medium text-[#8a6bf4] border hover:border-red-500/50 hover:text-red-300 transition-colors group"
+                      style={{ backgroundColor: 'rgba(138, 107, 244, 0.1)', borderColor: 'rgba(138, 107, 244, 0.3)' }}
+                      title="Click to remove"
+                    >
+                      {tag.name}
+                      <X size={12} className="ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  ))
+                ) : (
+                  <span className="text-sm text-white/40 italic">No tags applied</span>
+                )}
+              </div>
+            </div>
+
+            {/* Options Section - Scrollable */}
+            <div className="flex-1 overflow-y-auto px-5 pb-4 pointer-events-auto max-h-[240px] border-t border-white/5">
+              <div className="mb-3 pt-4">
+                <span className="text-sm font-medium text-white/70">Available Options</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {getAvailableOptions().map((tag) => (
+                  <button
+                    key={tag.id}
+                    onClick={() => handleAddTagToSelected(tag)}
+                    disabled={selectedTasks.size === 0}
+                    className={`inline-flex items-center px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                      selectedTasks.size > 0
+                        ? 'text-[#8a6bf4] border hover:border-[#8a6bf4]/50'
+                        : 'bg-dark-tertiary text-white/30 border border-white/5 cursor-not-allowed'
+                    }`}
+                    style={selectedTasks.size > 0 ? {
+                      backgroundColor: 'rgba(138, 107, 244, 0.05)',
+                      borderColor: 'rgba(138, 107, 244, 0.2)'
+                    } : {}}
+                  >
+                    <span className="truncate">{tag.name}</span>
+                  </button>
+                ))}
+              </div>
+              {getAvailableOptions().length === 0 && (
+                <p className="text-white/40 text-xs italic text-center py-6">
+                  All available tags are already applied
+                </p>
+              )}
+            </div>
+
+            {/* Fixed Bottom Section */}
+            <div className="border-t border-white/5 p-4 space-y-3 pointer-events-auto bg-dark-tertiary/30">
+              {/* Create New Tag */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  placeholder="Add new tag..."
+                  className="flex-1 px-3 py-2 text-xs bg-dark-tertiary/50 border border-white/10 rounded text-white/80 placeholder-white/40 focus:outline-none focus:border-[#8a6bf4]/30"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newTagName.trim()) {
+                      handleCreateCustomTag();
+                    }
+                  }}
+                />
+                <button
+                  onClick={handleCreateCustomTag}
+                  disabled={!newTagName.trim()}
+                  className={`px-3 py-2 rounded transition-colors flex items-center justify-center ${
+                    newTagName.trim()
+                      ? 'bg-[#8a6bf4]/80 text-white hover:bg-[#8a6bf4]'
+                      : 'bg-dark-tertiary/50 text-white/20 cursor-not-allowed'
+                  }`}
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+
+              {/* Fill with Minus Button */}
+              <button
+                onClick={handleAIFillWithMinus}
+                disabled={selectedTasks.size === 0}
+                className={`w-full px-3 py-2 rounded transition-colors flex items-center justify-center gap-2 text-xs font-medium ${
+                  selectedTasks.size > 0
+                    ? 'bg-violet text-white hover:bg-violet/90'
+                    : 'bg-dark-tertiary/50 text-white/20 border border-white/5 cursor-not-allowed'
+                }`}
+              >
+                <Sparkles size={12} />
+                Fill with Minus
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* Interaction Area at the bottom */}
         <div className="flex-shrink-0">
@@ -1313,6 +1752,13 @@ const TasksWorking: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Create Task Modal */}
+      <CreateTaskModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onCreateTask={(newTask: Task) => setTasks(prevTasks => [newTask, ...prevTasks])}
+      />
     </Layout>
   );
 };
