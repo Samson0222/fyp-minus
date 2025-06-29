@@ -8,6 +8,7 @@ import Tasks from "./pages/Tasks";
 import TasksSimple from "./pages/TasksSimple";
 import TasksDebug from "./pages/TasksDebug";
 import TasksWorking from "./pages/TasksWorking";
+import RichTextEditorTest from "./pages/RichTextEditorTest";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -21,6 +22,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/tasks" element={<TasksWorking />} />
+          <Route path="/test-editor" element={<RichTextEditorTest />} />
           <Route path="/calendar" element={<Index />} /> {/* Placeholder for calendar page */}
           <Route path="/inboxes" element={<Index />} /> {/* Placeholder for inboxes page */}
           <Route path="/documents" element={<Index />} /> {/* Placeholder for documents page */}

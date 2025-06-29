@@ -366,6 +366,15 @@ const TasksWorking: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const handleCreateTag = (tagData: Omit<TaskTag, 'id'>): TaskTag => {
+    const newTag = {
+      id: crypto.randomUUID(),
+      ...tagData,
+    };
+    setAvailableTags(prev => [...prev, newTag]);
+    return newTag;
+  };
+
   const handleCreateTask = useCallback((newTask: Task) => {
     setTasks(prevTasks => [newTask, ...prevTasks]);
   }, []);
@@ -1636,39 +1645,13 @@ const TasksWorking: React.FC = () => {
 
             {showFloatingMenu.field === 'dueDate' && (() => {
               const currentTask = tasks.find(t => t.id === showFloatingMenu?.taskId);
-              const currentDate = new Date();
-              const displayDate = calendarDate || currentDate;
-              
-              const daysInMonth = getDaysInMonth(displayDate);
-              const firstDayOfMonth = getFirstDayOfMonth(displayDate);
-              const monthNames = [
-                'January', 'February', 'March', 'April', 'May', 'June',
-                'July', 'August', 'September', 'October', 'November', 'December'
-              ];
-              
-              const days = [];
-              const totalCells = Math.ceil((daysInMonth + firstDayOfMonth) / 7) * 7;
-              
-              // Previous month's trailing days
-              for (let i = 0; i < firstDayOfMonth; i++) {
-                days.push(null);
-              }
-              
-              // Current month's days
-              for (let day = 1; day <= daysInMonth; day++) {
-                days.push(day);
-              }
-              
-              // Next month's leading days
-              while (days.length < totalCells) {
-                days.push(null);
-              }
 
               return (
                 <div className="p-4 min-w-80">
                   {/* Calendar Header */}
                   <div className="flex items-center justify-between mb-4">
                     <button
+                      type="button"
                       onClick={() => navigateMonth('prev')}
                       className="p-2 hover:bg-white/5 rounded transition-colors"
                     >
@@ -1676,10 +1659,13 @@ const TasksWorking: React.FC = () => {
                     </button>
                     
                     <div className="text-sm font-medium text-white">
-                      {monthNames[displayDate.getMonth()]} {displayDate.getFullYear()}
+                      {['January', 'February', 'March', 'April', 'May', 'June',
+                        'July', 'August', 'September', 'October', 'November', 'December'
+                      ][calendarDate.getMonth()]} {calendarDate.getFullYear()}
                     </div>
                     
                     <button
+                      type="button"
                       onClick={() => navigateMonth('next')}
                       className="p-2 hover:bg-white/5 rounded transition-colors"
                     >
@@ -1700,43 +1686,68 @@ const TasksWorking: React.FC = () => {
                     
                     {/* Calendar Days */}
                     <div className="grid grid-cols-7 gap-1">
-                      {days.map((day, index) => {
-                        if (day === null) {
-                          return <div key={index} className="aspect-square" />;
+                      {(() => {
+                        const daysInMonth = getDaysInMonth(calendarDate);
+                        const firstDayOfMonth = getFirstDayOfMonth(calendarDate);
+                        const days = [];
+                        const totalCells = Math.ceil((daysInMonth + firstDayOfMonth) / 7) * 7;
+                        
+                        // Previous month's trailing days
+                        for (let i = 0; i < firstDayOfMonth; i++) {
+                          days.push(null);
                         }
                         
-                        const date = new Date(displayDate.getFullYear(), displayDate.getMonth(), day);
-                        const isSelected = currentTask && isSameDay(date, currentTask.dueDate);
-                        const isTodayDate = isToday(date);
+                        // Current month's days
+                        for (let day = 1; day <= daysInMonth; day++) {
+                          days.push(day);
+                        }
                         
-                        return (
-                          <button
-                            key={index}
-                            onClick={() => selectDate(day)}
-                            className={`aspect-square text-sm rounded transition-colors flex items-center justify-center ${
-                              isSelected
-                                ? 'bg-violet text-white font-medium'
-                                : isTodayDate
-                                ? 'bg-white/10 text-white font-medium border border-white/20'
-                                : 'text-white/70 hover:bg-white/5 hover:text-white'
-                            }`}
-                          >
-                            {day}
-                          </button>
-                        );
-                      })}
+                        // Next month's leading days
+                        while (days.length < totalCells) {
+                          days.push(null);
+                        }
+
+                        return days.map((day, index) => {
+                          if (day === null) {
+                            return <div key={index} className="aspect-square" />;
+                          }
+                          
+                          const date = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), day);
+                          const isSelected = currentTask && isSameDay(date, currentTask.dueDate);
+                          const isTodayDate = isToday(date);
+                          
+                          return (
+                            <button
+                              key={index}
+                              type="button"
+                              onClick={() => selectDate(day)}
+                              className={`aspect-square text-sm rounded transition-colors flex items-center justify-center ${
+                                isSelected
+                                  ? 'bg-violet text-white font-medium'
+                                  : isTodayDate
+                                  ? 'bg-white/10 text-white font-medium border border-white/20'
+                                  : 'text-white/70 hover:bg-white/5 hover:text-white'
+                              }`}
+                            >
+                              {day}
+                            </button>
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
 
                   {/* Action Buttons */}
                   <div className="flex justify-between items-center mt-4 pt-3 border-t border-white/10">
                     <button
+                      type="button"
                       onClick={() => hideFloatingMenu()}
                       className="px-3 py-1.5 text-xs text-white/60 hover:text-white hover:bg-white/5 rounded transition-colors"
                     >
                       Clear
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         const today = new Date();
                         selectFloatingMenuOption(today.toISOString().split('T')[0]);
@@ -1758,6 +1769,8 @@ const TasksWorking: React.FC = () => {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onCreateTask={(newTask: Task) => setTasks(prevTasks => [newTask, ...prevTasks])}
+        availableTags={availableTags}
+        onCreateTag={handleCreateTag}
       />
     </Layout>
   );
