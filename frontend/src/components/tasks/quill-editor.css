@@ -375,33 +375,28 @@
   color: #2563eb !important; /* Darker blue on hover */
 }
 
-/* Link Tooltip Styling - YouTube Style */
+/* Link Dialog Styling */
 .quill-editor .ql-snow .ql-tooltip {
   background-color: var(--dark-secondary) !important;
   border: 1px solid var(--border-color) !important;
-  border-radius: 0.75rem !important;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.3) !important;
+  border-radius: 0.5rem !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.2) !important;
   color: var(--text-primary) !important;
-  padding: 0.75rem 1rem !important;
-  z-index: 9999 !important;
-  position: fixed !important;
-  min-width: 380px !important;
-  max-width: 500px !important;
-  font-family: inherit !important;
-  font-size: 0.875rem !important;
-  line-height: 1.4 !important;
+  padding: 0.75rem !important;
+  z-index: 1001 !important;
+  position: absolute !important;
+  top: auto !important;
+  left: auto !important;
+  transform: none !important;
   white-space: nowrap !important;
+  min-width: 300px !important;
 }
 
 .quill-editor .ql-snow .ql-tooltip::before {
   content: "Visit URL:" !important;
   color: var(--text-secondary) !important;
   font-size: 0.75rem !important;
-  font-weight: 500 !important;
   margin-right: 0.5rem !important;
-  display: inline-block !important;
-  flex-shrink: 0 !important;
-  white-space: nowrap !important;
 }
 
 .quill-editor .ql-snow .ql-tooltip[data-mode="link"]::before {
@@ -411,23 +406,20 @@
 .quill-editor .ql-snow .ql-tooltip input {
   background-color: var(--dark-tertiary) !important;
   border: 1px solid var(--border-color) !important;
-  border-radius: 0.5rem !important;
+  border-radius: 0.375rem !important;
   color: var(--text-primary) !important;
-  padding: 0.625rem 0.875rem !important;
+  padding: 0.5rem 0.75rem !important;
   font-size: 0.875rem !important;
   outline: none !important;
-  width: 240px !important;
+  width: 200px !important;
   margin: 0 0.5rem !important;
-  transition: all 0.2s ease !important;
-  flex-shrink: 0 !important;
 }
 
 .quill-editor .ql-snow .ql-tooltip input:focus {
-  outline: 2px solid var(--violet-500) !important;
+  outline: 2px solid var(--violet-600) !important;
   outline-offset: 2px !important;
-  border-color: var(--violet-500) !important;
+  border-color: var(--violet-600) !important;
   background-color: var(--dark-bg) !important;
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1) !important;
 }
 
 .quill-editor .ql-snow .ql-tooltip input::placeholder {
@@ -439,167 +431,106 @@
   background-color: var(--violet-600) !important;
   color: white !important;
   border: none !important;
-  border-radius: 0.5rem !important;
-  padding: 0.5rem 0.875rem !important;
-  margin-left: 0.375rem !important;
+  border-radius: 0.375rem !important;
+  padding: 0.375rem 0.75rem !important;
+  margin-left: 0.5rem !important;
   cursor: pointer !important;
-  font-size: 0.8125rem !important;
-  font-weight: 600 !important;
-  transition: all 0.2s ease !important;
+  font-size: 0.75rem !important;
+  transition: background-color 0.15s ease !important;
+  font-weight: 500 !important;
   text-transform: uppercase !important;
   letter-spacing: 0.025em !important;
-  min-width: 65px !important;
-  text-align: center !important;
-  flex-shrink: 0 !important;
 }
 
 .quill-editor .ql-snow .ql-tooltip .ql-action:hover {
   background-color: var(--violet-700) !important;
-  transform: translateY(-1px) !important;
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3) !important;
 }
 
 .quill-editor .ql-snow .ql-tooltip .ql-remove {
   background-color: #ef4444 !important;
-  min-width: 80px !important;
 }
 
 .quill-editor .ql-snow .ql-tooltip .ql-remove:hover {
   background-color: #dc2626 !important;
-  transform: translateY(-1px) !important;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important;
-}
-
-/* Link preview styling */
-.quill-editor .ql-snow .ql-tooltip .ql-preview {
-  color: #3b82f6 !important;
-  text-decoration: underline !important;
-  margin-right: 0.5rem !important;
-  max-width: 280px !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  font-weight: 500 !important;
-  flex-shrink: 1 !important;
 }
 
 /* Link editing mode specific styling */
 .quill-editor .ql-snow .ql-tooltip[data-mode="link"] {
   left: 0 !important;
   transform: translateX(0) !important;
-  min-width: 420px !important;
-  overflow: visible !important;
 }
 
-/* Ensure edit mode content is properly spaced */
-.quill-editor .ql-snow .ql-tooltip[data-mode="link"] input {
-  width: 260px !important;
+.quill-editor .ql-snow .ql-tooltip .ql-preview {
+  color: var(--violet-500) !important;
+  text-decoration: underline !important;
+  margin-right: 0.5rem !important;
+  max-width: 200px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
 }
 
-/* Tooltip positioning */
+/* Tooltip arrow/pointer */
 .quill-editor .ql-snow .ql-tooltip.ql-flip {
   transform: translateX(-100%) !important;
 }
 
+/* Ensure tooltip appears above other elements */
 .quill-editor .ql-snow .ql-tooltip {
-  transform: translateY(-100%) translateY(-2px) !important;
-}
-
-/* Ensure tooltip content layout */
-.quill-editor .ql-snow .ql-tooltip {
-  display: flex !important;
-  align-items: center !important;
-  flex-wrap: nowrap !important;
+  transform: translateY(-100%) translateY(-8px) !important;
 }
 
 /* Global Quill tooltip styling for link dialogs */
-.ql-snow .ql-tooltip {
+.ql-snow .ql-tooltip.dark-theme-tooltip {
   background-color: #1f2937 !important;
   border: 1px solid #374151 !important;
-  border-radius: 0.75rem !important;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.3) !important;
+  border-radius: 0.5rem !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.2) !important;
   color: #f9fafb !important;
-  padding: 0.75rem 1rem !important;
-  z-index: 9999 !important;
-  position: fixed !important;
-  min-width: 380px !important;
-  max-width: 500px !important;
-  font-family: inherit !important;
-  font-size: 0.875rem !important;
-  line-height: 1.4 !important;
-  display: flex !important;
-  align-items: center !important;
-  flex-wrap: nowrap !important;
-  white-space: nowrap !important;
+  padding: 0.75rem !important;
+  z-index: 1001 !important;
 }
 
-.ql-snow .ql-tooltip input {
+.ql-snow .ql-tooltip.dark-theme-tooltip input {
   background-color: #374151 !important;
   border: 1px solid #374151 !important;
-  border-radius: 0.5rem !important;
+  border-radius: 0.375rem !important;
   color: #f9fafb !important;
-  padding: 0.625rem 0.875rem !important;
+  padding: 0.5rem 0.75rem !important;
   font-size: 0.875rem !important;
-  width: 240px !important;
-  margin: 0 0.5rem !important;
-  transition: all 0.2s ease !important;
-  flex-shrink: 0 !important;
 }
 
-.ql-snow .ql-tooltip input:focus {
-  outline: 2px solid #8b5cf6 !important;
+.ql-snow .ql-tooltip.dark-theme-tooltip input:focus {
+  outline: 2px solid #7c3aed !important;
   outline-offset: 2px !important;
-  border-color: #8b5cf6 !important;
+  border-color: #7c3aed !important;
   background-color: #111827 !important;
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1) !important;
 }
 
-.ql-snow .ql-tooltip .ql-action,
-.ql-snow .ql-tooltip .ql-remove {
+.ql-snow .ql-tooltip.dark-theme-tooltip .ql-action,
+.ql-snow .ql-tooltip.dark-theme-tooltip .ql-remove {
   background-color: #7c3aed !important;
   color: white !important;
   border: none !important;
-  border-radius: 0.5rem !important;
-  padding: 0.5rem 0.875rem !important;
-  margin-left: 0.375rem !important;
+  border-radius: 0.375rem !important;
+  padding: 0.375rem 0.75rem !important;
+  margin-left: 0.5rem !important;
   cursor: pointer !important;
-  font-size: 0.8125rem !important;
-  font-weight: 600 !important;
-  transition: all 0.2s ease !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.025em !important;
-  min-width: 65px !important;
-  text-align: center !important;
-  flex-shrink: 0 !important;
-}
-
-.ql-snow .ql-tooltip .ql-action:hover {
-  background-color: #6d28d9 !important;
-  transform: translateY(-1px) !important;
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3) !important;
-}
-
-.ql-snow .ql-tooltip .ql-remove {
-  background-color: #ef4444 !important;
-  min-width: 80px !important;
-}
-
-.ql-snow .ql-tooltip .ql-remove:hover {
-  background-color: #dc2626 !important;
-  transform: translateY(-1px) !important;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important;
-}
-
-.ql-snow .ql-tooltip .ql-preview {
-  color: #3b82f6 !important;
-  text-decoration: underline !important;
-  margin-right: 0.5rem !important;
-  max-width: 280px !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
+  font-size: 0.75rem !important;
+  transition: background-color 0.15s ease !important;
   font-weight: 500 !important;
-  flex-shrink: 1 !important;
+}
+
+.ql-snow .ql-tooltip.dark-theme-tooltip .ql-action:hover {
+  background-color: #6d28d9 !important;
+}
+
+.ql-snow .ql-tooltip.dark-theme-tooltip .ql-remove {
+  background-color: #ef4444 !important;
+}
+
+.ql-snow .ql-tooltip.dark-theme-tooltip .ql-remove:hover {
+  background-color: #dc2626 !important;
 }
 
 /* Focus styles */
@@ -637,29 +568,6 @@
 
 .quill-editor .ql-snow.ql-toolbar button .ql-fill {
   fill: currentColor !important;
-}
-
-/* Ensure tooltips always appear on top of everything */
-body .ql-snow .ql-tooltip,
-.ql-snow .ql-tooltip {
-  z-index: 9999 !important;
-  position: fixed !important;
-}
-
-/* Override any conflicting positioning */
-.ql-tooltip {
-  z-index: 9999 !important;
-  position: fixed !important;
-}
-
-/* Ensure consistent positioning across all tooltip instances */
-.ql-tooltip[data-mode="link"] {
-  min-width: 420px !important;
-  overflow: visible !important;
-}
-
-.ql-tooltip[data-mode="link"] input {
-  width: 260px !important;
 }
 
 /* Responsive adjustments */
