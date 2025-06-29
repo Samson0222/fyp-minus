@@ -1,5 +1,6 @@
-import React, { forwardRef, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { forwardRef, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Quill from 'quill';
+import LinkDialog from './LinkDialog';
 
 // Import Quill styles
 import 'quill/dist/quill.snow.css';
@@ -48,6 +49,17 @@ const QuillEditor = forwardRef<Quill, QuillEditorProps>(({
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const quillRef = useRef<Quill | null>(null);
+  const [linkDialog, setLinkDialog] = useState<{
+    isOpen: boolean;
+    selectedText: string;
+    initialUrl: string;
+    range: any;
+  }>({
+    isOpen: false,
+    selectedText: '',
+    initialUrl: '',
+    range: null
+  });
 
   // Quill configuration to match the screenshots
   const modules = {
@@ -243,16 +255,93 @@ const QuillEditor = forwardRef<Quill, QuillEditorProps>(({
 
   // Function to setup better link handling
   const setupLinkHandling = (quill: Quill) => {
-    // Add Ctrl+K shortcut for link
+    const toolbar = quill.getModule('toolbar');
+    if (toolbar) {
+      // Custom link handler
+      toolbar.addHandler('link', function(value: string | boolean) {
+        if (value) {
+          const range = quill.getSelection();
+          if (range == null || range.length == 0) {
+            // No text selected - insert new link
+            setLinkDialog({
+              isOpen: true,
+              selectedText: '',
+              initialUrl: '',
+              range: range
+            });
+          } else {
+            // Text is selected - convert to link
+            const selectedText = quill.getText(range.index, range.length);
+            setLinkDialog({
+              isOpen: true,
+              selectedText: selectedText,
+              initialUrl: '',
+              range: range
+            });
+          }
+        } else {
+          // Remove link
+          const range = quill.getSelection();
+          if (range) {
+            quill.format('link', false);
+          }
+        }
+      });
+    }
+
+    // Also add Ctrl+K shortcut
     quill.keyboard.addBinding({
       key: 'k',
       ctrlKey: true
     }, function(range: any, context: any) {
       const toolbar = quill.getModule('toolbar');
-      if (toolbar && toolbar.handlers && toolbar.handlers.link) {
+      if (toolbar) {
         toolbar.handlers.link.call(toolbar, true);
       }
     });
+
+    // Style tooltips when they appear
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList') {
+          const tooltips = document.querySelectorAll('.ql-tooltip');
+          tooltips.forEach((tooltip) => {
+            if (tooltip.classList.contains('ql-snow')) {
+              const tooltipElement = tooltip as HTMLElement;
+              tooltipElement.style.zIndex = '1001';
+              if (!tooltipElement.classList.contains('dark-theme-tooltip')) {
+                tooltipElement.classList.add('dark-theme-tooltip');
+              }
+            }
+          });
+        }
+      });
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return () => observer.disconnect();
+  };
+
+  // Handle link dialog confirmation
+  const handleLinkConfirm = (url: string, text?: string) => {
+    if (quillRef.current && linkDialog.range) {
+      if (linkDialog.selectedText) {
+        // Text was selected - format as link
+        quillRef.current.formatText(linkDialog.range.index, linkDialog.range.length, 'link', url);
+      } else {
+        // No text selected - insert new link
+        const displayText = text || url;
+        quillRef.current.insertText(linkDialog.range.index || 0, displayText, 'link', url);
+        quillRef.current.setSelection((linkDialog.range.index || 0) + displayText.length);
+      }
+    }
+    setLinkDialog({ isOpen: false, selectedText: '', initialUrl: '', range: null });
+  };
+
+  // Handle link dialog close
+  const handleLinkClose = () => {
+    setLinkDialog({ isOpen: false, selectedText: '', initialUrl: '', range: null });
   };
 
   // Handle controlled value changes
@@ -288,15 +377,26 @@ const QuillEditor = forwardRef<Quill, QuillEditorProps>(({
   }, [expanded, minHeight, maxHeight]);
 
   return (
-    <div 
-      className={`quill-editor ${className}`}
-      style={{
-        width: '100%',
-        maxWidth: '100%'
-      }}
-    >
-      <div ref={containerRef} />
-    </div>
+    <>
+      <div 
+        className={`quill-editor ${className}`}
+        style={{
+          width: '100%',
+          maxWidth: '100%'
+        }}
+      >
+        <div ref={containerRef} />
+      </div>
+      
+      <LinkDialog
+        isOpen={linkDialog.isOpen}
+        onClose={handleLinkClose}
+        onConfirm={handleLinkConfirm}
+        selectedText={linkDialog.selectedText}
+        initialUrl={linkDialog.initialUrl}
+        title={linkDialog.selectedText ? 'Add Link to Selected Text' : 'Insert Link'}
+      />
+    </>
   );
 });
 
