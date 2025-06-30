@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import Layout from '@/components/layout/Layout';
 import InteractionArea from '@/components/ai/InteractionArea';
 import CreateTaskModal from '@/components/tasks/CreateTaskModal';
+import CalendarViewEnhanced from '@/components/tasks/CalendarViewEnhanced';
 import { Plus, Circle, CheckCircle, List, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Settings, Filter, ChevronDown, MoreHorizontal, Trash2, Edit, Archive, X, ChevronLeft, ChevronRight, Hash, Tag, Sparkles } from 'lucide-react';
 
 // Define types locally to avoid import issues
@@ -1376,13 +1377,49 @@ const TasksWorking: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4 mb-6">
-                <div className="bg-dark-tertiary/50 rounded-lg border border-white/10 p-8 text-center">
-                  <Calendar size={48} className="mx-auto mb-4 text-white/40" />
-                  <h3 className="text-lg font-medium text-white mb-2">Calendar View</h3>
-                  <p className="text-white/70">
-                    Calendar functionality coming soon. For now, use the List view to manage your tasks.
-                  </p>
-                </div>
+                <CalendarViewEnhanced
+                  onTaskCreated={(task) => {
+                    // Convert enhanced task to your current task format
+                    const convertedTask = {
+                      id: task.id,
+                      title: task.title,
+                      description: task.description,
+                      dueDate: task.start_at || new Date(),
+                      isAllDay: task.is_all_day,
+                      startTime: task.start_at ? new Date(task.start_at).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : undefined,
+                      endTime: task.end_at ? new Date(task.end_at).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : undefined,
+                      priority: task.priority,
+                      status: task.status,
+                      tags: task.tags || [],
+                      syncedToCalendar: !!task.google_calendar_event_id,
+                      createDateTime: task.created_at,
+                      lastUpdateDateTime: task.updated_at,
+                    };
+                    setTasks(prev => [...prev, convertedTask]);
+                  }}
+                  onTaskUpdated={(task) => {
+                    // Convert and update existing task
+                    const convertedTask = {
+                      id: task.id,
+                      title: task.title,
+                      description: task.description,
+                      dueDate: task.start_at || new Date(),
+                      isAllDay: task.is_all_day,
+                      startTime: task.start_at ? new Date(task.start_at).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : undefined,
+                      endTime: task.end_at ? new Date(task.end_at).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }) : undefined,
+                      priority: task.priority,
+                      status: task.status,
+                      tags: task.tags || [],
+                      syncedToCalendar: !!task.google_calendar_event_id,
+                      createDateTime: task.created_at,
+                      lastUpdateDateTime: task.updated_at,
+                    };
+                    setTasks(prev => prev.map(t => t.id === task.id ? convertedTask : t));
+                  }}
+                  onTaskDeleted={(taskId) => {
+                    setTasks(prev => prev.filter(t => t.id !== taskId));
+                  }}
+                />
               </div>
             )}
 
