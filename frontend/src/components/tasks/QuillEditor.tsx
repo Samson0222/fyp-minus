@@ -51,11 +51,13 @@ const QuillEditor = forwardRef<Quill, QuillEditorProps>(({
   const quillRef = useRef<Quill | null>(null);
   const [linkDialog, setLinkDialog] = useState<{
     isOpen: boolean;
+    mode: 'insert' | 'edit';
     selectedText: string;
     initialUrl: string;
     range: any;
   }>({
     isOpen: false,
+    mode: 'insert',
     selectedText: '',
     initialUrl: '',
     range: null
@@ -253,95 +255,112 @@ const QuillEditor = forwardRef<Quill, QuillEditorProps>(({
     }
   };
 
-  // Function to setup better link handling
+  // Function to handle inserting and editing links without relying on Quill's tooltip
   const setupLinkHandling = (quill: Quill) => {
-    const toolbar = quill.getModule('toolbar');
+    // Helper to open our dialog
+    const openLinkDialog = (
+      mode: 'insert' | 'edit',
+      range: any,
+      url: string = '',
+      text: string = ''
+    ) => {
+      setLinkDialog({
+        isOpen: true,
+        mode,
+        selectedText: text,
+        initialUrl: url,
+        range,
+      });
+    };
+
+    // Override toolbar handler for Ctrl+K / link button
+    const toolbar = quill.getModule('toolbar') as any;
     if (toolbar) {
-      // Custom link handler
-      toolbar.addHandler('link', function(value: string | boolean) {
-        if (value) {
+      toolbar.addHandler('link', (value: boolean) => {
+        if (!value) {
+          // unlink action
           const range = quill.getSelection();
-          if (range == null || range.length == 0) {
-            // No text selected - insert new link
-            setLinkDialog({
-              isOpen: true,
-              selectedText: '',
-              initialUrl: '',
-              range: range
-            });
-          } else {
-            // Text is selected - convert to link
-            const selectedText = quill.getText(range.index, range.length);
-            setLinkDialog({
-              isOpen: true,
-              selectedText: selectedText,
-              initialUrl: '',
-              range: range
-            });
-          }
-        } else {
-          // Remove link
-          const range = quill.getSelection();
-          if (range) {
-            quill.format('link', false);
-          }
+          if (range) quill.format('link', false);
+          return;
         }
+
+        const range = quill.getSelection();
+        if (!range) return;
+
+        const selectedText = range.length > 0 ? quill.getText(range.index, range.length) : '';
+        openLinkDialog('insert', range, '', selectedText);
       });
     }
 
-    // Also add Ctrl+K shortcut
-    quill.keyboard.addBinding({
-      key: 'k',
-      ctrlKey: true
-    }, function(range: any, context: any) {
-      const toolbar = quill.getModule('toolbar');
-      if (toolbar) {
-        toolbar.handlers.link.call(toolbar, true);
+    // Add keyboard shortcut Ctrl+K
+    quill.keyboard.addBinding({ key: 'k', ctrlKey: true }, () => {
+      const range = quill.getSelection();
+      if (range) {
+        const selectedText = range.length > 0 ? quill.getText(range.index, range.length) : '';
+        openLinkDialog('insert', range, '', selectedText);
       }
     });
 
-    // Style tooltips when they appear
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'childList') {
-          const tooltips = document.querySelectorAll('.ql-tooltip');
-          tooltips.forEach((tooltip) => {
-            if (tooltip.classList.contains('ql-snow')) {
-              const tooltipElement = tooltip as HTMLElement;
-              tooltipElement.style.zIndex = '1001';
-              if (!tooltipElement.classList.contains('dark-theme-tooltip')) {
-                tooltipElement.classList.add('dark-theme-tooltip');
-              }
-            }
-          });
-        }
-      });
+    // Click listener for editing existing links
+    quill.root.addEventListener('click', (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && target.tagName === 'A') {
+        e.preventDefault();
+
+        const blot = Quill.find(target) as any;
+        if (!blot) return;
+
+        const index = quill.getIndex(blot);
+        const length = (target.textContent || '').length;
+        const range = { index, length };
+
+        openLinkDialog('edit', range, target.getAttribute('href') || '', target.textContent || '');
+      }
     });
-
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    return () => observer.disconnect();
   };
 
   // Handle link dialog confirmation
-  const handleLinkConfirm = (url: string, text?: string) => {
-    if (quillRef.current && linkDialog.range) {
-      if (linkDialog.selectedText) {
-        // Text was selected - format as link
-        quillRef.current.formatText(linkDialog.range.index, linkDialog.range.length, 'link', url);
+  const handleLinkConfirm = (url: string, newText?: string) => {
+    if (!quillRef.current || !linkDialog.range) {
+      setLinkDialog({ isOpen: false, mode: 'insert', selectedText: '', initialUrl: '', range: null });
+      return;
+    }
+
+    const quill = quillRef.current;
+    const { index, length } = linkDialog.range;
+
+    if (linkDialog.mode === 'insert') {
+      if (length > 0) {
+        // Replace selected text with (possibly changed) display text and link format
+        const displayText = newText && newText.trim() ? newText : quill.getText(index, length);
+        quill.deleteText(index, length);
+        quill.insertText(index, displayText, 'link', url);
+        quill.setSelection(index + displayText.length);
       } else {
-        // No text selected - insert new link
-        const displayText = text || url;
-        quillRef.current.insertText(linkDialog.range.index || 0, displayText, 'link', url);
-        quillRef.current.setSelection((linkDialog.range.index || 0) + displayText.length);
+        const displayText = newText && newText.trim() ? newText : url;
+        quill.insertText(index, displayText, 'link', url);
+        quill.setSelection(index + displayText.length);
+      }
+    } else {
+      // Editing an existing link
+      quill.formatText(index, length, 'link', url);
+
+      if (newText && newText.trim() && newText.trim() !== quill.getText(index, length)) {
+        // Replace the display text
+        quill.deleteText(index, length);
+        quill.insertText(index, newText.trim(), 'link', url);
+        quill.setSelection(index + newText.trim().length);
+      } else {
+        quill.setSelection(index + length);
       }
     }
-    setLinkDialog({ isOpen: false, selectedText: '', initialUrl: '', range: null });
+
+    setLinkDialog({ isOpen: false, mode: 'insert', selectedText: '', initialUrl: '', range: null });
   };
 
-  // Handle link dialog close
+  // Handle link dialog close (cancel)
   const handleLinkClose = () => {
-    setLinkDialog({ isOpen: false, selectedText: '', initialUrl: '', range: null });
+    setLinkDialog({ isOpen: false, mode: 'insert', selectedText: '', initialUrl: '', range: null });
   };
 
   // Handle controlled value changes
@@ -392,9 +411,10 @@ const QuillEditor = forwardRef<Quill, QuillEditorProps>(({
         isOpen={linkDialog.isOpen}
         onClose={handleLinkClose}
         onConfirm={handleLinkConfirm}
+        mode={linkDialog.mode}
         selectedText={linkDialog.selectedText}
         initialUrl={linkDialog.initialUrl}
-        title={linkDialog.selectedText ? 'Add Link to Selected Text' : 'Insert Link'}
+        title={linkDialog.mode === 'edit' ? 'Edit Link' : 'Insert Link'}
       />
     </>
   );
