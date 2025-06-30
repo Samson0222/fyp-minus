@@ -8,6 +8,7 @@ interface LinkDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (url: string, text?: string) => void;
+  mode?: 'insert' | 'edit';
   initialUrl?: string;
   selectedText?: string;
   title?: string;
@@ -17,6 +18,7 @@ const LinkDialog: React.FC<LinkDialogProps> = ({
   isOpen,
   onClose,
   onConfirm,
+  mode = 'insert',
   initialUrl = '',
   selectedText = '',
   title = 'Add Link'
@@ -50,6 +52,13 @@ const LinkDialog: React.FC<LinkDialogProps> = ({
     }
   };
 
+  const handleOpenLink = () => {
+    if (url.trim()) {
+      const cleanUrl = url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`;
+      window.open(cleanUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md bg-gray-900 border-gray-700">
@@ -72,22 +81,20 @@ const LinkDialog: React.FC<LinkDialogProps> = ({
               autoFocus
             />
           </div>
-          {!selectedText && (
-            <div className="space-y-2">
-              <Label htmlFor="text" className="text-gray-200">
-                Display Text (optional)
-              </Label>
-              <Input
-                id="text"
-                type="text"
-                placeholder="Link text"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="bg-gray-800 border-gray-600 text-gray-100 placeholder-gray-400 focus:border-violet-500 focus:ring-violet-500"
-              />
-            </div>
-          )}
+          <div className="space-y-2">
+            <Label htmlFor="text" className="text-gray-200">
+              Display Text
+            </Label>
+            <Input
+              id="text"
+              type="text"
+              placeholder="Link text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="bg-gray-800 border-gray-600 text-gray-100 placeholder-gray-400 focus:border-violet-500 focus:ring-violet-500"
+            />
+          </div>
           <div className="flex justify-end space-x-2 pt-4">
             <Button
               variant="outline"
@@ -96,12 +103,22 @@ const LinkDialog: React.FC<LinkDialogProps> = ({
             >
               Cancel
             </Button>
+            {mode === 'edit' && (
+              <Button
+                variant="outline"
+                onClick={handleOpenLink}
+                className="border-gray-600 text-gray-300 hover:bg-gray-800"
+                disabled={!url.trim()}
+              >
+                Open Link
+              </Button>
+            )}
             <Button
               onClick={handleConfirm}
               className="bg-violet-600 hover:bg-violet-700 text-white"
               disabled={!url.trim()}
             >
-              {selectedText ? 'Add Link' : 'Insert Link'}
+              {mode === 'edit' ? 'Update Link' : (selectedText ? 'Add Link' : 'Insert Link')}
             </Button>
           </div>
         </div>
