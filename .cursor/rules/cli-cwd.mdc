@@ -1,0 +1,27 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Always run all CLI commands from the repository root using Windows Command Prompt (cmd.exe), never PowerShell. Never use 'cd' unless explicitly requested.
+alwaysApply: true
+---
+
+# CLI Command Execution Policy for this Project
+
+- All commands MUST be executed from the repository root.
+- Never use `cd` to change directories unless the user explicitly requests it.
+- **Always use Windows Command Prompt (`cmd.exe`) to run all commands**, not PowerShell or other shells.
+- If a sub-app or subfolder needs to run a command, use full paths or workspace flags (e.g., `npm --workspace frontend run dev`) instead of `cd`.
+- If running a script, always use:  
+  `cmd.exe /C "your command here"`
+- Never use programmatic or REPL execution (e.g., running scripts directly in Node/Python/REPL).  
+  Always execute using shell commands, as if typing them in Command Prompt.
+- If working in a Windows environment, never use PowerShell for Node/NPM scripts; always use Command Prompt.
+- For `npm run dev` or similar, the agent should produce:  
+  `cmd.exe /C "cd frontend && npm run dev"`
+- If a binary like `vite` is needed, the agent should use:  
+  `cmd.exe /C "cd frontend && node node_modules/vite/bin/vite.js"`
+
+- Never use PowerShell or PowerShell-specific commands.
