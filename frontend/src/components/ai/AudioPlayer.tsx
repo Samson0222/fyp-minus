@@ -1,6 +1,6 @@
-
 import React from "react";
 import { cn } from "@/lib/utils";
+import { Mic } from "lucide-react";
 
 interface AudioPlayerProps {
   isListening: boolean;
@@ -16,8 +16,8 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ isListening, onClick }) => {
         isListening ? "scale-105" : "hover:scale-105 active:scale-95"
       )}
     >
-      {/* Display M logo instead of the minus/square icon */}
-      <span className="font-bold text-white text-lg">M</span>
+      {/* Display microphone icon instead of the M logo */}
+      <Mic className="text-white" size={24} />
       
       {isListening && (
         <>
