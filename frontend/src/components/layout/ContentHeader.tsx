@@ -1,8 +1,7 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
-import { Home, CheckSquare, Calendar, Inbox, FileText, Settings, User, Search, BookOpen } from "lucide-react";
+import { Home, CheckSquare, Calendar, Inbox, FileText, Settings, User, Search, Mic } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 
 const ContentHeader = () => {
   const location = useLocation();
@@ -20,6 +19,8 @@ const ContentHeader = () => {
         return { icon: <Inbox size={20} />, title: "Inboxes" };
       case "/documents":
         return { icon: <FileText size={20} />, title: "Docs" };
+      case "/playground":
+        return { icon: <Mic size={20} />, title: "Playground" };
       case "/settings":
         return { icon: <Settings size={20} />, title: "Settings" };
       case "/profile":
@@ -31,16 +32,9 @@ const ContentHeader = () => {
 
   const currentPage = getPageInfo(location.pathname);
 
-  const handleTutorialsClick = () => {
-    // Add tutorials functionality here
-    console.log("Tutorials clicked");
-    // You can navigate to tutorials page or open a modal/drawer
-    // For example: navigate('/tutorials') or setTutorialsOpen(true)
-  };
-
   return (
     <header className="bg-dark-secondary px-6 py-3 relative flex items-center">
-      {/* Header content with page info, search, and tutorials - centered vertically */}
+      {/* Header content with page info and search - centered vertically */}
       <div className="flex items-center justify-between w-full">
         {/* Page icon and title */}
         <div className="flex items-center gap-3">
@@ -62,19 +56,6 @@ const ContentHeader = () => {
               className="pl-10 pr-4 py-2 w-full bg-dark-tertiary border-white/5 text-white placeholder-foreground/50 text-sm focus:border-violet-light hover:border-white/20 hover:bg-dark-tertiary/80 transition-all duration-200"
             />
           </div>
-        </div>
-
-        {/* Tutorials Button */}
-        <div className="flex items-center">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={handleTutorialsClick}
-            className="border-white/5 text-white bg-dark-tertiary hover:border-violet-light hover:text-white transition-colors"
-          >
-            <BookOpen size={16} className="mr-2" />
-            Tutorials
-          </Button>
         </div>
       </div>
 

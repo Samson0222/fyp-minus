@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Send } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import AudioPlayer from "./AudioPlayer";
+import { toast } from "@/components/ui/use-toast";
 
 interface InteractionAreaProps {
   onSendMessage: (message: string) => void;
@@ -17,6 +18,7 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
   const [inputValue, setInputValue] = useState("");
   const isMobile = useIsMobile();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isListeningState, setIsListening] = useState(isListening);
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +32,77 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
+    }
+  };
+
+  const handleToggleListening = async () => {
+    console.log('[MIC] button clicked');
+    if (!isListeningState) {
+      try {
+        console.log('[MIC] requesting MediaStream…');
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('[MIC] stream granted', stream);
+        const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        const chunks: Blob[] = [];
+
+        recorder.ondataavailable = e => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = async () => {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          console.log('[MIC] recorded blob', blob);
+          const form = new FormData();
+          form.append('audio_file', blob, 'speech.webm');
+          try {
+            const res = await fetch('/api/v1/audio/transcribe', { method: 'POST', body: form });
+            const data = await res.json();
+            console.log('[MIC] transcript', data.transcribed_text);
+            
+            // Send transcribed text to Gmail voice command processor
+            try {
+              const voiceRes = await fetch('/api/v1/gmail/voice-command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: data.transcribed_text })
+              });
+              const voiceData = await voiceRes.json();
+              console.log('[MIC] voice command result', voiceData);
+              
+              // Show the response to user
+              onSendMessage(data.transcribed_text);
+              if (voiceData.response) {
+                toast({ 
+                  title: 'Voice Command Processed', 
+                  description: voiceData.response,
+                  duration: 5000
+                });
+              }
+            } catch (voiceErr) {
+              console.error('[MIC] voice command error', voiceErr);
+              // Still show the transcribed text even if voice command fails
+              onSendMessage(data.transcribed_text);
+            }
+          } catch (err) {
+            console.error('[MIC] transcription error', err);
+          }
+        };
+
+        recorder.start();
+        setIsListening(true);
+        toast({ title: 'Voice Recognition Active', description: 'Speak now…' });
+
+        // auto stop after 5s
+        setTimeout(() => {
+          recorder.state !== 'inactive' && recorder.stop();
+          setIsListening(false);
+        }, 5000);
+      } catch (err) {
+        console.error('[MIC] getUserMedia error', err);
+        toast({ title: 'Microphone error', description: String(err), variant: 'destructive' });
+      }
+    } else {
+      setIsListening(false);
     }
   };
 
@@ -57,7 +130,7 @@ const InteractionArea: React.FC<InteractionAreaProps> = ({
       <div className="flex flex-col items-center gap-4 max-w-3xl mx-auto">
         {/* AI Assistant / Mic */}
         <div className="flex flex-col items-center gap-2">
-          <AudioPlayer isListening={isListening} onClick={onToggleListening} />
+          <AudioPlayer isListening={isListeningState} onClick={handleToggleListening} />
           {/* <span className="text-white/70 text-sm font-medium">AI Assistant</span> */}
         </div>
         
