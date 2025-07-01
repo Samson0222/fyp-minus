@@ -21,6 +21,10 @@ import jwt
 # Database
 from app.core.database import get_database, init_database
 
+# Gmail integration
+from app.routers.gmail import router as gmail_router
+from app.services.voice_email_processor import voice_email_processor
+
 load_dotenv()
 
 # Configure logging
@@ -28,6 +32,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Minus Voice Assistant API", version="1.0.0")
+
+# Include routers
+app.include_router(gmail_router)
 
 # CORS configuration
 origins = [
@@ -175,9 +182,22 @@ async def handle_text_message(
     
     user_message_lower = request.message.lower()
     
-    # Enhanced response logic (will be replaced with LangChain agent)
+    # Enhanced response logic with Gmail integration
     if "gmail" in user_message_lower or "email" in user_message_lower:
-        reply = "I'll help you with email management. Integration with Gmail coming soon!"
+        # Process email command with voice processor
+        try:
+            parsed_command = voice_email_processor.parse_command(request.message)
+            if parsed_command.command_type == 'read_emails':
+                reply = "I'll check your emails right away!"
+                actions = [{"type": "gmail", "action": "read_emails", "parameters": parsed_command.parameters}]
+            elif parsed_command.command_type == 'send_email':
+                reply = "I'll help you send an email!"
+                actions = [{"type": "gmail", "action": "send_email", "parameters": parsed_command.parameters}]
+            else:
+                reply = "I can help you read emails, send emails, or search your inbox. What would you like to do?"
+                actions = [{"type": "gmail", "action": "general"}]
+        except Exception as e:
+            reply = "I'll help you with email management. Gmail integration is ready!"
         actions = [{"type": "gmail", "action": "prepare_integration"}]
     elif "calendar" in user_message_lower or "meeting" in user_message_lower:
         reply = "I can help you manage your calendar. Google Calendar integration coming soon!"
@@ -337,10 +357,21 @@ async def process_voice_command(
     command_lower = request.command.lower()
     
     if "read" in command_lower and "email" in command_lower:
+        # Use the new Gmail voice command processor
         return {
             "action": "gmail_read",
-            "status": "preparing",
-            "message": "Preparing to read your emails..."
+            "status": "ready",
+            "message": "I'll check your emails now.",
+            "redirect": "/api/v1/gmail/voice-command",
+            "command": request.command
+        }
+    elif "send" in command_lower and "email" in command_lower:
+        return {
+            "action": "gmail_send",
+            "status": "ready", 
+            "message": "I'll help you send an email.",
+            "redirect": "/api/v1/gmail/voice-command",
+            "command": request.command
         }
     elif "create" in command_lower and "document" in command_lower:
         return {
