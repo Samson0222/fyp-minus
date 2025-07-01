@@ -1,0 +1,94 @@
+########################################
+#  ⬇️  General OS / Editor Artefacts  ⬇️
+########################################
+.DS_Store
+Thumbs.db
+ehthumbs.db
+*.swp
+*.swo
+*.swn
+.idea/
+.vscode/
+*.code-workspace
+
+########################################
+#  ⬇️  Logs & temp files              ⬇️
+########################################
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp.*
+*.tmp
+*.tmp.*
+*.bak
+*.orig
+
+########################################
+#  ⬇️  Python / FastAPI backend       ⬇️
+########################################
+# Byte-code / cache
+__pycache__/
+*.py[cod]
+# C-extensions
+*.so
+# Virtual-envs
+.env
+.env.*
+env/
+venv/
+.venv/
+# Packaging artefacts
+*.egg-info/
+*.egg
+dist/
+build/
+# Testing & tooling artefacts
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.tox/
+.cache/
+
+########################################
+#  ⬇️  Node / Vite frontend           ⬇️
+########################################
+# Dependencies
+node_modules/
+# Local build output
+frontend/dist/
+dist/
+build/
+# Vite
+.vite/
+# Bun cache
+bun.lockb.*
+.bun/
+# TypeScript
+*.tsbuildinfo
+# Storybook (if added later)
+.storybook-static/
+
+########################################
+#  ⬇️  Databases / credentials        ⬇️
+########################################
+*.sqlite3
+*.db
+*.p12
+*.pem
+*.key
+tokens/
+**/*.token.json
+
+########################################
+#  ⬇️  Miscellaneous                  ⬇️
+########################################
+# VS Code launch configs, tasks, etc. (optional)
+.vscode/
+# macOS Finder tags
+.AppleDouble
+.LSOverride
+# Windows thumbnail cache
+ehthumbs.db
+Desktop.ini
