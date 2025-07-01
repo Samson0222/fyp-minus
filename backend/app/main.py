@@ -21,6 +21,10 @@ import jwt
 # Database
 from app.core.database import get_database, init_database
 
+# Gmail integration
+from app.routers.gmail import router as gmail_router
+from app.services.voice_email_processor import voice_email_processor
+
 load_dotenv()
 
 # Configure logging
@@ -29,18 +33,28 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Minus Voice Assistant API", version="1.0.0")
 
+# Include routers
+app.include_router(gmail_router)
+
 # CORS configuration
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else []
+    "http://localhost:5173",  # Vite default port
+    "http://127.0.0.1:5173",  # Vite default port
+    "http://localhost:8080",  # Your current port
+    "http://127.0.0.1:8080"   # Your current port
 ]
+
+# Add any additional CORS origins from environment
+if os.getenv("CORS_ORIGINS"):
+    origins.extend(os.getenv("CORS_ORIGINS").split(","))
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin for origin in origins if origin],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -61,15 +75,22 @@ else:
 # "base" is a good starting point for decent quality on CPU.
 try:
     print("Loading local Whisper model...")
-    if os.getenv("USE_LOCAL_WHISPER", "false").lower() == "true":
-        whisper_model = whisper.load_model("base", device="cuda" if os.getenv("CUDA_AVAILABLE") else "cpu")
+    # Default to local whisper unless explicitly disabled
+    if os.getenv("USE_LOCAL_WHISPER", "true").lower() == "true":
+        whisper_model = whisper.load_model("base", device="cpu")
         print("✓ Local Whisper model loaded successfully")
     else:
         whisper_model = None
         print("✓ Using OpenAI Whisper API")
 except Exception as e:
     print(f"⚠ Error loading Whisper model: {e}")
-    whisper_model = None
+    print("Falling back to simplified local whisper loading...")
+    try:
+        whisper_model = whisper.load_model("base")
+        print("✓ Local Whisper model loaded successfully (fallback)")
+    except Exception as e2:
+        print(f"⚠ Fallback also failed: {e2}")
+        whisper_model = None
 
 # Pydantic models
 class TextMessageRequest(BaseModel):
@@ -161,9 +182,22 @@ async def handle_text_message(
     
     user_message_lower = request.message.lower()
     
-    # Enhanced response logic (will be replaced with LangChain agent)
+    # Enhanced response logic with Gmail integration
     if "gmail" in user_message_lower or "email" in user_message_lower:
-        reply = "I'll help you with email management. Integration with Gmail coming soon!"
+        # Process email command with voice processor
+        try:
+            parsed_command = voice_email_processor.parse_command(request.message)
+            if parsed_command.command_type == 'read_emails':
+                reply = "I'll check your emails right away!"
+                actions = [{"type": "gmail", "action": "read_emails", "parameters": parsed_command.parameters}]
+            elif parsed_command.command_type == 'send_email':
+                reply = "I'll help you send an email!"
+                actions = [{"type": "gmail", "action": "send_email", "parameters": parsed_command.parameters}]
+            else:
+                reply = "I can help you read emails, send emails, or search your inbox. What would you like to do?"
+                actions = [{"type": "gmail", "action": "general"}]
+        except Exception as e:
+            reply = "I'll help you with email management. Gmail integration is ready!"
         actions = [{"type": "gmail", "action": "prepare_integration"}]
     elif "calendar" in user_message_lower or "meeting" in user_message_lower:
         reply = "I can help you manage your calendar. Google Calendar integration coming soon!"
@@ -227,7 +261,7 @@ async def transcribe_audio(
 ):
     """Enhanced audio transcription with OpenAI fallback and database storage"""
     start_time = time.time()
-    
+
     if not audio_file:
         raise HTTPException(status_code=400, detail="No audio file provided.")
 
@@ -239,18 +273,25 @@ async def transcribe_audio(
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.filename)[1]) as tmp:
             shutil.copyfileobj(audio_file.file, tmp)
             tmp_path = tmp.name
-
-        # Try local Whisper first, fall back to OpenAI API
+        
+        # Use local Whisper model only
         if whisper_model:
             print("Using local Whisper model...")
             result = whisper_model.transcribe(tmp_path, fp16=False)
-            transcribed_text = result["text"]
+            transcribed_text = result["text"].strip()
             confidence = result.get("confidence", 0.9)
         else:
-            print("Using OpenAI Whisper API...")
-            # TODO: Implement OpenAI Whisper API call
-            transcribed_text = "OpenAI Whisper API integration coming soon!"
-            confidence = 0.8
+            print("⚠ Local Whisper model not available, trying to load it now...")
+            try:
+                # Try to load Whisper model on the fly
+                temp_model = whisper.load_model("base")
+                result = temp_model.transcribe(tmp_path, fp16=False)
+                transcribed_text = result["text"].strip()
+                confidence = result.get("confidence", 0.9)
+                print("✓ Successfully used temporary Whisper model")
+            except Exception as e:
+                print(f"⚠ Could not load temporary Whisper model: {e}")
+                raise HTTPException(status_code=500, detail="Local Whisper model not available and could not be loaded")
 
         processing_time = int((time.time() - start_time) * 1000)
         print(f"Transcribed text: {transcribed_text}")
@@ -316,10 +357,21 @@ async def process_voice_command(
     command_lower = request.command.lower()
     
     if "read" in command_lower and "email" in command_lower:
+        # Use the new Gmail voice command processor
         return {
             "action": "gmail_read",
-            "status": "preparing",
-            "message": "Preparing to read your emails..."
+            "status": "ready",
+            "message": "I'll check your emails now.",
+            "redirect": "/api/v1/gmail/voice-command",
+            "command": request.command
+        }
+    elif "send" in command_lower and "email" in command_lower:
+        return {
+            "action": "gmail_send",
+            "status": "ready", 
+            "message": "I'll help you send an email.",
+            "redirect": "/api/v1/gmail/voice-command",
+            "command": request.command
         }
     elif "create" in command_lower and "document" in command_lower:
         return {
