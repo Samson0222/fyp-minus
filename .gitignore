@@ -10,6 +10,7 @@ ehthumbs.db
 .idea/
 .vscode/
 *.code-workspace
+.cursor/
 
 ########################################
 #  ⬇️  Logs & temp files              ⬇️
