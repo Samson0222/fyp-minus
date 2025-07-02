@@ -62,9 +62,15 @@ app.add_middleware(
 supabase_url = os.getenv("SUPABASE_URL")
 supabase_anon_key = os.getenv("SUPABASE_ANON_KEY")
 
-if supabase_url and supabase_anon_key:
-    supabase: Client = create_client(supabase_url, supabase_anon_key)
-    print("✓ Supabase client initialized")
+# Improved validation to handle empty strings and None values
+if supabase_url and supabase_anon_key and supabase_url.strip() and supabase_anon_key.strip():
+    try:
+        supabase: Client = create_client(supabase_url, supabase_anon_key)
+        print("✓ Supabase client initialized")
+    except Exception as e:
+        print(f"⚠ Supabase initialization failed: {e}")
+        print("⚠ Running in test mode without Supabase")
+        supabase = None
 else:
     supabase = None
     print("⚠ Supabase not configured - using test mode")

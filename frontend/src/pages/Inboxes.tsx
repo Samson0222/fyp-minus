@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import Layout from "@/components/layout/Layout";
-import InteractionArea from "@/components/ai/InteractionArea";
+import ComposeEmailModal from "@/components/tasks/ComposeEmailModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,8 +20,18 @@ import {
   Filter,
   AlertCircle,
   LogOut,
-  User
+  User,
+  Edit,
+  X,
+  ChevronDown,
+  Check
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface EmailSender {
   name?: string;
@@ -52,11 +62,15 @@ interface EmailListResponse {
 const Inboxes = () => {
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState<EmailMessage | null>(null);
   const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'not_authenticated'>('checking');
-  const [isListening, setIsListening] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  const [showSentOnly, setShowSentOnly] = useState(false);
+  const [showImportantOnly, setShowImportantOnly] = useState(false);
+  const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const { toast } = useToast();
 
   // Check Gmail authentication status
@@ -67,9 +81,68 @@ const Inboxes = () => {
   // Load emails when authenticated
   useEffect(() => {
     if (authStatus === 'authenticated') {
-      loadEmails();
+      loadEmails(true); // Initial load with loading state
     }
-  }, [authStatus, showUnreadOnly, searchQuery]);
+  }, [authStatus, showUnreadOnly, showSentOnly, showImportantOnly]);
+
+  // Debounced search effect - triggers 500ms after user stops typing
+  useEffect(() => {
+    if (authStatus === 'authenticated') {
+      const debounceTimer = setTimeout(() => {
+        loadEmails(true); // Search with loading state
+      }, 500);
+
+      return () => clearTimeout(debounceTimer);
+    }
+  }, [searchQuery, authStatus]);
+
+  // Smart auto-refresh only when tab is active and less frequent
+  useEffect(() => {
+    if (authStatus === 'authenticated') {
+      let refreshInterval: NodeJS.Timeout;
+      
+      const handleVisibilityChange = () => {
+        // Clear existing interval
+        if (refreshInterval) {
+          clearInterval(refreshInterval);
+        }
+        
+                // Only set up auto-refresh when tab is visible
+        if (!document.hidden) {
+          console.log('Tab is active - setting up smart refresh...');
+          refreshInterval = setInterval(() => {
+            console.log('Smart auto-refresh (tab active)...');
+            refreshEmails(); // Background refresh without loading state
+          }, 300000); // 5 minutes instead of 30 seconds
+        }
+      };
+      
+      // Set up initial interval and visibility listener
+      handleVisibilityChange();
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      
+      return () => {
+        clearInterval(refreshInterval);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
+    }
+      }, [authStatus, showUnreadOnly, showSentOnly, showImportantOnly, searchQuery]); // Re-setup interval when filters change
+
+  // Keyboard shortcuts for refresh
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (authStatus === 'authenticated') {
+        // Ctrl+R or F5 for refresh
+        if ((event.ctrlKey && event.key === 'r') || event.key === 'F5') {
+          event.preventDefault(); // Prevent browser refresh
+          manualRefresh();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [authStatus]); // Only depends on authStatus
 
   const checkAuthStatus = async () => {
     try {
@@ -116,33 +189,96 @@ const Inboxes = () => {
     }
   };
 
-  const loadEmails = async () => {
+  const loadEmails = async (showLoader: boolean = true) => {
     try {
-      setLoading(true);
+      const previousEmailCount = emails.length;
+      
+      if (showLoader) {
+        setLoading(true);
+      } else {
+        setBackgroundRefreshing(true);
+      }
+      
       const params = new URLSearchParams({
-        count: '30',
+        count: '15', // Reduced from 30 to 15 for faster loading
         minimal: 'true',
         unread_only: showUnreadOnly.toString(),
-        query: searchQuery
+        sent_only: showSentOnly.toString(),
+        query: searchQuery.trim()
       });
 
+      console.log('Loading emails with params:', Object.fromEntries(params));
+      
       const response = await fetch(`/api/v1/gmail/emails?${params}`);
       if (!response.ok) {
         throw new Error('Failed to load emails');
       }
 
       const data: EmailListResponse = await response.json();
-      setEmails(data.emails);
+      console.log(`Search results: ${data.emails.length} emails found for query: "${searchQuery.trim()}"`);
+      
+      // Apply client-side filtering for important emails
+      let filteredEmails = data.emails;
+      if (showImportantOnly) {
+        filteredEmails = data.emails.filter(email => email.is_important);
+      }
+      
+      const newEmailCount = filteredEmails.length;
+      const isBackgroundRefresh = !showLoader && previousEmailCount > 0;
+      
+      setEmails(filteredEmails);
+      setLastRefresh(new Date());
+      
+      // Check for new emails during background refresh
+      if (isBackgroundRefresh && newEmailCount > previousEmailCount) {
+        const newEmailsFound = newEmailCount - previousEmailCount;
+        toast({
+          title: "📧 New Email" + (newEmailsFound > 1 ? "s" : ""),
+          description: `${newEmailsFound} new email${newEmailsFound > 1 ? 's' : ''} received!`,
+          variant: "default",
+          duration: 4000
+        });
+      }
+      
+      // Show search feedback only when there's actually a search query or filters applied
+      if ((searchQuery.trim() || showImportantOnly) && filteredEmails.length === 0) {
+        const filterDescription = showImportantOnly ? "important emails" : "emails";
+        const searchDescription = searchQuery.trim() ? ` for "${searchQuery.trim()}"` : "";
+        toast({
+          title: "No Results Found",
+          description: `No ${filterDescription} found${searchDescription}. Try different search terms or filters.`,
+          variant: "default"
+        });
+      }
     } catch (error) {
       console.error('Error loading emails:', error);
-      toast({
-        title: "Error Loading Emails",
-        description: "Failed to load emails. Please try again.",
-        variant: "destructive"
-      });
+      if (showLoader) { // Only show error toast for initial loads, not background refreshes
+        toast({
+          title: "Error Loading Emails",
+          description: "Failed to load emails. Please try again.",
+          variant: "destructive"
+        });
+      }
     } finally {
-      setLoading(false);
+      if (showLoader) {
+        setLoading(false);
+      } else {
+        setBackgroundRefreshing(false);
+      }
     }
+  };
+
+  const refreshEmails = async () => {
+    await loadEmails(false); // Background refresh without loading state
+  };
+
+  const manualRefresh = async () => {
+    await loadEmails(true); // Manual refresh with loading feedback
+    toast({
+      title: "Refreshed",
+      description: "Inbox updated with latest emails.",
+      variant: "default"
+    });
   };
 
   const handleEmailClick = async (email: EmailMessage) => {
@@ -175,43 +311,35 @@ const Inboxes = () => {
     }
   };
 
-  const handleVoiceCommand = async (command: string) => {
+  const handleMarkAsUnread = async (emailId: string) => {
     try {
-      const response = await fetch('/api/v1/gmail/voice-command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command })
+      const response = await fetch(`/api/v1/gmail/mark-unread/${emailId}`, { 
+        method: 'POST' 
       });
-
-      const result = await response.json();
       
-      toast({
-        title: "Voice Command Processed",
-        description: result.response
-      });
-
-      // Refresh emails if the command was to read emails
-      if (result.command_type === 'read_emails' || result.command_type === 'read_unread') {
-        if (result.data && result.data.emails) {
-          setEmails(result.data.emails);
+      if (response.ok) {
+        // Update the email in both the list and selected email
+        setEmails(prev => 
+          prev.map(e => e.id === emailId ? { ...e, is_read: false } : e)
+        );
+        
+        if (selectedEmail && selectedEmail.id === emailId) {
+          setSelectedEmail(prev => prev ? { ...prev, is_read: false } : null);
         }
+
+        toast({
+          title: "Marked as Unread",
+          description: "Email has been marked as unread."
+        });
+      } else {
+        throw new Error('Failed to mark as unread');
       }
     } catch (error) {
-      console.error('Error processing voice command:', error);
+      console.error('Error marking email as unread:', error);
       toast({
         title: "Error",
-        description: "Failed to process voice command",
+        description: "Failed to mark email as unread.",
         variant: "destructive"
-      });
-    }
-  };
-
-  const handleToggleListening = () => {
-    setIsListening(prev => !prev);
-    if (!isListening) {
-      toast({
-        title: "Voice Recognition Active",
-        description: "Say a command like 'Read my emails' or 'Send email to john@example.com'"
       });
     }
   };
@@ -219,15 +347,69 @@ const Inboxes = () => {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
-    const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
-    if (diffDays === 1) {
-      return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    } else if (diffDays <= 7) {
-      return date.toLocaleDateString('en-US', { weekday: 'short' });
+    // Convert both to Malaysia timezone for comparison
+    const malaysiaOptions: Intl.DateTimeFormatOptions = {
+      timeZone: 'Asia/Kuala_Lumpur'
+    };
+    
+    const emailDate = new Date(date.toLocaleString('en-US', malaysiaOptions));
+    const currentDate = new Date(now.toLocaleString('en-US', malaysiaOptions));
+    
+    const diffInMs = currentDate.getTime() - emailDate.getTime();
+    const diffInHours = diffInMs / (1000 * 60 * 60);
+    const diffInDays = Math.floor(diffInHours / 24);
+    
+    // Check if it's today
+    const isToday = emailDate.toDateString() === currentDate.toDateString();
+    
+    // Check if it's yesterday
+    const yesterday = new Date(currentDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = emailDate.toDateString() === yesterday.toDateString();
+
+    if (isToday) {
+      // Show time for today's emails (e.g., "1:33 PM")
+      return date.toLocaleTimeString('en-MY', { 
+        timeZone: 'Asia/Kuala_Lumpur',
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true
+      });
+    } else if (isYesterday) {
+      // Show time for yesterday's emails (e.g., "Yesterday 2:15 PM")
+      return 'Yesterday ' + date.toLocaleTimeString('en-MY', { 
+        timeZone: 'Asia/Kuala_Lumpur',
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true
+      });
+    } else if (diffInDays < 7) {
+      // Show day and time for this week (e.g., "Mon 10:30 AM")
+      return date.toLocaleDateString('en-MY', { 
+        timeZone: 'Asia/Kuala_Lumpur',
+        weekday: 'short' 
+      }) + ' ' + date.toLocaleTimeString('en-MY', { 
+        timeZone: 'Asia/Kuala_Lumpur',
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true
+      });
+    } else if (diffInDays < 365) {
+      // Show date for this year (e.g., "Jan 15")
+      return date.toLocaleDateString('en-MY', { 
+        timeZone: 'Asia/Kuala_Lumpur',
+        month: 'short', 
+        day: 'numeric' 
+      });
     } else {
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      // Show date with year for older emails (e.g., "Jan 15, '23")
+      return date.toLocaleDateString('en-MY', { 
+        timeZone: 'Asia/Kuala_Lumpur',
+        year: '2-digit', 
+        month: 'short', 
+        day: 'numeric' 
+      });
     }
   };
 
@@ -237,9 +419,152 @@ const Inboxes = () => {
 
   const unreadCount = emails.filter(email => !email.is_read).length;
 
+  // Helper functions for filter management
+  const getActiveFilters = () => {
+    const filters = [];
+    if (showUnreadOnly) filters.push('Unread');
+    if (showSentOnly) filters.push('Sent');
+    if (showImportantOnly) filters.push('Important');
+    return filters;
+  };
+
+  const clearAllFilters = () => {
+    setShowUnreadOnly(false);
+    setShowSentOnly(false);
+    setShowImportantOnly(false);
+  };
+
+  const getFilterButtonText = () => {
+    const activeFilters = getActiveFilters();
+    if (activeFilters.length === 0) return 'All Emails';
+    if (activeFilters.length === 1) return activeFilters[0];
+    return `${activeFilters.length} Filters`;
+  };
+
+  // Add handler for when email is sent
+  const handleEmailSent = () => {
+    // Refresh the email list to include the sent email if it shows up in inbox
+    refreshEmails(); // Use background refresh for faster experience
+    toast({
+      title: "Email Sent",
+      description: "Your email has been sent successfully!"
+    });
+  };
+
+  // Voice command handlers
+  const handleVoiceUnreadFilter = () => {
+    clearAllFilters();
+    setShowUnreadOnly(true);
+    toast({
+      title: "Filter Applied",
+      description: "Showing unread emails only"
+    });
+  };
+
+  const handleVoiceRefresh = () => {
+    manualRefresh();
+    toast({
+      title: "Refreshing",
+      description: "Checking for new emails..."
+    });
+  };
+
+  const handleVoiceCompose = () => {
+    setIsComposeModalOpen(true);
+    toast({
+      title: "Compose Email",
+      description: "Opening email composer..."
+    });
+  };
+
+  const handleVoiceMarkAsUnread = (emailId?: string) => {
+    if (selectedEmail) {
+      handleMarkAsUnread(selectedEmail.id);
+    } else if (emailId) {
+      handleMarkAsUnread(emailId);
+    } else {
+      toast({
+        title: "Mark as Unread",
+        description: "Please select an email first or specify which email to mark as unread",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleVoiceSearch = (query: string) => {
+    setSearchQuery(query);
+    toast({
+      title: "Search Applied",
+      description: `Searching for: ${query}`
+    });
+  };
+
+  const handleVoiceClearFilters = () => {
+    clearAllFilters();
+    setSearchQuery("");
+    toast({
+      title: "Filters Cleared",
+      description: "Showing all emails"
+    });
+  };
+
+  const handleVoiceReply = () => {
+    if (selectedEmail) {
+      // In a full implementation, this would open a reply composer
+      toast({
+        title: "Reply Composer",
+        description: `Opening reply to: ${selectedEmail.subject}`,
+        duration: 3000
+      });
+    } else {
+      toast({
+        title: "No Email Selected",
+        description: "Please select an email first to reply",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleVoiceForward = (recipient?: string) => {
+    if (selectedEmail) {
+      if (recipient) {
+        // In a full implementation, this would forward the email
+        toast({
+          title: "Forward Email",
+          description: `Forwarding "${selectedEmail.subject}" to ${recipient}`,
+          duration: 3000
+        });
+      } else {
+        toast({
+          title: "Forward Composer",
+          description: `Opening forward composer for: ${selectedEmail.subject}`,
+          duration: 3000
+        });
+      }
+    } else {
+      toast({
+        title: "No Email Selected",
+        description: "Please select an email first to forward",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Voice command callbacks object
+  const voiceCommandCallbacks = {
+    onUnreadFilter: handleVoiceUnreadFilter,
+    onRefreshEmails: handleVoiceRefresh,
+    onComposeEmail: handleVoiceCompose,
+    onMarkAsUnread: handleVoiceMarkAsUnread,
+    onSearchEmails: handleVoiceSearch,
+    onClearFilters: handleVoiceClearFilters,
+    onReplyEmail: handleVoiceReply,
+    onForwardEmail: handleVoiceForward,
+  };
+
   if (authStatus === 'checking') {
     return (
-      <Layout>
+      <Layout voiceCommandCallbacks={voiceCommandCallbacks}>
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-center flex-1">
             <div className="text-center">
@@ -254,7 +579,7 @@ const Inboxes = () => {
 
   if (authStatus === 'not_authenticated') {
     return (
-      <Layout>
+      <Layout voiceCommandCallbacks={voiceCommandCallbacks}>
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-center flex-1">
             <Card className="w-full max-w-md">
@@ -282,55 +607,125 @@ const Inboxes = () => {
   }
 
   return (
-    <Layout>
+    <Layout onComposeEmail={() => setIsComposeModalOpen(true)} voiceCommandCallbacks={voiceCommandCallbacks}>
       <div className="flex flex-col h-full">
-        {/* Header */}
-        <div className="flex-shrink-0 p-6 border-b border-white/10">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Mail className="h-6 w-6 text-violet" />
-              <h1 className="text-2xl font-bold">Inbox</h1>
-              {unreadCount > 0 && (
-                <Badge variant="secondary" className="bg-violet/20 text-violet">
-                  {unreadCount} unread
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowUnreadOnly(!showUnreadOnly)}
-              >
-                <Filter className="h-4 w-4 mr-2" />
-                {showUnreadOnly ? 'All' : 'Unread'}
-              </Button>
-              <Button variant="outline" size="sm" onClick={loadEmails}>
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleSwitchAccount}
-                className="text-orange-400 border-orange-400/50 hover:bg-orange-400/10"
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                Switch Account
-              </Button>
-            </div>
-          </div>
-          
-          {/* Search */}
-          <div className="flex gap-2">
-            <div className="relative flex-1">
+        {/* Compact Header */}
+        <div className="flex-shrink-0 p-3 lg:p-4 border-b border-white/10">
+          <div className="flex items-center justify-between gap-4">
+            {/* Left Side: Search Bar */}
+            <div className="relative w-full max-w-sm">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-foreground/50" />
               <input
                 type="text"
                 placeholder="Search emails..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-dark-secondary border border-white/10 rounded-lg focus:outline-none focus:border-violet/50"
+                className="w-full pl-10 pr-10 py-2 bg-dark-secondary border border-white/10 rounded-lg focus:outline-none focus:border-violet/50 text-sm"
               />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-foreground/50 hover:text-foreground transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Right Side: Update | Refresh | Compose | Filter | Switch */}
+            <div className="flex items-center gap-2">
+              {/* Unread Badge */}
+              {unreadCount > 0 && (
+                <Badge variant="secondary" className="bg-violet/20 text-violet text-xs">
+                  {unreadCount}
+                </Badge>
+              )}
+
+              {/* Update Status */}
+              <div className="flex items-center gap-2 text-xs text-foreground/50 whitespace-nowrap">
+                {backgroundRefreshing && (
+                  <div className="flex items-center gap-1 text-violet-400">
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    <span className="hidden sm:inline">Updating...</span>
+                  </div>
+                )}
+                {lastRefresh && !backgroundRefreshing && (
+                  <span className="hidden lg:inline">Updated: {lastRefresh.toLocaleTimeString('en-MY', { 
+                    timeZone: 'Asia/Kuala_Lumpur',
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    hour12: true
+                  })}</span>
+                )}
+              </div>
+
+              {/* Refresh Button */}
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={manualRefresh}
+                disabled={loading || backgroundRefreshing}
+                title="Refresh emails (Ctrl+R)"
+              >
+                <RefreshCw className={`h-4 w-4 ${backgroundRefreshing ? 'animate-spin' : ''}`} />
+              </Button>
+
+              {/* Compose Button */}
+              <Button
+                onClick={() => setIsComposeModalOpen(true)}
+                className="bg-violet hover:bg-violet-light text-white"
+                size="sm"
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Compose</span>
+                <span className="sm:hidden sr-only">Compose</span>
+              </Button>
+
+              {/* Filter Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    className={`${getActiveFilters().length > 0 ? 'bg-violet/20 text-violet border-violet' : ''} min-w-0`}
+                  >
+                    <Filter className="h-4 w-4 mr-2" />
+                    <span className="hidden sm:inline">{getFilterButtonText()}</span>
+                    <span className="sm:hidden">Filter</span>
+                    <ChevronDown className="h-4 w-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={clearAllFilters}>
+                    <Check className={`h-4 w-4 mr-2 ${getActiveFilters().length === 0 ? 'opacity-100' : 'opacity-0'}`} />
+                    All Emails
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowUnreadOnly(!showUnreadOnly)}>
+                    <Check className={`h-4 w-4 mr-2 ${showUnreadOnly ? 'opacity-100' : 'opacity-0'}`} />
+                    Unread Only
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowSentOnly(!showSentOnly)}>
+                    <Check className={`h-4 w-4 mr-2 ${showSentOnly ? 'opacity-100' : 'opacity-0'}`} />
+                    Sent Emails
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowImportantOnly(!showImportantOnly)}>
+                    <Check className={`h-4 w-4 mr-2 ${showImportantOnly ? 'opacity-100' : 'opacity-0'}`} />
+                    Important
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Switch Button */}
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleSwitchAccount}
+                className="text-orange-400 border-orange-400/50 hover:bg-orange-400/10"
+                title="Switch Account"
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                <span className="hidden lg:inline">Switch</span>
+              </Button>
             </div>
           </div>
         </div>
@@ -338,7 +733,7 @@ const Inboxes = () => {
         {/* Content */}
         <div className="flex-1 flex overflow-hidden">
           {/* Email List */}
-          <div className="w-1/3 border-r border-white/10 flex flex-col">
+          <div className="min-w-[320px] max-w-[400px] flex-shrink-0 border-r border-white/10 flex flex-col">
             <ScrollArea className="flex-1">
               {loading ? (
                 <div className="p-4 space-y-4">
@@ -361,36 +756,43 @@ const Inboxes = () => {
                     <div
                       key={email.id}
                       onClick={() => handleEmailClick(email)}
-                      className={`p-4 cursor-pointer transition-colors hover:bg-white/5 ${
+                      className={`p-4 h-[88px] cursor-pointer transition-colors hover:bg-white/5 ${
                         selectedEmail?.id === email.id ? 'bg-violet/10' : ''
                       } ${!email.is_read ? 'bg-blue/5' : ''}`}
                     >
-                      <div className="flex items-start gap-3">
+                      <div className="flex items-start gap-3 h-full">
                         <div className="flex-shrink-0 mt-1">
                           {email.is_read ? (
                             <MailOpen className="h-4 w-4 text-foreground/50" />
                           ) : (
-                            <Mail className="h-4 w-4 text-blue-400" />
+                            <Mail className="h-4 w-4 text-violet" />
                           )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-1">
-                            <p className={`text-sm truncate ${!email.is_read ? 'font-semibold' : ''}`}>
+                        <div className="flex-1 min-w-0 flex flex-col justify-between h-full">
+                          {/* Row 1: Sender and Timestamp */}
+                          <div className="flex items-start justify-between mb-1">
+                            <p className={`text-sm truncate flex-1 mr-2 ${!email.is_read ? 'font-semibold' : ''}`}>
                               {getSenderDisplay(email.sender)}
                             </p>
-                            <span className="text-xs text-foreground/50 flex-shrink-0 ml-2">
+                            <span className="text-xs text-foreground/50 flex-shrink-0 min-w-[70px] text-right">
                               {formatDate(email.date)}
                             </span>
                           </div>
-                          <p className={`text-sm mb-1 truncate ${!email.is_read ? 'font-medium' : 'text-foreground/70'}`}>
-                            {email.subject}
-                          </p>
-                          <p className="text-xs text-foreground/50 line-clamp-2">
-                            {email.snippet}
-                          </p>
-                          {email.is_important && (
-                            <Star className="h-3 w-3 text-yellow-500 mt-1" />
-                          )}
+                          {/* Row 2: Subject (full line, no truncation) */}
+                          <div className="flex items-center justify-between mb-1">
+                            <p className={`text-sm flex-1 mr-2 ${!email.is_read ? 'font-medium' : 'text-foreground/70'}`}>
+                              {email.subject}
+                            </p>
+                            {email.is_important && (
+                              <Star className="h-3 w-3 text-yellow-500 flex-shrink-0" />
+                            )}
+                          </div>
+                          {/* Row 3: Snippet (can be truncated) */}
+                          <div className="flex items-end">
+                            <p className="text-xs text-foreground/50 line-clamp-1 flex-1">
+                              {email.snippet}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -406,32 +808,57 @@ const Inboxes = () => {
               <>
                 {/* Email Header */}
                 <div className="flex-shrink-0 p-6 border-b border-white/10">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1 min-w-0">
-                      <h2 className="text-xl font-semibold mb-2">{selectedEmail.subject}</h2>
-                      <div className="flex items-center gap-2 text-sm text-foreground/70">
-                        <span className="font-medium">{getSenderDisplay(selectedEmail.sender)}</span>
-                        <span>&lt;{selectedEmail.sender.email}&gt;</span>
-                        <span>•</span>
-                        <span>{new Date(selectedEmail.date).toLocaleString()}</span>
-                      </div>
+                  {/* Email Title */}
+                  <div className="mb-3">
+                    <h2 className="text-xl font-semibold mb-2">{selectedEmail.subject}</h2>
+                  </div>
+                  
+                  {/* Sender Info */}
+                  <div className="mb-4">
+                    <div className="flex items-center gap-2 text-sm text-foreground/70 mb-1">
+                      <span className="font-medium text-foreground">{getSenderDisplay(selectedEmail.sender)}</span>
+                      <span className="text-foreground/50">({selectedEmail.sender.email})</span>
                     </div>
-                    <div className="flex items-center gap-2 ml-4">
-                      <Button variant="outline" size="sm">
-                        <Reply className="h-4 w-4 mr-2" />
-                        Reply
-                      </Button>
-                      <Button variant="outline" size="sm">
-                        <Forward className="h-4 w-4 mr-2" />
-                        Forward
-                      </Button>
-                      <Button variant="outline" size="sm">
-                        <Archive className="h-4 w-4" />
-                      </Button>
-                      <Button variant="outline" size="sm">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    <div className="text-xs text-foreground/50">
+                      {new Date(selectedEmail.date).toLocaleDateString('en-MY', { 
+                        timeZone: 'Asia/Kuala_Lumpur',
+                        weekday: 'long', 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      })}
                     </div>
+                  </div>
+                  
+                  {/* Action Buttons */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm">
+                      <Reply className="h-4 w-4 mr-2" />
+                      Reply
+                    </Button>
+                    <Button variant="outline" size="sm">
+                      <Forward className="h-4 w-4 mr-2" />
+                      Forward
+                    </Button>
+                    {selectedEmail.is_read && (
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => handleMarkAsUnread(selectedEmail.id)}
+                      >
+                        <MailOpen className="h-4 w-4 mr-2" />
+                        Mark Unread
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm">
+                      <Archive className="h-4 w-4" />
+                    </Button>
+                    <Button variant="outline" size="sm">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
 
@@ -458,16 +885,14 @@ const Inboxes = () => {
             )}
           </div>
         </div>
-
-        {/* Voice Interaction */}
-        <div className="flex-shrink-0 border-t border-white/10">
-          <InteractionArea
-            onSendMessage={handleVoiceCommand}
-            onToggleListening={handleToggleListening}
-            isListening={isListening}
-          />
-        </div>
       </div>
+
+      {/* Compose Email Modal */}
+      <ComposeEmailModal
+        isOpen={isComposeModalOpen}
+        onOpenChange={setIsComposeModalOpen}
+        onEmailSent={handleEmailSent}
+      />
     </Layout>
   );
 };

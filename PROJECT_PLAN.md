@@ -5,7 +5,7 @@
 
 **Project Title**: Voice-Controlled AI Assistant for Professional Communication and Task Management  
 **Focus**: Accessibility solution for individuals with hand mobility limitations  
-**Duration**: 2 weeks development + 1 week UAT + 1 week report writing  
+**Duration**: 1 week broad development + 1 week deep features & UAT + 1 week report writing  
 **Target Platforms**: Gmail, Google Docs, Google Calendar, Telegram  
 
 ---
@@ -13,7 +13,7 @@
 ## 📋 Academic Objectives
 
 1. **Primary Goal**: Design and implement a voice-controlled AI assistant that enables users with physical disabilities to manage professional communications effectively
-2. **Technical Innovation**: Demonstrate integration of STT, NLP, LLMs, and MCP protocol for accessibility applications
+2. **Technical Innovation**: Demonstrate integration of FastRTC, STT, NLP, LLMs, and intelligent agents for accessibility applications
 3. **User-Centered Design**: Create an intuitive, accessible interface validated through user testing
 4. **Academic Contribution**: Advance research in workplace accessibility technology
 
@@ -22,294 +22,253 @@
 ## 🏗️ Technical Architecture
 
 ```
-Voice Input → Whisper STT → LangChain Agent → MCP Servers → Platform APIs
-                                    ↓              ↓
-                            [Query Planning]  [Gmail, Docs, Calendar, Telegram]
-                                    ↓              ↓
-                           [Result Fusion] ← [Unified Results]
-                                    ↓
-                           Response → TTS → Audio Output
+Voice Input → FastRTC (Moonshine STT) → LangChain Agent → Platform APIs
+                                              ↓              ↓
+                                      [Command Router]  [Gmail, Docs, Calendar, Telegram]
+                                              ↓              ↓
+                                     [Response Generator] ← [Unified Results]
+                                              ↓
+                                   Response → Kokoro TTS → Audio Output
 ```
 
-### Core Technology Stack
-- **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS
-- **Backend**: FastAPI + Python + LangChain
+### Updated Technology Stack
+- **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS (existing UI preserved)
+- **Voice Pipeline**: FastRTC with built-in Moonshine STT + Kokoro TTS
+- **Backend**: FastAPI + Python + LangChain Agent
 - **Database**: Supabase (PostgreSQL + Auth)
-- **AI Services**: OpenAI Whisper (STT), Gemma/GPT-4o (LLM), ElevenLabs (TTS)
-- **Integration**: MCP (Model Context Protocol) for platform connectivity
+- **LLM**: Groq (fast, free tier) with local Gemma fallback
+- **Integration**: Direct API integration for all platforms
 
 ---
 
-## 📅 Development Timeline
+## 📅 Revised 3-Week Development Timeline
 
-### Week 1: Core Development (Days 1-7)
-**Goal**: Build fundamental voice interface and platform integrations
+### **WEEK 1: BROAD - All 4 Platforms Basic Functions (Days 1-7)**
+**Strategy**: Go broad first - get basic functionality working across all platforms simultaneously
 
-#### Day 1: Foundation Setup
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] Set up development environment (React + FastAPI)
-- [ ] Configure Supabase project and authentication
-- [ ] Initialize voice pipeline (Web Audio API setup)
-- [ ] Basic FastAPI structure with CORS
-- [ ] Environment variables configuration
+#### **Day 1: Foundation + Gmail + Calendar**
+**Time**: 8 hours  
+**Morning Session (4h)**:
+- [ ] FastRTC setup + LangChain agent foundation
+- [ ] Voice pipeline test (record → transcribe → respond)
+- [ ] Groq LLM integration with command routing
 
-**Deliverables**:
-- Working dev environment
-- Basic voice recording functionality
-- API endpoints structure
-
-#### Day 2: Voice Pipeline Implementation
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] Implement Whisper STT integration
-- [ ] Add TTS service (ElevenLabs/Google)
-- [ ] Voice activity detection
-- [ ] Audio processing and error handling
-- [ ] Basic voice command testing
+**Afternoon Session (4h)**:
+- [ ] **Gmail Basic**: Read unread emails, basic compose functionality
+- [ ] **Calendar Basic**: Check today's schedule, create simple event
+- [ ] Test voice commands: "read my emails", "what's my schedule today"
 
 **Deliverables**:
-- Complete voice input/output pipeline
-- Audio quality optimization
-- Voice command recognition testing
+- Working voice pipeline with FastRTC
+- Basic Gmail email reading and composition
+- Basic Calendar schedule checking and event creation
 
-#### Day 3: Gmail Integration
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] Google API credentials setup
-- [ ] Gmail MCP server integration
-- [ ] Email reading functionality
-- [ ] Email composition via voice
-- [ ] Email search and filtering
+#### **Day 2: Docs + Telegram + Agent Router**
+**Time**: 8 hours  
+**Morning Session (4h)**:
+- [ ] **Google Docs Basic**: Create document, read document content
+- [ ] **Telegram Basic**: Send message, read recent messages
 
-**Voice Commands to Implement**:
-- "Read my unread emails"
-- "Compose email to [person] about [subject]"
-- "Reply to this email"
-- "Search for emails from [person]"
+**Afternoon Session (4h)**:
+- [ ] LangChain agent router for all 4 platforms
+- [ ] Command routing logic: detect which platform to use
+- [ ] Voice commands: "create document", "send message to team"
 
 **Deliverables**:
-- Working Gmail voice commands
-- Email management without keyboard/mouse
+- Basic Google Docs document creation and reading
+- Basic Telegram messaging functionality
+- Intelligent command routing across platforms
 
-#### Day 4: Google Docs Integration
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] Google Docs API integration
-- [ ] Document creation via voice
-- [ ] Document editing and formatting
-- [ ] Document search and navigation
-- [ ] Template-based document creation
+#### **Day 3: Integration + UI Bridge + Error Handling**
+**Time**: 8 hours  
+**Morning Session (4h)**:
+- [ ] End-to-end voice testing across all 4 platforms
+- [ ] Add voice button to existing React UI (minimal disruption)
+- [ ] Connect FastRTC service to existing ChatSidebar
 
-**Voice Commands to Implement**:
-- "Create new document called [name]"
-- "Open document [name]"
-- "Add paragraph: [content]"
-- "Format as bullet points"
-- "Save document"
+**Afternoon Session (4h)**:
+- [ ] Error handling and fallback responses for all platforms
+- [ ] Voice feedback for successful/failed commands
+- [ ] Basic accessibility features (clear voice responses)
 
 **Deliverables**:
-- Voice-controlled document creation
-- Professional document formatting via voice
-
-#### Day 5: Google Calendar Integration
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] Google Calendar API setup
-- [ ] Event creation via voice commands
-- [ ] Calendar reading and navigation
-- [ ] Meeting scheduling with participants
-- [ ] Event modification and deletion
-
-**Voice Commands to Implement**:
-- "Schedule meeting with [person] [day] at [time]"
-- "What's on my calendar today?"
-- "Cancel my 3 PM meeting"
-- "Block 2 hours for project work tomorrow"
-
-**Deliverables**:
-- Complete calendar management via voice
-- Meeting scheduling without manual input
-
-#### Day 6: Telegram Integration
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] Telegram Bot API setup
-- [ ] Message sending functionality
-- [ ] Group notification system
-- [ ] Quick announcement features
-- [ ] Integration with other platforms
-
-**Voice Commands to Implement**:
-- "Send message to team: [message]"
-- "Notify everyone about [announcement]"
-- "Tell the group: [update]"
-
-**Deliverables**:
-- Team communication via voice
-- Cross-platform notification system
-
-#### Day 7: LangChain Agent Integration
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] LangChain setup with chosen LLM
-- [ ] MCP tool integration
-- [ ] Cross-platform query handling
-- [ ] Context-aware responses
-- [ ] Command disambiguation
-
-**Deliverables**:
-- Intelligent voice command processing
-- Cross-platform workflow automation
-
-### Week 2: Advanced Features & Polish (Days 8-14)
-
-#### Day 8: Cross-Platform Intelligence
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] Unified search across platforms
-- [ ] Email → Calendar workflow
-- [ ] Document → Calendar integration
-- [ ] Calendar → Telegram notifications
-- [ ] Context correlation between platforms
-
-**Advanced Commands**:
-- "Schedule meeting based on John's email"
-- "Create calendar events for document deadlines"
-- "Notify team about schedule changes"
-
-**Deliverables**:
-- Sophisticated cross-platform workflows
-- Intelligent task automation
-
-#### Day 9: Accessibility Features
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] High contrast UI mode
-- [ ] Adjustable speech rate for TTS
-- [ ] Voice feedback for all actions
-- [ ] Error correction workflows
-- [ ] Screen reader compatibility
-
-**Accessibility Features**:
-- "Repeat that" command
-- "Slow down" / "Speed up" for TTS
-- "Help me with [task]" guidance
-- Visual indicators for voice states
-
-**Deliverables**:
-- WCAG 2.1 compliant interface
-- Enhanced accessibility features
-
-#### Day 10: Performance Optimization
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] Response time optimization
-- [ ] Voice recognition accuracy tuning
-- [ ] Error handling improvements
-- [ ] Caching implementation
-- [ ] API rate limiting
-
-**Performance Targets**:
-- <2 second voice command response
-- >95% voice recognition accuracy
-- Graceful error recovery
-- Responsive UI feedback
-
-**Deliverables**:
-- Optimized system performance
+- All 4 platforms working with voice commands
+- Voice integration with existing UI
 - Robust error handling
 
-#### Day 11: User Interface Polish
-**Time**: 6-8 hours  
-**Tasks**:
-- [ ] Professional UI design
-- [ ] Loading states and feedback
-- [ ] Voice command visualization
-- [ ] Platform status indicators
-- [ ] Demo-ready interface
-
-**UI Features**:
-- Voice recording visualization
-- Command history display
-- Platform connection status
-- Clear action confirmations
-
-**Deliverables**:
-- Polished, professional interface
-- Demo-ready user experience
-
-#### Days 12-14: Testing & Documentation
-**Time**: 6-8 hours per day  
-**Tasks**:
-- [ ] Comprehensive system testing
-- [ ] User testing with target audience
-- [ ] Bug fixes and improvements
-- [ ] Performance validation
-- [ ] Demo script preparation
-- [ ] Technical documentation
-- [ ] User guide creation
-
-**Testing Focus**:
-- Accessibility compliance testing
-- Voice command accuracy validation
-- Cross-platform workflow testing
-- User feedback collection
-
-**Deliverables**:
-- Fully tested system
-- User validation results
-- Complete documentation
+### **WEEK 1 MILESTONE**: ✅ Basic voice control for Gmail, Calendar, Docs, and Telegram
 
 ---
 
-## 🎯 Core Features by Platform
+### **Days 4-7: DEEP - Advanced Features for All Platforms**
+
+#### **Day 4: Gmail + Calendar Advanced Features**
+**Time**: 8 hours  
+**Morning Session (4h)**:
+- [ ] **Gmail Advanced**: Reply to emails, search with filters, email templates
+- [ ] Voice commands: "reply to John's email", "search emails from Sarah about budget"
+
+**Afternoon Session (4h)**:
+- [ ] **Calendar Advanced**: Schedule meetings with attendees, set reminders, check availability
+- [ ] Voice commands: "schedule meeting with John and Sarah tomorrow at 2pm"
+
+**Deliverables**:
+- Advanced Gmail email management
+- Sophisticated calendar scheduling with multiple participants
+
+#### **Day 5: Docs + Telegram Advanced Features**
+**Time**: 8 hours  
+**Morning Session (4h)**:
+- [ ] **Docs Advanced**: Edit documents, format text, share documents, collaborative features
+- [ ] Voice commands: "add bullet points", "format as heading", "share document with team"
+
+**Afternoon Session (4h)**:
+- [ ] **Telegram Advanced**: Manage groups, forward messages, media handling
+- [ ] Voice commands: "forward this message to project group", "notify all team channels"
+
+**Deliverables**:
+- Professional document editing via voice
+- Advanced team communication features
+
+#### **Day 6: AI Intelligence + Voice Optimization**
+**Time**: 8 hours  
+**Morning Session (4h)**:
+- [ ] Optimize voice recognition for domain-specific commands
+- [ ] Accessibility improvements (adjustable speech rate, voice feedback)
+- [ ] Context-aware command suggestions
+
+**Afternoon Session (4h)**:
+- [ ] Enhance LangChain agent with context memory
+- [ ] Cross-platform workflow automation
+- [ ] Smart command disambiguation
+
+**Deliverables**:
+- Optimized voice recognition accuracy
+- Intelligent cross-platform workflows
+- Enhanced accessibility features
+
+#### **Day 7: Week 1 Polish + Performance**
+**Time**: 8 hours  
+- [ ] Bug fixes across all platforms
+- [ ] Performance optimization (sub-2 second response times)
+- [ ] Cross-platform integration testing
+- [ ] Prepare system for UAT
+- [ ] Documentation for user testing
+
+**Deliverables**:
+- Polished, stable system ready for user testing
+- All 4 platforms with basic + advanced features
+- Performance-optimized voice interface
+
+---
+
+### **WEEK 2: UAT + Refinement (Days 8-14)**
+
+#### **Days 8-10: User Acceptance Testing**
+**Focus**: Testing with accessibility users
+**Tasks**:
+- [ ] Recruit 3-5 users with hand mobility limitations
+- [ ] Conduct structured user testing sessions
+- [ ] Test all 4 platforms with real-world scenarios
+- [ ] Collect usability feedback and performance metrics
+- [ ] Document accessibility compliance
+
+**Testing Scenarios**:
+1. **Email Workflow**: Compose and send professional email via voice only
+2. **Document Creation**: Create formatted meeting agenda using voice commands
+3. **Calendar Management**: Schedule complex meeting with multiple participants
+4. **Team Communication**: Send announcements and updates via Telegram
+5. **Cross-Platform**: Execute workflow spanning multiple platforms
+
+#### **Days 11-14: Refinement Based on UAT**
+**Tasks**:
+- [ ] Fix critical bugs identified during UAT
+- [ ] Improve voice recognition accuracy based on user feedback
+- [ ] Enhance accessibility features per user suggestions
+- [ ] Polish UI/UX for better user experience
+- [ ] Optimize performance and error handling
+- [ ] Prepare final demonstration
+
+**Deliverables**:
+- User-validated system with improved accessibility
+- Enhanced features based on real user feedback
+- Demo-ready application
+
+---
+
+### **WEEK 3: Final Polish + Report Writing (Days 15-21)**
+
+#### **Days 15-17: Final System Polish**
+**Tasks**:
+- [ ] Final bug fixes and performance optimization
+- [ ] Comprehensive system testing
+- [ ] Demo script preparation and practice
+- [ ] Technical documentation completion
+- [ ] User manual creation
+
+#### **Days 18-21: FYP Report Writing**
+**Tasks**:
+- [ ] Write methodology section (implementation approach)
+- [ ] Document technical architecture and design decisions
+- [ ] Analyze user testing results and accessibility impact
+- [ ] Write conclusions and future work recommendations
+- [ ] Prepare final presentation materials
+
+---
+
+## 🎯 Core Voice Commands by Platform
 
 ### Gmail (Email Management)
-- **Read emails**: "Read my unread emails"
-- **Compose**: "Compose email to John about budget meeting"
-- **Reply**: "Reply to this email: I'll attend the meeting"
-- **Search**: "Find emails from Sarah about project deadlines"
-- **Organize**: "Mark this email as important"
+**Basic Commands**:
+- "Read my unread emails"
+- "Compose email to [person] about [subject]"
+- "Send the email"
+
+**Advanced Commands**:
+- "Reply to [person's] email: [message]"
+- "Search for emails from [person] about [topic]"
+- "Mark this email as important"
+- "Schedule email to send at [time]"
 
 ### Google Docs (Document Management)
-- **Create**: "Create new document called Project Plan"
-- **Edit**: "Add paragraph about timeline requirements"
-- **Format**: "Make this text bold", "Create bullet points"
-- **Navigate**: "Go to section 2", "Find the word budget"
-- **Save**: "Save document as Meeting Notes"
+**Basic Commands**:
+- "Create new document called [name]"
+- "Read document content"
+- "Add paragraph: [content]"
 
-### Google Calendar (Task/Meeting Management)
-- **Schedule**: "Schedule team meeting Tuesday at 10 AM"
-- **Check**: "What's on my calendar tomorrow?"
-- **Modify**: "Move my 3 PM meeting to 4 PM"
-- **Block time**: "Reserve 2 hours for focused work Friday"
-- **Cancel**: "Cancel my meeting with the design team"
+**Advanced Commands**:
+- "Format this text as heading"
+- "Create bullet points with [items]"
+- "Share document with [email]"
+- "Insert table with [rows] and [columns]"
+
+### Google Calendar (Meeting Management)
+**Basic Commands**:
+- "What's on my calendar today?"
+- "Create meeting [title] tomorrow at [time]"
+- "Check my schedule for [day]"
+
+**Advanced Commands**:
+- "Schedule meeting with [person1] and [person2] [day] at [time]"
+- "Set reminder for [event] 30 minutes before"
+- "Move my [time] meeting to [new time]"
+- "Block 2 hours for focused work on [day]"
 
 ### Telegram (Team Communication)
-- **Announce**: "Tell everyone: deadline moved to Friday"
-- **Update**: "Send message to project team: budget approved"
-- **Notify**: "Inform the group about the new meeting room"
-- **Status**: "Let everyone know I'm working from home"
+**Basic Commands**:
+- "Send message to [person]: [message]"
+- "Read my recent messages"
+- "Tell the team: [announcement]"
+
+**Advanced Commands**:
+- "Forward this message to [group]"
+- "Notify all project channels about [update]"
+- "Send urgent message to [group]: [message]"
+- "Create group announcement: [content]"
 
 ---
 
 ## 🧪 Testing & Evaluation Plan
-
-### Week 3: User Acceptance Testing
-**Target Users**: Individuals with hand mobility limitations
-**Testing Methods**: 
-- Task completion scenarios
-- Usability interviews  
-- Performance metrics collection
-- Accessibility compliance audit
-
-### Testing Scenarios
-1. **Email Workflow**: Compose and send professional email via voice only
-2. **Document Creation**: Create formatted meeting agenda using voice commands
-3. **Calendar Management**: Schedule complex meeting with multiple participants
-4. **Team Communication**: Send announcements and updates to team channels
-5. **Cross-Platform**: Execute workflow spanning multiple platforms
 
 ### Success Metrics
 - **Task Completion Rate**: >90% successful completion of voice commands
@@ -317,16 +276,23 @@ Voice Input → Whisper STT → LangChain Agent → MCP Servers → Platform API
 - **User Satisfaction**: >4/5 rating on usability scale
 - **Accessibility Compliance**: WCAG 2.1 AA standard compliance
 - **Voice Recognition Accuracy**: >95% command understanding
+- **Response Time**: <2 seconds for voice command processing
+
+### Platform-Specific Testing
+**Gmail**: Email composition, reading, and management efficiency
+**Calendar**: Meeting scheduling accuracy and calendar navigation
+**Docs**: Document creation and editing capability
+**Telegram**: Team communication effectiveness
 
 ---
 
 ## 📊 Academic Deliverables
 
-### FYP Report Structure
+### FYP Report Structure (40 pages)
 1. **Introduction** (5 pages)
-   - Problem statement and motivation
-   - Research objectives and scope
-   - Accessibility context and requirements
+   - Problem statement: workplace accessibility challenges
+   - Research objectives and innovation scope
+   - FastRTC and voice interface significance
 
 2. **Literature Review** (8 pages)
    - Accessibility technology research
@@ -334,161 +300,139 @@ Voice Input → Whisper STT → LangChain Agent → MCP Servers → Platform API
    - AI applications in assistive technology
 
 3. **Methodology** (6 pages)
-   - User research approach
-   - System design methodology
-   - Technical architecture decisions
+   - Broad-first development approach
+   - FastRTC integration strategy
+   - Multi-platform voice command design
 
-4. **Implementation** (10 pages)
-   - System architecture and components
-   - Platform integration strategies
-   - Voice interface design patterns
+4. **Implementation** (12 pages)
+   - FastRTC voice pipeline architecture
+   - LangChain agent design and command routing
+   - Platform integration strategies (Gmail, Calendar, Docs, Telegram)
    - Accessibility feature implementation
 
 5. **Evaluation** (8 pages)
-   - User testing methodology
-   - Performance metrics and results
-   - Accessibility assessment
-   - User feedback analysis
+   - User testing methodology with accessibility users
+   - Performance metrics and voice recognition accuracy
+   - Accessibility compliance assessment
+   - Cross-platform workflow effectiveness
 
-6. **Conclusion** (3 pages)
-   - Contribution summary
-   - Limitations and future work
-   - Impact on accessibility research
-
-### Technical Documentation
-- API documentation
-- Installation and setup guide
-- User manual for voice commands
-- Developer guide for extensions
+6. **Conclusion** (1 page)
+   - Contribution to accessibility research
+   - Impact on professional productivity for disabled users
+   - Future work and scalability potential
 
 ---
 
 ## 🚀 Demo Preparation
 
 ### 5-Minute FYP Presentation Demo
-1. **Opening** (30 seconds): Problem statement and solution overview
-2. **Email Management** (90 seconds): Voice-controlled email composition and reading
-3. **Document Creation** (90 seconds): Professional document creation via voice
-4. **Calendar Scheduling** (90 seconds): Meeting scheduling and management
-5. **Team Communication** (60 seconds): Cross-platform notifications and updates
-6. **Closing** (30 seconds): Impact statement and future potential
+1. **Opening** (30 seconds): Accessibility problem and voice solution
+2. **Cross-Platform Voice Control** (3 minutes):
+   - Gmail: Voice email composition and reading
+   - Calendar: Meeting scheduling via voice
+   - Docs: Document creation and editing
+   - Telegram: Team communication
+3. **Advanced Workflows** (1 minute): Cross-platform task automation
+4. **Closing** (30 seconds): Accessibility impact and future potential
 
-### Demo Script
-- **Setup**: Professional workspace with accessibility challenges
-- **User Persona**: Working professional with RSI/hand mobility limitations
-- **Scenarios**: Real-world professional tasks requiring keyboard/mouse alternatives
-- **Outcome**: Demonstrate equivalent or improved efficiency via voice control
+### Demo Script Focus
+- **User Persona**: Professional with RSI/hand mobility limitations
+- **Real Scenarios**: Actual workplace tasks requiring multi-platform coordination
+- **Efficiency Demonstration**: Voice commands faster than traditional input methods
+- **Accessibility Impact**: Clear improvement in workplace productivity
 
 ---
 
-## 📦 Deployment & Infrastructure
+## 🛠️ Technical Implementation Details
 
-### Development Environment
-- **Local**: React dev server + FastAPI development
-- **Staging**: Render/Railway backend + Vercel frontend
-- **Production**: Stable deployment for user testing
+### FastRTC Integration Architecture
+```python
+# Standalone FastRTC service
+from fastrtc import Stream, ReplyOnPause, get_stt_model, get_tts_model
+from langchain.agents import create_openai_tools_agent
+from langchain_groq import ChatGroq
 
-### Environment Variables
-```bash
-# AI Services
-OPENAI_API_KEY=your_key
-ELEVENLABS_API_KEY=your_key
+# Built-in models (local, free)
+stt_model = get_stt_model()  # Moonshine
+tts_model = get_tts_model()  # Kokoro
 
-# Google APIs
-GOOGLE_CLIENT_ID=your_id
-GOOGLE_CLIENT_SECRET=your_secret
-GOOGLE_CALENDAR_API_KEY=your_key
+# LangChain agent with all platform tools
+agent_tools = [
+    GmailTool(),      # Email management
+    CalendarTool(),   # Meeting scheduling  
+    DocsTool(),       # Document creation
+    TelegramTool()    # Team communication
+]
 
-# Telegram
-TELEGRAM_BOT_TOKEN=your_token
+def voice_handler(audio):
+    # 1. Transcribe with FastRTC's built-in STT
+    transcript = stt_model.stt(audio)
+    
+    # 2. Route command through LangChain agent
+    response = agent.run(transcript)
+    
+    # 3. Convert response to speech and stream
+    for chunk in tts_model.stream_tts_sync(response):
+        yield chunk
 
-# Database
-SUPABASE_URL=your_url
-SUPABASE_ANON_KEY=your_key
+# FastRTC handles all WebRTC complexity
+stream = Stream(ReplyOnPause(voice_handler))
+stream.ui.launch()  # Or integrate with existing FastAPI
 ```
 
----
-
-## 🛠️ Technical Requirements
-
-### Minimum System Requirements
-- **Browser**: Chrome/Edge (for Web Audio API support)
-- **Microphone**: Built-in or external microphone
-- **Internet**: Stable connection for AI services and APIs
-- **RAM**: 4GB minimum for local development
-
-### API Quotas and Limits
-- **OpenAI Whisper**: 25MB file limit per request
-- **Google APIs**: 100 requests/100 seconds/user
-- **Telegram Bot**: 30 messages/second
-- **ElevenLabs**: Character limits based on plan
+### Platform Integration Strategy
+- **Minimal UI Disruption**: Single voice button added to existing React interface
+- **Microservice Approach**: FastRTC service communicates with existing FastAPI backend
+- **API Reuse**: Leverage existing Gmail service, extend with Calendar/Docs/Telegram
+- **Error Handling**: Voice feedback for failed commands, fallback to existing UI
 
 ---
 
-## 📈 Success Criteria
+## 📈 Success Criteria & Risk Mitigation
 
-### Technical Success
-- ✅ Voice commands work with >95% accuracy
-- ✅ All 4 platforms integrate successfully
-- ✅ Cross-platform workflows function correctly
-- ✅ Response time <2 seconds for voice commands
-- ✅ System handles errors gracefully
+### Technical Success Criteria
+- ✅ All 4 platforms integrated with voice control
+- ✅ Voice recognition accuracy >95%
+- ✅ Response time <2 seconds
+- ✅ Cross-platform workflows functional
+- ✅ Accessibility features implemented
 
-### Academic Success
-- ✅ Clear demonstration of accessibility improvement
-- ✅ User validation with target disability community
-- ✅ Technical innovation in voice interface design
-- ✅ Comprehensive evaluation and documentation
-- ✅ Contribution to assistive technology research
+### Academic Success Criteria
+- ✅ User validation with disability community
+- ✅ Measurable productivity improvement
+- ✅ Technical innovation demonstrated
+- ✅ Comprehensive evaluation completed
+- ✅ Contribution to accessibility research documented
 
-### Impact Success
-- ✅ Measurable improvement in task completion time
-- ✅ Positive user feedback from accessibility testing
-- ✅ Demonstration of workplace productivity enhancement
-- ✅ Framework for future accessibility tool development
-
----
-
-## 🔧 Risk Mitigation
-
-### Technical Risks
-- **Voice Recognition Issues**: Implement fallback to typing input
-- **API Rate Limits**: Add caching and request optimization
-- **Integration Complexity**: Start with simple implementations, iterate
-- **Performance Problems**: Profile and optimize critical paths
-
-### Scope Risks
-- **Feature Creep**: Stick to core platforms and functionality
-- **Timeline Pressure**: Prioritize working demo over perfect polish
-- **User Testing Delays**: Have backup evaluation methods ready
-
-### Academic Risks
-- **Limited User Access**: Supplement with simulated accessibility scenarios
-- **Technical Documentation**: Document as you build, not after
-- **Evaluation Metrics**: Define success criteria early and measure consistently
+### Risk Mitigation
+- **Technical Risk**: FastRTC fallback to existing voice components if issues arise
+- **Timeline Risk**: Broad-first approach ensures core functionality by Day 3
+- **User Testing Risk**: Multiple accessibility user recruitment channels
+- **Platform Risk**: Direct API integration reduces dependency complexity
 
 ---
 
-## 📞 Support & Resources
+## 📞 Updated Resource Requirements
 
-### Technical Resources
-- MCP Documentation: https://modelcontextprotocol.io/
-- Google APIs: https://developers.google.com/
-- LangChain Docs: https://python.langchain.com/
-- Accessibility Guidelines: https://www.w3.org/WAI/WCAG21/
+### Development Tools
+- **Voice Pipeline**: FastRTC (handles WebRTC, STT, TTS complexity)
+- **LLM Service**: Groq API (free tier, fast responses)
+- **Platform APIs**: Gmail, Google Calendar, Google Docs, Telegram Bot
+- **Development**: Existing React + FastAPI setup
 
-### Academic Support
-- FYP Supervisor: Regular progress meetings
-- Accessibility Community: User testing participants
-- Technical Mentors: Code review and architecture guidance
-
----
-
-**Project Start Date**: [To be filled]  
-**Development Completion**: [Start Date + 14 days]  
-**UAT Completion**: [Start Date + 21 days]  
-**Report Submission**: [Start Date + 28 days]
+### API Quotas & Costs
+- **Groq**: Free tier (sufficient for development and testing)
+- **FastRTC**: Built-in local models (Moonshine STT + Kokoro TTS)
+- **Google APIs**: Free tier limits adequate for testing
+- **Telegram Bot**: Free for standard usage
 
 ---
 
-*This project plan represents a comprehensive roadmap for developing a voice-controlled AI assistant focused on workplace accessibility. The timeline is aggressive but achievable with focused effort and clear priorities.* 
+**Project Start Date**: [Current Date]  
+**Week 1 Completion**: [Start Date + 7 days] - All platforms basic + advanced features  
+**Week 2 Completion**: [Start Date + 14 days] - UAT completed, system refined  
+**Week 3 Completion**: [Start Date + 21 days] - Report completed, demo ready  
+
+---
+
+*This updated project plan reflects a strategic broad-first approach, ensuring all four platforms have working voice control by Day 3, with advanced features and polish in the remaining time. The FastRTC integration simplifies the technical complexity while delivering professional-grade voice interface capabilities.*

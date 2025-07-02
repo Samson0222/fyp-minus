@@ -18,9 +18,11 @@ class VoiceEmailProcessor:
             ],
             'read_unread': [
                 r"read (?:my )?unread emails?",
-                r"show (?:my )?unread emails?",
+                r"show (?:my )?unread emails?", 
                 r"check (?:my )?unread emails?",
-                r"any unread emails?"
+                r"any unread emails?",
+                r"what unread emails? do i have",
+                r"unread (?:emails?|messages?)"
             ],
             'send_email': [
                 r"send (?:an )?email to (.+?) (?:about |regarding |with subject |subject) (.+)",
@@ -32,7 +34,23 @@ class VoiceEmailProcessor:
                 r"send (?:an )?email to (.+)",
                 r"email (.+)",
                 r"compose (?:an )?email to (.+)",
-                r"write (?:an )?email to (.+)"
+                r"write (?:an )?email to (.+)",
+                r"compose (?:an )?email",
+                r"write (?:an )?email",
+                r"new email"
+            ],
+            'reply_email': [
+                r"reply (?:to )?(?:this |the )?email",
+                r"respond (?:to )?(?:this |the )?email",
+                r"reply (?:to )?(?:this |the )?message",
+                r"send (?:a )?reply",
+                r"reply back"
+            ],
+            'forward_email': [
+                r"forward (?:this |the )?email (?:to )?(.+)",
+                r"send (?:this |the )?email to (.+)",
+                r"forward (?:this |the )?message (?:to )?(.+)",
+                r"share (?:this |the )?email (?:with )?(.+)"
             ],
             'search_emails': [
                 r"search (?:for )?emails? (?:about |containing |with |from) (.+)",
@@ -45,6 +63,20 @@ class VoiceEmailProcessor:
                 r"sign out (?:of )?(?:gmail)?",
                 r"logout (?:of )?(?:gmail)?",
                 r"use (?:a )?different account"
+            ],
+            'mark_as_unread': [
+                r"mark (?:this |the )?email as unread",
+                r"mark as unread",
+                r"make (?:this |the )?email unread",
+                r"set (?:this |the )?email (?:to )?unread",
+                r"unread (?:this |the )?email"
+            ],
+            'refresh_emails': [
+                r"refresh (?:my )?emails?",
+                r"check (?:for )?new emails?",
+                r"update (?:my )?inbox",
+                r"reload (?:my )?emails?",
+                r"get (?:new )?emails?"
             ]
         }
     
@@ -52,14 +84,21 @@ class VoiceEmailProcessor:
         """Parse voice command and return structured command object"""
         command_lower = command.lower().strip()
         
-        # Try to match different command types
-        for command_type, patterns in self.patterns.items():
-            for pattern in patterns:
-                match = re.search(pattern, command_lower)
-                if match:
-                    return self._create_command(command_type, command, match)
+        # Check for specific patterns first (order matters - more specific patterns first)
+        priority_patterns = ['read_unread', 'mark_as_unread', 'reply_email', 'forward_email', 
+                           'send_email', 'send_email_simple', 'search_emails', 'switch_account', 
+                           'refresh_emails', 'read_emails']
+        
+        for command_type in priority_patterns:
+            if command_type in self.patterns:
+                for pattern in self.patterns[command_type]:
+                    match = re.search(pattern, command_lower)
+                    if match:
+                        print(f"DEBUG: Matched pattern '{pattern}' for command_type '{command_type}' with command '{command_lower}'")
+                        return self._create_command(command_type, command, match)
         
         # If no specific pattern matches, try to infer the intent
+        print(f"DEBUG: No pattern matched for command '{command_lower}', falling back to general inference")
         if any(word in command_lower for word in ['read', 'show', 'check', 'inbox']):
             return VoiceEmailCommand(
                 command_type='read_emails',
@@ -117,12 +156,40 @@ class VoiceEmailProcessor:
                 parameters = self._extract_email_info(original_command)
                 
         elif command_type == 'send_email_simple':
-            recipient = match.group(1).strip()
+            if len(match.groups()) >= 1 and match.group(1):
+                recipient = match.group(1).strip()
+                parameters = {
+                    'recipient': self._clean_recipient(recipient),
+                    'requires_subject': True,
+                    'requires_body': True
+                }
+            else:
+                # No recipient specified - just open composer
+                parameters = {
+                    'action': 'compose'
+                }
+            
+        elif command_type == 'reply_email':
             parameters = {
-                'recipient': self._clean_recipient(recipient),
-                'requires_subject': True,
-                'requires_body': True
+                'requires_selected_email': True,
+                'action': 'reply'
             }
+            
+        elif command_type == 'forward_email':
+            # Extract recipient from the forward command
+            if len(match.groups()) >= 1 and match.group(1):
+                recipient = match.group(1).strip()
+                parameters = {
+                    'recipient': self._clean_recipient(recipient),
+                    'requires_selected_email': True,
+                    'action': 'forward'
+                }
+            else:
+                parameters = {
+                    'requires_selected_email': True,
+                    'requires_recipient': True,
+                    'action': 'forward'
+                }
             
         elif command_type == 'search_emails':
             search_term = match.group(1).strip()
@@ -132,6 +199,12 @@ class VoiceEmailProcessor:
             }
             
         elif command_type == 'switch_account':
+            parameters = {}
+        
+        elif command_type == 'mark_as_unread':
+            parameters = {}
+        
+        elif command_type == 'refresh_emails':
             parameters = {}
         
         return VoiceEmailCommand(
@@ -234,36 +307,64 @@ class VoiceEmailProcessor:
             if result and hasattr(result, 'emails'):
                 count = len(result.emails)
                 if count == 0:
-                    return "You have no unread emails."
+                    return "You have no unread emails. I'll apply the unread filter so you can see this clearly."
                 elif count == 1:
-                    return "You have 1 unread email. I'll read it for you."
+                    return "You have 1 unread email. I'll apply the unread filter and show it to you."
                 else:
-                    return f"You have {count} unread emails. I'll read them for you."
-            return "Let me check your unread emails."
+                    return f"You have {count} unread emails. I'll apply the unread filter and show them to you."
+            return "Let me check your unread emails and apply the unread filter."
             
         elif command.command_type == 'send_email':
             if result and hasattr(result, 'status') and result.status == 'sent':
                 recipient = command.parameters.get('recipient', 'recipient')
                 return f"Email sent successfully to {recipient}."
-            return "Preparing to send your email."
+            return "I'll open the email composer for you."
+            
+        elif command.command_type == 'send_email_simple':
+            return "I'll open the email composer so you can compose your email."
+            
+        elif command.command_type == 'reply_email':
+            if result and hasattr(result, 'status') and result.status == 'sent':
+                return "Your reply has been sent successfully."
+            return "I'll open the reply composer for the selected email. Please make sure you have an email selected first."
+            
+        elif command.command_type == 'forward_email':
+            recipient = command.parameters.get('recipient')
+            if result and hasattr(result, 'status') and result.status == 'sent':
+                return f"Email forwarded successfully to {recipient}." if recipient else "Email forwarded successfully."
+            elif recipient:
+                return f"I'll forward the selected email to {recipient}. Please make sure you have an email selected first."
+            else:
+                return "I'll open the forward composer for the selected email. Please specify the recipient and make sure you have an email selected."
             
         elif command.command_type == 'search_emails':
             if result and hasattr(result, 'emails'):
                 count = len(result.emails)
                 query = command.parameters.get('query', 'your search')
                 if count == 0:
-                    return f"No emails found for '{query}'."
+                    return f"No emails found for '{query}'. I'll apply the search filter to show you the results."
                 elif count == 1:
-                    return f"Found 1 email matching '{query}'."
+                    return f"Found 1 email matching '{query}'. I'll apply the search filter to show it."
                 else:
-                    return f"Found {count} emails matching '{query}'."
-            return "Searching your emails."
+                    return f"Found {count} emails matching '{query}'. I'll apply the search filter to show them."
+            return "I'll search your emails and apply the search filter."
              
         elif command.command_type == 'switch_account':
             return "I'll sign you out so you can switch to a different Gmail account."
              
+        elif command.command_type == 'mark_as_unread':
+            if result and hasattr(result, 'status') and result.status == 'success':
+                return "I've marked the email as unread for you."
+            return "I'll mark the selected email as unread. Please make sure you have an email selected first."
+             
+        elif command.command_type == 'refresh_emails':
+            if result and hasattr(result, 'emails'):
+                count = len(result.emails)
+                return f"I've refreshed your emails and found {count} emails. The interface has been updated with the latest data."
+            return "I'm refreshing your emails now and updating the interface."
+             
         else:
-            return "I can help you read emails, send emails, search your inbox, or switch accounts. What would you like to do?"
+            return "I can help you read emails, send emails, search your inbox, mark emails as unread, refresh your emails, or switch accounts. What would you like to do?"
 
 # Global voice email processor instance
 voice_email_processor = VoiceEmailProcessor()

@@ -302,6 +302,22 @@ class GmailService:
             print(f"Error marking email as read: {error}")
             return False
     
+    async def mark_as_unread(self, user_id: str, message_id: str) -> bool:
+        """Mark email as unread"""
+        if not await self.authenticate(user_id):
+            return False
+        
+        try:
+            self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'addLabelIds': ['UNREAD']}
+            ).execute()
+            return True
+        except HttpError as error:
+            print(f"Error marking email as unread: {error}")
+            return False
+    
     async def search_emails(self, user_id: str, query: str, max_results: int = 10) -> EmailListResponse:
         """Search emails with specific query"""
         return await self.get_emails(user_id, max_results, query)

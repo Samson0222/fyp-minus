@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import Layout from "@/components/layout/Layout";
 import TranscriptArea from "@/components/ai/TranscriptArea";
-import InteractionArea from "@/components/ai/InteractionArea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VoiceInterface } from "@/components/voice/VoiceInterface";
 

@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import Layout from '@/components/layout/Layout';
-import InteractionArea from '@/components/ai/InteractionArea';
 import CreateTaskModal from '@/components/tasks/CreateTaskModal';
 import CalendarViewEnhanced from '@/components/tasks/CalendarViewEnhanced';
 import { Plus, Circle, CheckCircle, List, Calendar, ArrowUpDown, ArrowUp, ArrowDown, Settings, Filter, ChevronDown, MoreHorizontal, Trash2, Edit, Archive, X, ChevronLeft, ChevronRight, Hash, Tag, Sparkles } from 'lucide-react';
@@ -53,7 +52,6 @@ interface FilterConfig {
 const TasksWorking: React.FC = () => {
   const [currentView, setCurrentView] = useState<TaskView>('list');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const [showTagPanel, setShowTagPanel] = useState(false);
   const [tagPanelPosition, setTagPanelPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -380,13 +378,7 @@ const TasksWorking: React.FC = () => {
     setTasks(prevTasks => [newTask, ...prevTasks]);
   }, []);
 
-  const handleSendMessage = (message: string) => {
-    console.log('Sending message:', message);
-  };
 
-  const handleToggleListening = () => {
-    setIsListening(prev => !prev);
-  };
 
   const getPriorityColor = (priority: Task['priority']) => {
     switch (priority) {
@@ -1569,14 +1561,7 @@ const TasksWorking: React.FC = () => {
           </div>
         )}
         
-        {/* Interaction Area at the bottom */}
-        <div className="flex-shrink-0">
-          <InteractionArea
-            onSendMessage={handleSendMessage}
-            onToggleListening={handleToggleListening}
-            isListening={isListening}
-          />
-        </div>
+
 
         {/* Floating Menus */}
         {showFloatingMenu && (

@@ -5,6 +5,7 @@ import ChatSidebar from "@/components/layout/ChatSidebar";
 import ContentHeader from "@/components/layout/ContentHeader";
 import MobileTopNav from "@/components/layout/MobileTopNav";
 import MobileSidebar from "@/components/layout/MobileSidebar";
+import { toast } from "@/components/ui/use-toast";
 
 interface Message {
   id: string;
@@ -13,16 +14,31 @@ interface Message {
   timestamp: Date;
 }
 
-interface LayoutProps {
-  children: React.ReactNode;
+// Voice command callback interface
+interface VoiceCommandCallbacks {
+  onUnreadFilter?: () => void;
+  onRefreshEmails?: () => void;
+  onComposeEmail?: () => void;
+  onMarkAsUnread?: (emailId?: string) => void;
+  onSearchEmails?: (query: string) => void;
+  onClearFilters?: () => void;
+  onReplyEmail?: () => void;
+  onForwardEmail?: (recipient?: string) => void;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children }) => {
+interface LayoutProps {
+  children: React.ReactNode;
+  onComposeEmail?: () => void;
+  voiceCommandCallbacks?: VoiceCommandCallbacks;
+}
+
+const Layout: React.FC<LayoutProps> = ({ children, onComposeEmail, voiceCommandCallbacks }) => {
   const isMobile = useIsMobile();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isChatSidebarCollapsed, setIsChatSidebarCollapsed] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const handleMenuClick = () => {
     setIsMobileSidebarOpen(true);
@@ -36,7 +52,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     setIsListening(!isListening);
   };
 
-  const handleSendMessage = (text: string) => {
+  const handleSendMessage = async (text: string) => {
     // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -46,17 +62,180 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     };
     setMessages((prev) => [...prev, userMessage]);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const responseText = getAIResponse(text);
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: responseText,
-        sender: "ai",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiMessage]);
-    }, 1000);
+    // Set processing state
+    setIsProcessing(true);
+
+    try {
+      // Check for compose email commands first
+      const lowerText = text.toLowerCase();
+      if ((lowerText.includes('compose') && lowerText.includes('email')) || 
+          lowerText.includes('write email') || 
+          lowerText.includes('new email') ||
+          lowerText.includes('send email to')) {
+        
+        if (onComposeEmail) {
+          onComposeEmail();
+          const aiMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            text: "Opening email composer for you!",
+            sender: "ai",
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, aiMessage]);
+          setIsProcessing(false);
+          return;
+        } else {
+          const aiMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            text: "Email composition is available on the Inboxes page. Navigate there to compose emails.",
+            sender: "ai",
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, aiMessage]);
+          setIsProcessing(false);
+          return;
+        }
+      }
+
+      try {
+        // First try Gmail voice command processing
+        const voiceRes = await fetch('/api/v1/gmail/voice-command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: text })
+        });
+
+        if (voiceRes.ok) {
+          const voiceData = await voiceRes.json();
+          console.log('Voice command result:', voiceData);
+          
+          // Handle frontend actions based on command type
+          if (voiceData.command_type && voiceCommandCallbacks) {
+            switch (voiceData.command_type) {
+              case 'read_unread':
+                if (voiceCommandCallbacks.onUnreadFilter) {
+                  voiceCommandCallbacks.onUnreadFilter();
+                }
+                break;
+              case 'refresh_emails':
+                if (voiceCommandCallbacks.onRefreshEmails) {
+                  voiceCommandCallbacks.onRefreshEmails();
+                }
+                break;
+              case 'send_email':
+              case 'send_email_simple':
+                if (voiceCommandCallbacks.onComposeEmail) {
+                  voiceCommandCallbacks.onComposeEmail();
+                }
+                break;
+              case 'search_emails':
+                if (voiceCommandCallbacks.onSearchEmails && voiceData.parsed_parameters?.query) {
+                  voiceCommandCallbacks.onSearchEmails(voiceData.parsed_parameters.query);
+                }
+                break;
+              case 'mark_as_unread':
+                if (voiceCommandCallbacks.onMarkAsUnread) {
+                  voiceCommandCallbacks.onMarkAsUnread();
+                }
+                break;
+              case 'reply_email':
+                if (voiceCommandCallbacks.onReplyEmail) {
+                  voiceCommandCallbacks.onReplyEmail();
+                }
+                break;
+              case 'forward_email':
+                if (voiceCommandCallbacks.onForwardEmail) {
+                  const recipient = voiceData.parsed_parameters?.recipient;
+                  voiceCommandCallbacks.onForwardEmail(recipient);
+                }
+                break;
+            }
+          }
+          
+          if (voiceData.response) {
+            const aiMessage: Message = {
+              id: (Date.now() + 1).toString(),
+              text: voiceData.response,
+              sender: "ai",
+              timestamp: new Date(),
+            };
+            setMessages((prev) => [...prev, aiMessage]);
+            setIsProcessing(false);
+            return; // Exit early if voice command was successful
+          }
+        }
+      } catch (error) {
+        console.error('Voice command error:', error);
+      }
+
+      try {
+        // Fallback to general chat API
+        const chatRes = await fetch('/api/v1/chat/text-message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            context: 'chat',
+            platform_context: {
+              timestamp: new Date().toISOString(),
+              interface: 'chat_sidebar',
+            },
+          })
+        });
+
+        if (chatRes.ok) {
+          const chatData = await chatRes.json();
+          const aiMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            text: chatData.reply || "I understand your message, but I'm not sure how to respond to that right now.",
+            sender: "ai",
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, aiMessage]);
+        } else {
+          throw new Error('Chat API failed');
+        }
+      } catch (error) {
+        console.error('Chat API error:', error);
+        
+        // Final fallback - provide a helpful response
+        const fallbackMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: getDefaultResponse(text),
+          sender: "ai",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, fallbackMessage]);
+      }
+    } catch (error) {
+      console.error('Message processing error:', error);
+      toast({
+        title: 'Processing Error',
+        description: 'There was an error processing your message. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      // Always turn off processing state
+      setIsProcessing(false);
+    }
+  };
+
+  const getDefaultResponse = (text: string): string => {
+    const lowerText = text.toLowerCase();
+    
+    if (lowerText.includes('email') || lowerText.includes('gmail') || lowerText.includes('mail')) {
+      return "I can help you with Gmail! Try commands like 'read my emails', 'compose email', or navigate to the Inboxes page for full email functionality.";
+    }
+    
+    if (lowerText.includes('task') || lowerText.includes('todo')) {
+      return "I can help you manage tasks! You can create, view, and organize your tasks through the Tasks page.";
+    }
+    
+    if (lowerText.includes('hello') || lowerText.includes('hi') || lowerText.includes('help')) {
+      return "Hello! I'm your AI assistant. I can help you with Gmail management, tasks, and more. Try asking me to 'compose email' or 'read emails'.";
+    }
+    
+    return "I understand your message. I'm here to help with Gmail, tasks, and other productivity features. Try asking me about emails or tasks!";
   };
 
   const handleToggleChatSidebar = () => {
@@ -84,6 +263,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           messages={messages}
           isCollapsed={isChatSidebarCollapsed}
           onToggleCollapse={handleToggleChatSidebar}
+          isProcessing={isProcessing}
         />
       )}
       
@@ -95,33 +275,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       )}
     </div>
   );
-};
-
-// Helper function to simulate AI responses
-const getAIResponse = (userMessage: string): string => {
-  const lowerMessage = userMessage.toLowerCase();
-  
-  if (lowerMessage.includes("hello") || lowerMessage.includes("hi")) {
-    return "Hello! I'm ready to help you with professional tasks. What would you like to do?";
-  }
-  
-  if (lowerMessage.includes("email") || lowerMessage.includes("mail")) {
-    return "I can help with email management. Would you like me to check your inbox or help you compose a new email?";
-  }
-  
-  if (lowerMessage.includes("document") || lowerMessage.includes("doc")) {
-    return "I'll assist with document management. Would you like to create a new document or work with an existing one?";
-  }
-  
-  if (lowerMessage.includes("meeting") || lowerMessage.includes("schedule") || lowerMessage.includes("calendar")) {
-    return "I can help schedule meetings and manage your calendar. Would you like to check your upcoming events or schedule something new?";
-  }
-  
-  if (lowerMessage.includes("message") || lowerMessage.includes("telegram") || lowerMessage.includes("team")) {
-    return "I can help with team communication. Would you like to send a message or check recent conversations?";
-  }
-  
-  return `I understand you said: "${userMessage}". How would you like me to help with this?`;
 };
 
 export default Layout;

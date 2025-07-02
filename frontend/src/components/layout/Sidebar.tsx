@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Home, CheckSquare, Inbox, FileText, Settings, User, LogOut, Mic, ChevronLeft, ChevronRight } from "lucide-react";
+import { Home, CheckSquare, Mail, FileText, Settings, User, LogOut, Mic, ChevronLeft, ChevronRight } from "lucide-react";
 
 const Sidebar = () => {
   const location = useLocation();
@@ -10,7 +10,7 @@ const Sidebar = () => {
   const menuItems = [
     { icon: <Home size={20} />, name: "Home", path: "/" },
     { icon: <CheckSquare size={20} />, name: "Tasks", path: "/tasks" },
-    { icon: <Inbox size={20} />, name: "Inboxes", path: "/inboxes" },
+    { icon: <Mail size={20} />, name: "Emails", path: "/inboxes" },
     { icon: <FileText size={20} />, name: "Docs", path: "/documents" },
     { icon: <Mic size={20} />, name: "Playground", path: "/playground" },
     { icon: <Settings size={20} />, name: "Settings", path: "/settings" },

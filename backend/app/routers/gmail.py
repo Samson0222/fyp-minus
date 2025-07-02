@@ -16,9 +16,17 @@ class VoiceCommandRequest(BaseModel):
 
 # Get the same auth dependency from main.py
 async def get_current_user(authorization: Optional[str] = None):
-    """Extract user from authentication - simplified for demo"""
-    # In production, this would properly validate the JWT token
-    return {"user_id": "test_user_001", "email": "test@example.com"}
+    """Extract user from authentication - simplified for demo but more robust"""
+    try:
+        # In production, this would properly validate the JWT token
+        # For now, using a consistent test user with proper error handling
+        user_id = "test_user_001"
+        logger.info(f"Authenticated user: {user_id}")
+        return {"user_id": user_id, "email": "test@example.com"}
+    except Exception as e:
+        logger.error(f"Authentication error: {e}")
+        # Return a fallback user to prevent complete failure
+        return {"user_id": "fallback_user", "email": "fallback@example.com"}
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/gmail", tags=["gmail"])
@@ -28,6 +36,7 @@ async def get_emails(
     count: int = 20,
     minimal: bool = False,
     unread_only: bool = False,
+    sent_only: bool = False,
     query: str = "",
     user = Depends(get_current_user)
 ):
@@ -36,6 +45,8 @@ async def get_emails(
     gmail_query = query
     if unread_only:
         gmail_query = f"is:unread {gmail_query}".strip()
+    if sent_only:
+        gmail_query = f"in:sent {gmail_query}".strip()
     return await gmail_service.get_emails(user_id, max_results=count, query=gmail_query, minimal=minimal)
 
 @router.post("/send", response_model=SendEmailResponse)
@@ -82,6 +93,29 @@ async def mark_email_as_read(
         logger.error(f"Error marking email as read: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to mark email as read: {str(e)}")
 
+@router.post("/mark-unread/{message_id}")
+async def mark_email_as_unread(
+    message_id: str,
+    user = Depends(get_current_user)
+):
+    """Mark email as unread"""
+    try:
+        user_id = user["user_id"]
+        
+        success = await gmail_service.mark_as_unread(
+            user_id=user_id,
+            message_id=message_id
+        )
+        
+        if success:
+            return {"status": "success", "message": "Email marked as unread"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to mark email as unread")
+            
+    except Exception as e:
+        logger.error(f"Error marking email as unread: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to mark email as unread: {str(e)}")
+
 @router.post("/search", response_model=EmailListResponse)
 async def search_emails(
     query: str,
@@ -105,6 +139,37 @@ async def search_emails(
         logger.error(f"Error searching emails: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to search emails: {str(e)}")
 
+@router.post("/test-voice")
+async def test_voice_command(request: VoiceCommandRequest):
+    """Test voice command processing without authentication for debugging"""
+    try:
+        command = request.command
+        logger.info(f"TEST: Processing command: '{command}'")
+        
+        # Parse the voice command
+        parsed_command = voice_email_processor.parse_command(command)
+        logger.info(f"TEST: Parsed command type: {parsed_command.command_type}")
+        logger.info(f"TEST: Parsed parameters: {parsed_command.parameters}")
+        
+        response_message = voice_email_processor.generate_response(parsed_command)
+        logger.info(f"TEST: Generated response: {response_message}")
+        
+        return {
+            "command_type": parsed_command.command_type,
+            "response": response_message,
+            "parsed_parameters": parsed_command.parameters,
+            "test_mode": True
+        }
+        
+    except Exception as e:
+        logger.error(f"TEST: Error processing command: {e}")
+        return {
+            "command_type": "error",
+            "response": f"Test error: {str(e)}",
+            "parsed_parameters": {},
+            "test_mode": True
+        }
+
 @router.post("/voice-command")
 async def process_voice_email_command(
     request: VoiceCommandRequest,
@@ -115,9 +180,11 @@ async def process_voice_email_command(
         user_id = user["user_id"]
         command = request.command
         
+        logger.info(f"Processing voice command for user {user_id}: '{command}'")
+        
         # Parse the voice command
         parsed_command = voice_email_processor.parse_command(command)
-        logger.info(f"Parsed voice command: {parsed_command.command_type} - {command}")
+        logger.info(f"Parsed voice command: {parsed_command.command_type} with parameters: {parsed_command.parameters}")
         
         result = None
         response_message = ""
@@ -182,9 +249,38 @@ async def process_voice_email_command(
             gmail_service.service = None
             response_message = voice_email_processor.generate_response(parsed_command)
             
+        elif parsed_command.command_type == 'mark_as_unread':
+            # Mark email as unread - this would typically need an email ID
+            # For now, return instruction for user
+            response_message = voice_email_processor.generate_response(parsed_command)
+            
+        elif parsed_command.command_type == 'refresh_emails':
+            # Refresh emails - get latest emails
+            result = await gmail_service.get_emails(
+                user_id=user_id,
+                max_results=15,
+                query="",
+                minimal=True
+            )
+            response_message = voice_email_processor.generate_response(parsed_command, result)
+            
+        elif parsed_command.command_type == 'reply_email':
+            # Reply to email - would need selected email context in real implementation
+            response_message = voice_email_processor.generate_response(parsed_command)
+            
+        elif parsed_command.command_type == 'forward_email':
+            # Forward email - would need selected email context in real implementation
+            response_message = voice_email_processor.generate_response(parsed_command)
+            
+        elif parsed_command.command_type == 'send_email_simple':
+            # Simple compose without full details
+            response_message = voice_email_processor.generate_response(parsed_command)
+            
         else:
+            logger.warning(f"Unhandled command type: {parsed_command.command_type}")
             response_message = voice_email_processor.generate_response(parsed_command)
         
+        logger.info(f"Voice command processed successfully: {parsed_command.command_type}")
         return {
             "command_type": parsed_command.command_type,
             "response": response_message,
@@ -195,9 +291,10 @@ async def process_voice_email_command(
         
     except Exception as e:
         logger.error(f"Error processing voice email command: {e}")
+        logger.error(f"Command was: {request.command}")
         return {
             "command_type": "error",
-            "response": f"Sorry, I encountered an error: {str(e)}",
+            "response": f"Sorry, I encountered an error processing your command: {str(e)}",
             "data": None,
             "requires_followup": False,
             "parsed_parameters": {}

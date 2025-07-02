@@ -5,21 +5,25 @@ import { Mic } from "lucide-react";
 interface AudioPlayerProps {
   isListening: boolean;
   onClick: () => void;
+  disabled?: boolean;
 }
 
-const AudioPlayer: React.FC<AudioPlayerProps> = ({ isListening, onClick }) => {
+const AudioPlayer: React.FC<AudioPlayerProps> = ({ isListening, onClick, disabled = false }) => {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       className={cn(
         "relative w-14 h-14 rounded-full bg-gradient-violet flex items-center justify-center transition-all shadow-[0_0_15px_rgba(138,107,244,0.5)]",
-        isListening ? "scale-105" : "hover:scale-105 active:scale-95"
+        disabled ? "opacity-50 cursor-not-allowed" : (
+          isListening ? "scale-105" : "hover:scale-105 active:scale-95"
+        )
       )}
     >
       {/* Display microphone icon instead of the M logo */}
       <Mic className="text-white" size={24} />
       
-      {isListening && (
+      {isListening && !disabled && (
         <>
           <span className="absolute inset-0 rounded-full border-4 border-violet-light animate-pulse-ring"></span>
           <div className="absolute flex h-5 items-end space-x-1 justify-center">
