@@ -8,6 +8,7 @@ import Tasks from "./pages/Tasks";
 import TasksSimple from "./pages/TasksSimple";
 import TasksDebug from "./pages/TasksDebug";
 import TasksWorking from "./pages/TasksWorking";
+import Calendar from "./pages/Calendar";
 import RichTextEditorTest from "./pages/RichTextEditorTest";
 import Playground from "./pages/Playground";
 import NotFound from "./pages/NotFound";
@@ -31,6 +32,7 @@ const App = () => (
           <Route path="/settings" element={<Index />} /> {/* Placeholder for settings page */}
           <Route path="/profile" element={<Index />} /> {/* Placeholder for profile page */}
           <Route path="/menu" element={<Index />} /> {/* Placeholder for mobile menu page */}
+          <Route path="/calendar" element={<Calendar />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
@@ -39,3 +41,5 @@ const App = () => (
 );
 
 export default App;
+export default App;
+

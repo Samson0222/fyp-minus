@@ -27,7 +27,7 @@ except ImportError:
         async def start(self, host, port):
             logging.info(f"Simulated FastRTC server on {host}:{port}")
 
-from app.core.llm_service import GemmaLLMService
+from app.core.llm_factory import get_llm_service
 
 class InteractionState(Enum):
     IDLE = "idle"           # Text input enabled
@@ -55,10 +55,10 @@ class EnhancedVoiceAssistant(Stream):
         """Lazy initialization of services"""
         if self.llm_service is None:
             try:
-                self.llm_service = GemmaLLMService()
-                logging.info("✅ Gemma LLM service initialized")
+                self.llm_service = get_llm_service()
+                logging.info("✅ LLM service initialized via factory")
             except Exception as e:
-                logging.error(f"❌ Failed to initialize LLM service: {e}")
+                logging.error(f"❌ Failed to initialize LLM service via factory: {e}")
                 self.llm_service = None
         
     def detect_wake_word(self, transcription: str) -> bool:
@@ -251,14 +251,20 @@ def get_voice_assistant():
     return voice_assistant_instance
 
 async def start_voice_server():
-    """Start FastRTC voice server on port 8001"""
-    server = get_voice_assistant()
+    """Start the main voice assistant server"""
+    assistant = get_voice_assistant()
+    
+    # Eagerly initialize services on startup
+    assistant._init_services()
     
     if FASTRTC_AVAILABLE:
-        await server.start(host="localhost", port=8001)
-        logging.info("✅ Voice server started on port 8001")
+        # Start the FastRTC server (blocking call)
+        await assistant.start(host="0.0.0.0", port=8008)
     else:
-        logging.info("⚠️ FastRTC simulation mode - voice server not actually started")
+        # Keep the script running in simulation mode
+        logging.info("Running in simulation mode. No real-time voice processing.")
+        while True:
+            await asyncio.sleep(3600)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

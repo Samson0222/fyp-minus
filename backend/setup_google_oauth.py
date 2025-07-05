@@ -6,25 +6,77 @@ import shutil
 import json
 from pathlib import Path
 
-def setup_gmail_credentials():
-    """Set up Gmail OAuth credentials"""
-    print("\n📧 MINUS VOICE ASSISTANT - GMAIL CREDENTIALS SETUP")
-    print("=" * 50)
+def setup_google_oauth():
+    """
+    Helper script to configure Google OAuth credentials for Gmail, Calendar, etc.
+    1. Prompts user for the path to their downloaded client_secret.json.
+    2. Copies the file to 'credentials/google_oauth_credentials.json'.
+    3. Updates or creates the .env file with the correct path variable.
+    """
+    print("--- Google OAuth Setup ---")
+    
+    # Get path to client_secret.json from user
+    client_secret_path = input("Enter the full path to your downloaded client_secret.json file: ").strip()
+    
+    # Validate the input file
+    if not os.path.exists(client_secret_path) or not client_secret_path.endswith('.json'):
+        print("\nError: Invalid path. Please provide the correct path to the client_secret.json file.")
+        return
+    
+    # Define destination path
+    dest_dir = "credentials"
+    dest_path = os.path.join(dest_dir, "google_oauth_credentials.json")
     
     # Create credentials directory if it doesn't exist
-    credentials_dir = Path("credentials")
-    credentials_dir.mkdir(exist_ok=True)
+    os.makedirs(dest_dir, exist_ok=True)
     
-    # Define target path
-    target_path = credentials_dir / "gmail_credentials.json"
+    # Copy the file
+    try:
+        with open(client_secret_path, 'r') as src, open(dest_path, 'w') as dst:
+            shutil.copyfileobj(src, dst)
+        print(f"\nSuccessfully copied credentials to '{dest_path}'")
+    except Exception as e:
+        print(f"\nError copying file: {e}")
+        return
+        
+    # Update .env file
+    env_path = ".env"
+    env_vars = {}
     
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            for line in f:
+                if '=' in line:
+                    key, value = line.strip().split('=', 1)
+                    env_vars[key] = value
+
+    # Set the unified OAuth path and token directory
+    env_vars["GOOGLE_OAUTH_CREDENTIALS_PATH"] = dest_path
+    env_vars["GOOGLE_TOKENS_DIR"] = "tokens"
+    
+    # Remove old, deprecated variables if they exist
+    deprecated_keys = ["GMAIL_CREDENTIALS_PATH", "CALENDAR_CREDENTIALS_PATH"]
+    for key in deprecated_keys:
+        if key in env_vars:
+            del env_vars[key]
+
+    try:
+        with open(env_path, 'w') as f:
+            for key, value in env_vars.items():
+                f.write(f"{key}={value}\n")
+        print(f"Successfully updated '{env_path}' with unified Google OAuth settings.")
+    except Exception as e:
+        print(f"\nError updating .env file: {e}")
+
+if __name__ == "__main__":
+    setup_google_oauth() 
     # Check if credentials already exist
     if target_path.exists():
         print(f"⚠️ Gmail credentials file already exists at {target_path}")
         overwrite = input("Do you want to overwrite it? (y/n): ").lower() == 'y'
         if not overwrite:
             print("❌ Setup cancelled.")
-            return
+            # return
     
     # Ask for source file path
     print("\nPlease provide the path to your Gmail OAuth credentials JSON file.")
@@ -48,7 +100,7 @@ def setup_gmail_credentials():
                 confirm = input("Continue anyway? (y/n): ").lower() == 'y'
                 if not confirm:
                     print("❌ Setup cancelled.")
-                    return
+                    # return
         
         # Copy the file
         shutil.copy2(source_path, target_path)

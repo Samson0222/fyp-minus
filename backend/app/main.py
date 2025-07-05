@@ -29,6 +29,15 @@ from app.services.voice_email_processor import voice_email_processor
 from app.routers.voice import router as voice_router
 from app.core.llm_service import GemmaLLMService
 
+# Add Calendar router import
+from app.routers.calendar import router as calendar_router
+
+# Add Auth router import
+from app.routers.auth import router as auth_router
+
+# Add Tasks router import
+from app.routers.tasks import router as tasks_router
+
 load_dotenv()
 
 # Configure logging
@@ -39,6 +48,9 @@ app = FastAPI(title="Minus Voice Assistant API", version="1.0.0")
 
 # Include routers
 app.include_router(gmail_router)
+app.include_router(calendar_router)  # 📅 Calendar endpoints
+app.include_router(auth_router)      # 🔐 Authentication endpoints
+app.include_router(tasks_router)     # 📋 Tasks endpoints with Google sync
 app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
 
 # CORS configuration
@@ -152,11 +164,14 @@ async def startup_event():
     logger.info("Starting Minus Voice Assistant API...")
     await init_database()
     
-    # Test Gemma 3n LLM connection
+    # Test the configured LLM connection using the factory
     try:
-        llm_service = GemmaLLMService()
+        llm_service = get_llm_service()
         stats = llm_service.get_usage_stats()
-        logger.info(f"✅ Gemma 3n LLM initialized: {stats}")
+        provider = os.getenv("LLM_PROVIDER", "GEMMA").upper()
+        # Use print to ensure visibility even if logging level filters INFO
+        print(f"✓ LLM Provider: {provider} | Stats: {stats}")
+        logger.info(f"✅ LLM initialized successfully: {stats}")
     except Exception as e:
         logger.warning(f"⚠️ LLM initialization failed: {e}")
         logger.info("Voice features may be limited without LLM service")
@@ -457,6 +472,13 @@ async def get_recent_interactions(user = Depends(get_current_user), limit: int =
 # WebSocket endpoint for real-time voice interaction (future)
 @app.websocket("/ws/voice")
 async def websocket_voice_endpoint(websocket):
+    """WebSocket endpoint for real-time voice interaction"""
+    # TODO: Implement WebSocket voice streaming
+    pass
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)async def websocket_voice_endpoint(websocket):
     """WebSocket endpoint for real-time voice interaction"""
     # TODO: Implement WebSocket voice streaming
     pass

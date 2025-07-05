@@ -40,7 +40,8 @@ class GmailService:
         """Authenticate with Gmail API using OAuth2"""
         try:
             creds = None
-            token_path = f"tokens/token_{user_id}.json"
+            tokens_dir = os.getenv("GOOGLE_TOKENS_DIR", "tokens")
+            token_path = os.path.join(tokens_dir, f"token_{user_id}.json")
             
             # Load existing credentials
             if os.path.exists(token_path):
@@ -51,17 +52,16 @@ class GmailService:
                 if creds and creds.expired and creds.refresh_token:
                     creds.refresh(Request())
                 else:
-                    # For production, you'd handle this differently
                     # This is a simplified version for demonstration
-                    credentials_path = os.getenv("GMAIL_CREDENTIALS_PATH", "credentials/gmail_credentials.json")
-                    if not os.path.exists(credentials_path):
-                        raise Exception(f"Gmail credentials file not found at {credentials_path}. Please run setup_gmail_credentials.py.")
+                    credentials_path = os.getenv("GOOGLE_OAUTH_CREDENTIALS_PATH")
+                    if not credentials_path or not os.path.exists(credentials_path):
+                        raise Exception(f"Google OAuth credentials file not found. Set GOOGLE_OAUTH_CREDENTIALS_PATH in your .env file.")
                     
                     flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
                     creds = flow.run_local_server(port=0)
                 
                 # Save the credentials for the next run
-                os.makedirs("tokens", exist_ok=True)
+                os.makedirs(tokens_dir, exist_ok=True)
                 with open(token_path, 'w') as token:
                     token.write(creds.to_json())
             

@@ -21,6 +21,10 @@ export interface Task {
   google_task_id?: string;
   rrule?: string; // iCalendar recurrence rule
   
+  // Google Calendar sync status tracking
+  is_synced_to_google: boolean;
+  last_synced_at?: Date;
+  
   // Voice-first metadata
   created_via: 'voice' | 'text' | 'manual';
   voice_command?: string;
@@ -175,6 +179,8 @@ export const convertDatabaseRowToTask = (row: any): Task => {
     google_calendar_event_id: row.google_calendar_event_id,
     google_task_id: row.google_task_id,
     rrule: row.rrule,
+    is_synced_to_google: row.is_synced_to_google || false,
+    last_synced_at: row.last_synced_at ? new Date(row.last_synced_at) : undefined,
     created_via: row.created_via,
     voice_command: row.voice_command,
     created_at: new Date(row.created_at),

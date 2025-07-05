@@ -168,8 +168,12 @@ export class TaskAPI {
   static async toggleTaskCompletion(taskId: string): Promise<Task> {
     const task = await this.getTask(taskId);
     const newStatus = task.status === 'done' ? 'todo' : 'done';
-    
     return this.updateTask(taskId, { status: newStatus });
+  }
+
+  // Update task status specifically
+  static async updateTaskStatus(taskId: string, status: 'todo' | 'inprogress' | 'done'): Promise<Task> {
+    return this.updateTask(taskId, { status });
   }
 
   // Quick create from calendar date click

@@ -16,7 +16,7 @@ const ContentHeader = () => {
       case "/calendar":
         return { icon: <Calendar size={20} />, title: "Calendar" };
       case "/inboxes":
-        return { icon: <Inbox size={20} />, title: "Inboxes" };
+        return { icon: <Inbox size={20} />, title: "Emails" };
       case "/documents":
         return { icon: <FileText size={20} />, title: "Docs" };
       case "/playground":

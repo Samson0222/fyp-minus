@@ -374,11 +374,83 @@ const TasksWorking: React.FC = () => {
     return newTag;
   };
 
-  const handleCreateTask = useCallback((newTask: Task) => {
-    setTasks(prevTasks => [newTask, ...prevTasks]);
+  const handleCreateTask = useCallback(async (newTask: Task) => {
+    try {
+      // First, create the task using the TaskAPI to save it to Supabase
+      const { TaskAPI } = await import('@/lib/api/tasks');
+      const createdTask = await TaskAPI.createTask({
+        title: newTask.title,
+        description: newTask.description,
+        due_date: newTask.dueDate,
+        is_all_day: newTask.isAllDay,
+        start_at: newTask.isAllDay ? newTask.dueDate : 
+                 newTask.startTime ? new Date(newTask.dueDate.toDateString() + ' ' + newTask.startTime) : 
+                 newTask.dueDate,
+        end_at: newTask.isAllDay ? newTask.dueDate :
+               newTask.endTime ? new Date(newTask.dueDate.toDateString() + ' ' + newTask.endTime) :
+               undefined,
+        priority: newTask.priority,
+        status: newTask.status
+      });
+
+      // If sync to calendar is enabled, sync it to Google Calendar
+      if (newTask.syncedToCalendar) {
+        try {
+          const response = await fetch(`/api/v1/tasks/${createdTask.id}/sync-to-google`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            }
+          });
+          
+          if (response.ok) {
+            console.log('Task synced to Google Calendar successfully');
+            // Update the local task with sync status
+            const updatedTask = {
+              ...newTask,
+              id: createdTask.id,
+              is_synced_to_google: true,
+              syncedToCalendar: true
+            };
+            setTasks(prevTasks => [updatedTask, ...prevTasks]);
+          } else {
+            console.error('Failed to sync to Google Calendar');
+            // Still add the task, but mark as not synced
+            const taskWithSyncError = {
+              ...newTask,
+              id: createdTask.id,
+              is_synced_to_google: false,
+              syncedToCalendar: false
+            };
+            setTasks(prevTasks => [taskWithSyncError, ...prevTasks]);
+          }
+        } catch (syncError) {
+          console.error('Error syncing to Google Calendar:', syncError);
+          // Still add the task, but mark as not synced
+          const taskWithSyncError = {
+            ...newTask,
+            id: createdTask.id,
+            is_synced_to_google: false,
+            syncedToCalendar: false
+          };
+          setTasks(prevTasks => [taskWithSyncError, ...prevTasks]);
+        }
+      } else {
+        // No sync requested, just add the task normally
+        const taskWithoutSync = {
+          ...newTask,
+          id: createdTask.id,
+          is_synced_to_google: false,
+          syncedToCalendar: false
+        };
+        setTasks(prevTasks => [taskWithoutSync, ...prevTasks]);
+      }
+    } catch (error) {
+      console.error('Failed to create task:', error);
+      // Fallback: add to local state only
+      setTasks(prevTasks => [newTask, ...prevTasks]);
+    }
   }, []);
-
-
 
   const getPriorityColor = (priority: Task['priority']) => {
     switch (priority) {
@@ -815,30 +887,39 @@ const TasksWorking: React.FC = () => {
                   </div>
                 </div>
                 
-                {/* Desktop View Toggle */}
-                <div className="inline-flex bg-dark-tertiary rounded-lg p-1">
+                {/* Desktop View Toggle with Create Task Button */}
+                <div className="flex items-center gap-3">
                   <button
-                    onClick={() => setCurrentView('list')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                      currentView === 'list'
-                        ? 'bg-violet text-white shadow-sm'
-                        : 'text-white/70 hover:text-white'
-                    }`}
+                    onClick={handleAddTask}
+                    className="flex items-center gap-2 px-4 py-2 bg-violet text-white rounded-lg hover:bg-violet/90 transition-colors text-sm font-medium"
                   >
-                    <List size={16} />
-                    List
+                    <Plus size={16} />
+                    Create Task
                   </button>
-                  <button
-                    onClick={() => setCurrentView('calendar')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                      currentView === 'calendar'
-                        ? 'bg-violet text-white shadow-sm'
-                        : 'text-white/70 hover:text-white'
-                    }`}
-                  >
-                    <Calendar size={16} />
-                    Calendar
-                  </button>
+                  <div className="inline-flex bg-dark-tertiary rounded-lg p-1">
+                    <button
+                      onClick={() => setCurrentView('list')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                        currentView === 'list'
+                          ? 'bg-violet text-white shadow-sm'
+                          : 'text-white/70 hover:text-white'
+                      }`}
+                    >
+                      <List size={16} />
+                      List
+                    </button>
+                    <button
+                      onClick={() => setCurrentView('calendar')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                        currentView === 'calendar'
+                          ? 'bg-violet text-white shadow-sm'
+                          : 'text-white/70 hover:text-white'
+                      }`}
+                    >
+                      <Calendar size={16} />
+                      Calendar
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -862,30 +943,39 @@ const TasksWorking: React.FC = () => {
                   <span>Priority</span>
                 </div>
                 
-                {/* Mobile View Toggle */}
-                <div className="inline-flex bg-dark-tertiary rounded-lg p-1">
+                {/* Mobile View Toggle with Create Task Button */}
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setCurrentView('list')}
-                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                      currentView === 'list'
-                        ? 'bg-violet text-white shadow-sm'
-                        : 'text-white/70 hover:text-white'
-                    }`}
+                    onClick={handleAddTask}
+                    className="flex items-center gap-1 px-2 py-1 bg-violet text-white rounded-lg hover:bg-violet/90 transition-colors text-xs font-medium"
                   >
-                    <List size={12} />
-                    List
+                    <Plus size={12} />
+                    Create
                   </button>
-                  <button
-                    onClick={() => setCurrentView('calendar')}
-                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                      currentView === 'calendar'
-                        ? 'bg-violet text-white shadow-sm'
-                        : 'text-white/70 hover:text-white'
-                    }`}
-                  >
-                    <Calendar size={12} />
-                    Calendar
-                  </button>
+                  <div className="inline-flex bg-dark-tertiary rounded-lg p-1">
+                    <button
+                      onClick={() => setCurrentView('list')}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                        currentView === 'list'
+                          ? 'bg-violet text-white shadow-sm'
+                          : 'text-white/70 hover:text-white'
+                      }`}
+                    >
+                      <List size={12} />
+                      List
+                    </button>
+                    <button
+                      onClick={() => setCurrentView('calendar')}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                        currentView === 'calendar'
+                          ? 'bg-violet text-white shadow-sm'
+                          : 'text-white/70 hover:text-white'
+                      }`}
+                    >
+                      <Calendar size={12} />
+                      Calendar
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1435,14 +1525,7 @@ const TasksWorking: React.FC = () => {
           </div>
         </div>
 
-        {/* Floating Add Task Button */}
-        <button
-          onClick={handleAddTask}
-          className="fixed bottom-24 right-6 z-50 flex items-center gap-2 px-4 py-3 bg-violet text-white rounded-full shadow-lg hover:bg-violet/90 transition-all hover:scale-105"
-        >
-          <Plus size={20} />
-          <span className="text-sm font-medium">Create Task</span>
-        </button>
+
 
 
 
