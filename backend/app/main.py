@@ -25,6 +25,10 @@ from app.core.database import get_database, init_database
 from app.routers.gmail import router as gmail_router
 from app.services.voice_email_processor import voice_email_processor
 
+# Voice integration
+from app.routers.voice import router as voice_router
+from app.core.llm_service import GemmaLLMService
+
 load_dotenv()
 
 # Configure logging
@@ -35,6 +39,7 @@ app = FastAPI(title="Minus Voice Assistant API", version="1.0.0")
 
 # Include routers
 app.include_router(gmail_router)
+app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
 
 # CORS configuration
 origins = [
@@ -143,9 +148,18 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database connection on startup"""
+    """Initialize database connection and services on startup"""
     logger.info("Starting Minus Voice Assistant API...")
     await init_database()
+    
+    # Test Gemma 3n LLM connection
+    try:
+        llm_service = GemmaLLMService()
+        stats = llm_service.get_usage_stats()
+        logger.info(f"✅ Gemma 3n LLM initialized: {stats}")
+    except Exception as e:
+        logger.warning(f"⚠️ LLM initialization failed: {e}")
+        logger.info("Voice features may be limited without LLM service")
 
 @app.get("/")
 async def root():

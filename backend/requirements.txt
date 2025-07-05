@@ -19,3 +19,9 @@ google-auth-oauthlib==1.1.0
 google-auth-httplib2==0.1.1
 google-api-python-client==2.109.0
 email-validator==2.1.0
+
+# NEW Day 1 Dependencies for Voice Pipeline + Gemma 3n
+# Note: FastRTC not available, using simulation mode for now
+langchain-google-genai>=2.0.0
+google-generativeai>=0.8.0
+websockets>=12.0

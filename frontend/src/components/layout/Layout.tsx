@@ -24,6 +24,8 @@ interface VoiceCommandCallbacks {
   onClearFilters?: () => void;
   onReplyEmail?: () => void;
   onForwardEmail?: (recipient?: string) => void;
+  onStarEmail?: () => void;
+  onMarkImportant?: () => void;
 }
 
 interface LayoutProps {
@@ -147,6 +149,16 @@ const Layout: React.FC<LayoutProps> = ({ children, onComposeEmail, voiceCommandC
                 if (voiceCommandCallbacks.onForwardEmail) {
                   const recipient = voiceData.parsed_parameters?.recipient;
                   voiceCommandCallbacks.onForwardEmail(recipient);
+                }
+                break;
+              case 'star_email':
+                if (voiceCommandCallbacks.onStarEmail) {
+                  voiceCommandCallbacks.onStarEmail();
+                }
+                break;
+              case 'mark_important':
+                if (voiceCommandCallbacks.onMarkImportant) {
+                  voiceCommandCallbacks.onMarkImportant();
                 }
                 break;
             }

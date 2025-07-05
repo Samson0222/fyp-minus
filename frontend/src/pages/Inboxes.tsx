@@ -24,7 +24,9 @@ import {
   Edit,
   X,
   ChevronDown,
-  Check
+  Check,
+  StarIcon as StarOutline,
+  Bookmark
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -49,6 +51,7 @@ interface EmailMessage {
   date: string;
   is_read: boolean;
   is_important: boolean;
+  is_starred?: boolean;
   labels: string[];
   snippet?: string;
 }
@@ -72,6 +75,9 @@ const Inboxes = () => {
   const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const { toast } = useToast();
+  
+  // Calculate unread count for badge
+  const unreadCount = emails.filter(email => !email.is_read).length;
 
   // Check Gmail authentication status
   useEffect(() => {
@@ -345,66 +351,69 @@ const Inboxes = () => {
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+    const emailDate = new Date(dateString);
     const now = new Date();
     
-    // Convert both to Malaysia timezone for comparison
-    const malaysiaOptions: Intl.DateTimeFormatOptions = {
-      timeZone: 'Asia/Kuala_Lumpur'
-    };
+    // Create Malaysia timezone formatter
+    const malaysiaFormatter = new Intl.DateTimeFormat('en-MY', { 
+      timeZone: 'Asia/Kuala_Lumpur' 
+    });
     
-    const emailDate = new Date(date.toLocaleString('en-US', malaysiaOptions));
-    const currentDate = new Date(now.toLocaleString('en-US', malaysiaOptions));
+    // Get Malaysia date components for comparison
+    const emailMalaysiaDate = new Date(emailDate.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }));
+    const nowMalaysiaDate = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }));
     
-    const diffInMs = currentDate.getTime() - emailDate.getTime();
-    const diffInHours = diffInMs / (1000 * 60 * 60);
-    const diffInDays = Math.floor(diffInHours / 24);
+    // Calculate difference in Malaysia timezone
+    const diffInMs = nowMalaysiaDate.getTime() - emailMalaysiaDate.getTime();
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
     
-    // Check if it's today
-    const isToday = emailDate.toDateString() === currentDate.toDateString();
+    // Check if same day in Malaysia timezone
+    const emailMalaysiaDateStr = emailMalaysiaDate.toDateString();
+    const nowMalaysiaDateStr = nowMalaysiaDate.toDateString();
+    const isToday = emailMalaysiaDateStr === nowMalaysiaDateStr;
     
-    // Check if it's yesterday
-    const yesterday = new Date(currentDate);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday = emailDate.toDateString() === yesterday.toDateString();
+    // Check if yesterday in Malaysia timezone
+    const yesterdayMalaysia = new Date(nowMalaysiaDate);
+    yesterdayMalaysia.setDate(yesterdayMalaysia.getDate() - 1);
+    const isYesterday = emailMalaysiaDateStr === yesterdayMalaysia.toDateString();
 
     if (isToday) {
-      // Show time for today's emails (e.g., "1:33 PM")
-      return date.toLocaleTimeString('en-MY', { 
+      // Show time for today's emails
+      return emailDate.toLocaleTimeString('en-MY', { 
         timeZone: 'Asia/Kuala_Lumpur',
         hour: 'numeric', 
         minute: '2-digit',
         hour12: true
       });
     } else if (isYesterday) {
-      // Show time for yesterday's emails (e.g., "Yesterday 2:15 PM")
-      return 'Yesterday ' + date.toLocaleTimeString('en-MY', { 
+      // Show time for yesterday's emails
+      return 'Yesterday ' + emailDate.toLocaleTimeString('en-MY', { 
         timeZone: 'Asia/Kuala_Lumpur',
         hour: 'numeric', 
         minute: '2-digit',
         hour12: true
       });
-    } else if (diffInDays < 7) {
-      // Show day and time for this week (e.g., "Mon 10:30 AM")
-      return date.toLocaleDateString('en-MY', { 
+    } else if (diffInDays < 7 && diffInDays >= 0) {
+      // Show day and time for this week
+      return emailDate.toLocaleDateString('en-MY', { 
         timeZone: 'Asia/Kuala_Lumpur',
         weekday: 'short' 
-      }) + ' ' + date.toLocaleTimeString('en-MY', { 
+      }) + ' ' + emailDate.toLocaleTimeString('en-MY', { 
         timeZone: 'Asia/Kuala_Lumpur',
         hour: 'numeric', 
         minute: '2-digit',
         hour12: true
       });
-    } else if (diffInDays < 365) {
-      // Show date for this year (e.g., "Jan 15")
-      return date.toLocaleDateString('en-MY', { 
+    } else if (emailDate.getFullYear() === now.getFullYear()) {
+      // Show date for this year
+      return emailDate.toLocaleDateString('en-MY', { 
         timeZone: 'Asia/Kuala_Lumpur',
         month: 'short', 
         day: 'numeric' 
       });
     } else {
-      // Show date with year for older emails (e.g., "Jan 15, '23")
-      return date.toLocaleDateString('en-MY', { 
+      // Show date with year for older emails
+      return emailDate.toLocaleDateString('en-MY', { 
         timeZone: 'Asia/Kuala_Lumpur',
         year: '2-digit', 
         month: 'short', 
@@ -416,8 +425,6 @@ const Inboxes = () => {
   const getSenderDisplay = (sender: EmailSender) => {
     return sender.name || sender.email.split('@')[0];
   };
-
-  const unreadCount = emails.filter(email => !email.is_read).length;
 
   // Helper functions for filter management
   const getActiveFilters = () => {
@@ -550,6 +557,106 @@ const Inboxes = () => {
     }
   };
 
+  // Star/Important handlers
+  const handleToggleStar = async (emailId: string, isStarred: boolean) => {
+    try {
+      const action = isStarred ? 'unstar' : 'star';
+      const response = await fetch(`/api/v1/gmail/${action}/${emailId}`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        // Update email in the list
+        setEmails(prevEmails => 
+          prevEmails.map(email => 
+            email.id === emailId 
+              ? { ...email, is_starred: !isStarred }
+              : email
+          )
+        );
+        
+        // Update selected email if it's the one being starred
+        if (selectedEmail?.id === emailId) {
+          setSelectedEmail(prev => prev ? { ...prev, is_starred: !isStarred } : null);
+        }
+        
+        toast({
+          title: isStarred ? "Removed from Favorites" : "Added to Favorites",
+          description: isStarred ? "Email removed from starred/favorites" : "Email added to starred/favorites (yellow star)"
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling star:', error);
+      toast({
+        title: "Error",
+        description: "Failed to toggle star",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleToggleImportant = async (emailId: string, isImportant: boolean) => {
+    try {
+      const action = isImportant ? 'unimportant' : 'important';
+      const response = await fetch(`/api/v1/gmail/mark-${action}/${emailId}`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        // Update email in the list
+        setEmails(prevEmails => 
+          prevEmails.map(email => 
+            email.id === emailId 
+              ? { ...email, is_important: !isImportant }
+              : email
+          )
+        );
+        
+        // Update selected email if it's the one being marked
+        if (selectedEmail?.id === emailId) {
+          setSelectedEmail(prev => prev ? { ...prev, is_important: !isImportant } : null);
+        }
+        
+        toast({
+          title: isImportant ? "Priority Removed" : "High Priority Set",
+          description: isImportant ? "Email marked as normal priority" : "Email marked as high priority (blue indicator)"
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling important:', error);
+      toast({
+        title: "Error",
+        description: "Failed to toggle importance",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Voice handlers for star and important
+  const handleVoiceStar = () => {
+    if (selectedEmail) {
+      handleToggleStar(selectedEmail.id, selectedEmail.is_starred || false);
+    } else {
+      toast({
+        title: "No Email Selected",
+        description: "Please select an email first to star",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleVoiceImportant = () => {
+    if (selectedEmail) {
+      handleToggleImportant(selectedEmail.id, selectedEmail.is_important);
+    } else {
+      toast({
+        title: "No Email Selected",
+        description: "Please select an email first to mark as important",
+        variant: "destructive"
+      });
+    }
+  };
+
   // Voice command callbacks object
   const voiceCommandCallbacks = {
     onUnreadFilter: handleVoiceUnreadFilter,
@@ -560,6 +667,8 @@ const Inboxes = () => {
     onClearFilters: handleVoiceClearFilters,
     onReplyEmail: handleVoiceReply,
     onForwardEmail: handleVoiceForward,
+    onStarEmail: handleVoiceStar,
+    onMarkImportant: handleVoiceImportant,
   };
 
   if (authStatus === 'checking') {
@@ -675,6 +784,7 @@ const Inboxes = () => {
                 onClick={() => setIsComposeModalOpen(true)}
                 className="bg-violet hover:bg-violet-light text-white"
                 size="sm"
+                title="Compose new email"
               >
                 <Edit className="h-4 w-4 mr-2" />
                 <span className="hidden sm:inline">Compose</span>
@@ -688,6 +798,7 @@ const Inboxes = () => {
                     variant="outline" 
                     size="sm"
                     className={`${getActiveFilters().length > 0 ? 'bg-violet/20 text-violet border-violet' : ''} min-w-0`}
+                    title="Filter emails"
                   >
                     <Filter className="h-4 w-4 mr-2" />
                     <span className="hidden sm:inline">{getFilterButtonText()}</span>
@@ -721,7 +832,7 @@ const Inboxes = () => {
                 size="sm" 
                 onClick={handleSwitchAccount}
                 className="text-orange-400 border-orange-400/50 hover:bg-orange-400/10"
-                title="Switch Account"
+                title="Switch Gmail account"
               >
                 <LogOut className="h-4 w-4 mr-2" />
                 <span className="hidden lg:inline">Switch</span>
@@ -783,9 +894,38 @@ const Inboxes = () => {
                             <p className={`text-sm flex-1 mr-2 ${!email.is_read ? 'font-medium' : 'text-foreground/70'}`}>
                               {email.subject}
                             </p>
-                            {email.is_important && (
-                              <Star className="h-3 w-3 text-yellow-500 flex-shrink-0" />
-                            )}
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              {/* Star button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleStar(email.id, email.is_starred || false);
+                                }}
+                                className="p-0.5 hover:bg-white/10 rounded transition-colors"
+                                title={email.is_starred ? "Remove from favorites (unstar)" : "Add to favorites (star)"}
+                              >
+                                {email.is_starred ? (
+                                  <Star className="h-3 w-3 text-yellow-400 fill-yellow-400" />
+                                ) : (
+                                  <StarOutline className="h-3 w-3 text-foreground/30 hover:text-foreground/60" />
+                                )}
+                              </button>
+                              {/* Important marker */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleImportant(email.id, email.is_important);
+                                }}
+                                className="p-0.5 hover:bg-white/10 rounded transition-colors"
+                                title={email.is_important ? "Mark as normal priority" : "Mark as high priority"}
+                              >
+                                {email.is_important ? (
+                                  <Bookmark className="h-3 w-3 text-blue-400 fill-blue-400" />
+                                ) : (
+                                  <Bookmark className="h-3 w-3 text-foreground/30 hover:text-foreground/60" />
+                                )}
+                              </button>
+                            </div>
                           </div>
                           {/* Row 3: Snippet (can be truncated) */}
                           <div className="flex items-end">
@@ -834,31 +974,87 @@ const Inboxes = () => {
                   </div>
                   
                   {/* Action Buttons */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button variant="outline" size="sm">
-                      <Reply className="h-4 w-4 mr-2" />
-                      Reply
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Forward className="h-4 w-4 mr-2" />
-                      Forward
-                    </Button>
-                    {selectedEmail.is_read && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    {/* Left side: Reply and Forward */}
+                    <div className="flex items-center gap-2">
                       <Button 
                         variant="outline" 
                         size="sm"
-                        onClick={() => handleMarkAsUnread(selectedEmail.id)}
+                        title="Reply to this email"
                       >
-                        <MailOpen className="h-4 w-4 mr-2" />
-                        Mark Unread
+                        <Reply className="h-4 w-4 mr-2" />
+                        Reply
                       </Button>
-                    )}
-                    <Button variant="outline" size="sm">
-                      <Archive className="h-4 w-4" />
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        title="Forward this email"
+                      >
+                        <Forward className="h-4 w-4 mr-2" />
+                        Forward
+                      </Button>
+                    </div>
+                    
+                    {/* Right side: Action buttons */}
+                    <div className="flex items-center gap-2">
+                      {/* Star Button */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleToggleStar(selectedEmail.id, selectedEmail.is_starred || false)}
+                        title={selectedEmail.is_starred ? "Remove from favorites (unstar)" : "Add to favorites (star)"}
+                        className={selectedEmail.is_starred ? "text-yellow-400 border-yellow-400/50" : ""}
+                      >
+                        {selectedEmail.is_starred ? (
+                          <Star className="h-4 w-4 fill-yellow-400" />
+                        ) : (
+                          <StarOutline className="h-4 w-4" />
+                        )}
+                      </Button>
+                      
+                      {/* Important Button */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleToggleImportant(selectedEmail.id, selectedEmail.is_important)}
+                        title={selectedEmail.is_important ? "Mark as normal priority" : "Mark as high priority"}
+                        className={selectedEmail.is_important ? "text-blue-400 border-blue-400/50" : ""}
+                      >
+                        {selectedEmail.is_important ? (
+                          <Bookmark className="h-4 w-4 fill-blue-400" />
+                        ) : (
+                          <Bookmark className="h-4 w-4" />
+                        )}
+                      </Button>
+                      
+                      {selectedEmail.is_read && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleMarkAsUnread(selectedEmail.id)}
+                          title="Mark as unread"
+                        >
+                          <Mail className="h-4 w-4 mr-2" />
+                          Mark Unread
+                        </Button>
+                      )}
+                      
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        title="Archive email"
+                      >
+                        <Archive className="h-4 w-4" />
+                      </Button>
+                      
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        title="Delete email"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
 

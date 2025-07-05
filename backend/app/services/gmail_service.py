@@ -20,6 +20,7 @@ from app.models.email import (
     EmailMessage, EmailSender, EmailRecipient, EmailAttachment,
     EmailListResponse, SendEmailRequest, SendEmailResponse
 )
+from app.core.llm_service import GemmaLLMService
 
 # Gmail API scopes
 SCOPES = [
@@ -52,9 +53,9 @@ class GmailService:
                 else:
                     # For production, you'd handle this differently
                     # This is a simplified version for demonstration
-                    credentials_path = os.getenv("GMAIL_CREDENTIALS_PATH", "credentials.json")
+                    credentials_path = os.getenv("GMAIL_CREDENTIALS_PATH", "credentials/gmail_credentials.json")
                     if not os.path.exists(credentials_path):
-                        raise Exception("Gmail credentials file not found. Please set up OAuth2 credentials.")
+                        raise Exception(f"Gmail credentials file not found at {credentials_path}. Please run setup_gmail_credentials.py.")
                     
                     flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
                     creds = flow.run_local_server(port=0)
@@ -172,6 +173,7 @@ class GmailService:
         labels = message.get('labelIds', [])
         is_read = 'UNREAD' not in labels
         is_important = 'IMPORTANT' in labels
+        is_starred = 'STARRED' in labels
         
         return EmailMessage(
             id=message['id'],
@@ -186,6 +188,7 @@ class GmailService:
             date=date,
             is_read=is_read,
             is_important=is_important,
+            is_starred=is_starred,
             labels=labels,
             snippet=message.get('snippet', ''),
             attachments=[]  # TODO: Parse attachments if needed
@@ -220,6 +223,7 @@ class GmailService:
                         date=datetime.utcnow(),
                         is_read='UNREAD' not in meta.get('labelIds', []),
                         is_important='IMPORTANT' in meta.get('labelIds', []),
+                        is_starred='STARRED' in meta.get('labelIds', []),
                         labels=meta.get('labelIds', []),
                         snippet=meta.get('snippet', '')
                     )
@@ -321,6 +325,145 @@ class GmailService:
     async def search_emails(self, user_id: str, query: str, max_results: int = 10) -> EmailListResponse:
         """Search emails with specific query"""
         return await self.get_emails(user_id, max_results, query)
+    
+    async def star_email(self, user_id: str, message_id: str) -> bool:
+        """Add star to email"""
+        if not await self.authenticate(user_id):
+            return False
+        
+        try:
+            self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'addLabelIds': ['STARRED']}
+            ).execute()
+            return True
+        except HttpError as error:
+            print(f"Error starring email: {error}")
+            return False
+    
+    async def unstar_email(self, user_id: str, message_id: str) -> bool:
+        """Remove star from email"""
+        if not await self.authenticate(user_id):
+            return False
+        
+        try:
+            self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'removeLabelIds': ['STARRED']}
+            ).execute()
+            return True
+        except HttpError as error:
+            print(f"Error unstarring email: {error}")
+            return False
+    
+    async def mark_as_important(self, user_id: str, message_id: str) -> bool:
+        """Mark email as important"""
+        if not await self.authenticate(user_id):
+            return False
+        
+        try:
+            self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'addLabelIds': ['IMPORTANT']}
+            ).execute()
+            return True
+        except HttpError as error:
+            print(f"Error marking email as important: {error}")
+            return False
+    
+    async def mark_as_unimportant(self, user_id: str, message_id: str) -> bool:
+        """Mark email as not important"""
+        if not await self.authenticate(user_id):
+            return False
+        
+        try:
+            self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'removeLabelIds': ['IMPORTANT']}
+            ).execute()
+            return True
+        except HttpError as error:
+            print(f"Error marking email as not important: {error}")
+            return False
+
+    # Voice Command Processing Methods
+    async def process_voice_command(self, command_data: dict) -> dict:
+        """Process Gmail voice commands using Gemma 3n"""
+        action = command_data.get("action")
+        params = command_data.get("params", {})
+        user_id = "test_user_001"  # Mock user for testing
+        
+        try:
+            if action == "read_unread":
+                return await self.read_unread_emails_voice(user_id)
+            elif action == "compose":
+                return await self.compose_email_voice(user_id, params)
+            elif action == "search":
+                return await self.search_emails_voice(user_id, params)
+            else:
+                return {"error": f"Unknown Gmail action: {action}"}
+        except Exception as e:
+            return {"error": f"Gmail command failed: {str(e)}"}
+    
+    async def read_unread_emails_voice(self, user_id: str) -> dict:
+        """Read unread emails and format for voice response"""
+        try:
+            # Mock response for testing without Gmail API
+            return {
+                "response": "You have 3 unread emails. 1 from John about the meeting, 1 from Sarah about the project update, and 1 from LinkedIn about new connections.",
+                "count": 3,
+                "emails": [
+                    {"from": "John Doe", "subject": "Meeting Tomorrow", "snippet": "Can we reschedule..."},
+                    {"from": "Sarah Smith", "subject": "Project Update", "snippet": "The latest updates..."},
+                    {"from": "LinkedIn", "subject": "New Connections", "snippet": "You have 2 new connections..."}
+                ]
+            }
+        except Exception as e:
+            return {"error": f"Failed to read emails: {str(e)}"}
+    
+    async def compose_email_voice(self, user_id: str, params: dict) -> dict:
+        """Compose email using voice parameters"""
+        try:
+            recipient = params.get("to", "")
+            subject = params.get("subject", "")
+            
+            if not recipient:
+                return {"error": "Please specify recipient"}
+            
+            # Mock email composition
+            return {
+                "response": f"Email draft created for {recipient} with subject '{subject}'. Would you like me to send it?",
+                "draft": {
+                    "to": recipient,
+                    "subject": subject,
+                    "body": f"This is a mock email about {subject}."
+                }
+            }
+            
+        except Exception as e:
+            return {"error": f"Failed to compose email: {str(e)}"}
+    
+    async def search_emails_voice(self, user_id: str, params: dict) -> dict:
+        """Search emails using voice parameters"""
+        try:
+            query = params.get("query", "")
+            
+            # Mock search results
+            return {
+                "response": f"Found 2 emails matching '{query}'. The most recent is from Alex about the quarterly report.",
+                "count": 2,
+                "emails": [
+                    {"from": "Alex Johnson", "subject": "Quarterly Report", "snippet": "Please find attached..."},
+                    {"from": "Manager", "subject": "Team Update", "snippet": "Following up on..."}
+                ]
+            }
+            
+        except Exception as e:
+            return {"error": f"Failed to search emails: {str(e)}"}
 
 # Global Gmail service instance
 gmail_service = GmailService()

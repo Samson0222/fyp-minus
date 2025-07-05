@@ -116,6 +116,98 @@ async def mark_email_as_unread(
         logger.error(f"Error marking email as unread: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to mark email as unread: {str(e)}")
 
+@router.post("/star/{message_id}")
+async def star_email(
+    message_id: str,
+    user = Depends(get_current_user)
+):
+    """Star an email"""
+    try:
+        user_id = user["user_id"]
+        
+        success = await gmail_service.star_email(
+            user_id=user_id,
+            message_id=message_id
+        )
+        
+        if success:
+            return {"status": "success", "message": "Email starred"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to star email")
+            
+    except Exception as e:
+        logger.error(f"Error starring email: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to star email: {str(e)}")
+
+@router.post("/unstar/{message_id}")
+async def unstar_email(
+    message_id: str,
+    user = Depends(get_current_user)
+):
+    """Unstar an email"""
+    try:
+        user_id = user["user_id"]
+        
+        success = await gmail_service.unstar_email(
+            user_id=user_id,
+            message_id=message_id
+        )
+        
+        if success:
+            return {"status": "success", "message": "Email unstarred"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to unstar email")
+            
+    except Exception as e:
+        logger.error(f"Error unstarring email: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to unstar email: {str(e)}")
+
+@router.post("/mark-important/{message_id}")
+async def mark_email_as_important(
+    message_id: str,
+    user = Depends(get_current_user)
+):
+    """Mark email as important"""
+    try:
+        user_id = user["user_id"]
+        
+        success = await gmail_service.mark_as_important(
+            user_id=user_id,
+            message_id=message_id
+        )
+        
+        if success:
+            return {"status": "success", "message": "Email marked as important"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to mark email as important")
+            
+    except Exception as e:
+        logger.error(f"Error marking email as important: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to mark email as important: {str(e)}")
+
+@router.post("/mark-unimportant/{message_id}")
+async def mark_email_as_unimportant(
+    message_id: str,
+    user = Depends(get_current_user)
+):
+    """Mark email as not important"""
+    try:
+        user_id = user["user_id"]
+        
+        success = await gmail_service.mark_as_unimportant(
+            user_id=user_id,
+            message_id=message_id
+        )
+        
+        if success:
+            return {"status": "success", "message": "Email marked as not important"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to mark email as not important")
+            
+    except Exception as e:
+        logger.error(f"Error marking email as not important: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to mark email as not important: {str(e)}")
+
 @router.post("/search", response_model=EmailListResponse)
 async def search_emails(
     query: str,
@@ -274,6 +366,14 @@ async def process_voice_email_command(
             
         elif parsed_command.command_type == 'send_email_simple':
             # Simple compose without full details
+            response_message = voice_email_processor.generate_response(parsed_command)
+            
+        elif parsed_command.command_type == 'star_email':
+            # Star email - would need selected email context in real implementation
+            response_message = voice_email_processor.generate_response(parsed_command)
+            
+        elif parsed_command.command_type == 'mark_important':
+            # Mark as important - would need selected email context in real implementation
             response_message = voice_email_processor.generate_response(parsed_command)
             
         else:

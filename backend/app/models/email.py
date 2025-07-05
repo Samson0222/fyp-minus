@@ -33,6 +33,7 @@ class EmailMessage(BaseModel):
     date: datetime
     is_read: bool = False
     is_important: bool = False
+    is_starred: bool = False
     labels: List[str] = []
     attachments: List[EmailAttachment] = []
     snippet: Optional[str] = None
