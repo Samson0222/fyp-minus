@@ -21,6 +21,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
+import { CreateTaskModal, Task as ModalTask, TaskTag } from '@/components/tasks/CreateTaskModal';
 
 // Unified Task type matching the backend response
 interface Task {
@@ -57,6 +58,8 @@ const Calendar: React.FC = () => {
     loading: true
   });
   const [isPanelVisible, setIsPanelVisible] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   
   const { toast } = useToast();
 
@@ -322,10 +325,14 @@ const Calendar: React.FC = () => {
 
   // Placeholder for creating a new task - to be implemented fully later
   const handleDateClick = (arg: any) => {
-    toast({
-      title: 'Create New Task',
-      description: `You clicked on ${arg.dateStr}. Feature to create a new task here is coming soon!`,
-    });
+    setSelectedDate(new Date(arg.dateStr));
+    setIsModalOpen(true);
+  };
+
+  const handleTaskCreated = () => {
+    // This function will be called by the modal on success
+    setIsModalOpen(false);
+    loadCalendarData(); // Refresh the calendar view
   };
 
   const formattedLastRefresh = useMemo(() => {
@@ -799,6 +806,15 @@ const Calendar: React.FC = () => {
           font-size: 11px !important;
         }
       `}</style>
+      <CreateTaskModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onCreateTask={handleTaskCreated}
+        defaultDate={selectedDate}
+        // These are placeholders for now, will be implemented later
+        availableTags={[]}
+        onCreateTag={() => ({} as TaskTag)}
+      />
     </Layout>
   );
 };

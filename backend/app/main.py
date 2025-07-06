@@ -44,6 +44,12 @@ from app.routers.tasks import router as tasks_router
 # Add Webhooks router import
 from app.routers.webhooks import router as webhooks_router
 
+# Add Google Docs router import
+from app.routers.docs import router as docs_router
+
+# Add Mission Control router import
+from app.routers.mission_control import router as mission_control_router
+
 load_dotenv()
 
 # Configure logging
@@ -58,6 +64,8 @@ app.include_router(calendar_router)  # 📅 Calendar endpoints
 app.include_router(auth_router)      # 🔐 Authentication endpoints
 app.include_router(tasks_router)     # 📋 Tasks endpoints with Google sync
 app.include_router(webhooks_router)  # 🎣 Webhooks for real-time sync
+app.include_router(docs_router)      # 📄 Google Docs endpoints
+app.include_router(mission_control_router)  # 🎛️ Mission Control endpoints
 app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
 
 # Global variable to hold the LLM service instance

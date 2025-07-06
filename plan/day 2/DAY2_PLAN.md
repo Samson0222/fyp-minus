@@ -57,14 +57,23 @@ Building on Day 1's success (Voice Pipeline + Gmail + Calendar + LM Studio), Day
 ### **🌇 AFTERNOON SESSION (4 hours)**
 **2:00 PM - 6:00 PM**
 
-#### **Task 4: Frontend "Smart Portal" Implementation (90 minutes)**
-- Build the `DocsDashboard.tsx` to list documents from the new API endpoint.
-- Build the `DocView.tsx` containing the `<iframe>` and AI sidebar.
-- The "Command the Sidebar, Refresh the Frame" logic is now simplified. The primary interaction is the user accepting/rejecting suggestions directly in the `iframe`. A manual "Sync Status" button may be useful as a fallback.
+#### **Task 4: Frontend Architecture Refactor & "Smart Portal" UI (90 minutes)**
+- **Core Principle:** Refactor the existing `ChatSidebar.tsx` to be a generic, reusable "Dumb UI Component". All business logic will be moved into context-specific "Smart Wrappers". This is the highest priority frontend task.
+- **Phase 1: Refactoring `ChatSidebar.tsx`**
+    - **Step 1:** Simplify `ChatSidebar.tsx`, removing all hardcoded API calls and replacing its props with a generic `onCommand` callback. It will only be responsible for UI presentation.
+    - **Step 2:** Create a `GmailChat.tsx` "Smart Wrapper" to contain the original logic (transcription, calling the Gmail API) and render the dumb `ChatSidebar` component.
+    - **Step 3:** Update the main app layout to use this new `GmailChat.tsx` wrapper, ensuring existing functionality is preserved.
+- **Phase 2: Implementing the Docs UI**
+    - **Step 1:** Create `DocsDashboard.tsx` to list documents from the backend.
+    - **Step 2:** Create a new `DocsChat.tsx` "Smart Wrapper". This wrapper will:
+        - Get the `document_id` from the URL.
+        - Implement an `onCommand` handler that calls the `/api/v1/docs/{document_id}/create-suggestion` endpoint.
+        - Manage the state for the Docs conversation (messages, processing status).
+    - **Step 3:** Build the `DocView.tsx`, which will feature the `<iframe>` on the left and our new `DocsChat.tsx` wrapper on the right.
 
 #### **Task 5: Enhanced LM Studio & Integration Testing (90 minutes)**
 - Optimize LM Studio prompts for all 4 platforms, including the new Docs commands.
-- Test the end-to-end flow for the Docs "Smart Portal", verifying that suggestions are created correctly.
+- Test the end-to-end flow for the Docs "Smart Portal", verifying the refactored `ChatSidebar` works correctly in both the Docs and Gmail contexts.
 - Verify cross-platform routing accuracy and error handling.
 
 #### **Task 6: Final Polish & Documentation (60 minutes)**
@@ -114,44 +123,87 @@ Therefore, we will implement the **"Collaborator Model" using native Google Docs
         ```
     -   **Right (20%):** The AI Assistant Sidebar for voice/text commands. This sidebar does **not** need a complex preview/apply UI. It will only be used for input and showing status messages (e.g., "Suggestion created!").
 
-#### **C. Required Google API Scopes**
+#### **C. Enhancements for Advanced Control & Flow**
+
+To elevate the user experience, we will add two additional layers of functionality:
+
+**1. "Mission Control" for Suggestions:**
+- **Backend:** The `create_suggestion` endpoint will be enhanced to store the `suggestionId` returned by the Google Docs API in a temporary session cache.
+- **New Endpoints:** New endpoints will be created (e.g., `/suggestions/accept-all`, `/suggestions/reject-last`) to manage multiple suggestions programmatically.
+- **Voice Commands:** This enables powerful commands like "Accept all suggestions" or "Undo the last change."
+
+**2. "Intelligent Dialogue" System:**
+- **Frontend Redesign:** The `AISidebar` will be redesigned from a simple command bar into a scrolling chat interface that displays conversation history.
+- **Backend Memory:** The core AI Agent will be upgraded with a memory module (e.g., LangChain's `ConversationBufferMemory`) to understand conversational context. This allows for natural follow-up commands using pronouns (e.g., "Now make **it** shorter").
+
+#### **D. Required Google API Scopes**
 
 Update Google Auth to include:
 -   `https://www.googleapis.com/auth/drive.readonly` (To list files)
 -   `https://www.googleapis.com/auth/documents` (To read/write content)
 
 
-### **2. Telegram Service**
+### **2. Telegram Service: The "Conversational Messenger"**
 
-```python
-# backend/app/services/telegram_service.py
-class TelegramService:
-    def __init__(self):
-        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-        self.llm_service = get_llm_service()
-        self.mock_mode = not self.bot_token
-    
-    async def process_voice_command(self, command_data: dict) -> dict:
-        """Process Telegram voice commands"""
-        action = command_data.get("action")
-        params = command_data.get("params", {})
-        
-        if action == "send_message":
-            return await self.send_message_voice(params)
-        elif action == "read_chats":
-            return await self.read_chats_voice(params)
-        elif action == "join_group":
-            return await self.join_group_voice(params)
-        else:
-            return {"error": f"Unknown Telegram action: {action}"}
-```
+We will implement a "Hub & Spoke" model. Our main application is the "Hub," and the Telegram bot is a lightweight "Spoke." The interaction will be fully conversational.
 
-**Voice Commands:**
-- "Send a message to the team chat"
-- "Read my recent messages"
-- "Send a message to John saying the meeting is at 3 PM"
+**Interaction Flow: "Conversational Messenger"**
+1.  **User Onboarding:** A new user types `/start`. The bot responds with a unique link to the main application to securely link their account. A `telegram_destinations` table in Supabase will store these links.
+2.  **User Issues Command:** The user sends a text or **voice note**. Voice notes will be transcribed to text using Whisper.
+3.  **Contextual Handling:** The backend checks for conversational context (e.g., is this a "reply" to a previous message?).
+4.  **Agent Processing:** The command is passed to the central `EnhancedAgentRouter` to be executed by the appropriate service (`TaskService`, `GmailService`, etc.).
+5.  **Confirmation & Follow-up:** The bot sends a confirmation message back and, where appropriate, asks a clarifying follow-up question (e.g., "Message sent. Do you want to check for other unread messages?").
+6.  **Group Chats:** The bot can be added to groups and registered with a unique alias (e.g., `/register_group Project Phoenix`). The main app can then send messages to this group, but only after a `getChatMember` permission check to ensure the commanding user is in the group.
 
-### **3. LangChain Agent Router**
+#### **A. Backend (`telegram_service.py` & Supabase)**
+
+-   **Supabase Table: `telegram_destinations`**
+    ```sql
+    CREATE TYPE destination_type AS ENUM ('private', 'group');
+    CREATE TABLE telegram_destinations (
+        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+        telegram_chat_id TEXT NOT NULL UNIQUE,
+        destination_type destination_type NOT NULL,
+        destination_name TEXT NOT NULL,
+        is_default BOOLEAN DEFAULT false
+    );
+    ```
+
+-   **API Endpoints (`routers/telegram.py`)**
+    -   `POST /api/v1/telegram/webhook`: The single entry point for all incoming updates from Telegram.
+    -   (Internal methods for sending messages will be called by other services).
+
+-   **`TelegramService` Voice/Text Commands:**
+    - "Read my latest Telegram messages."
+    - "Reply to Jane saying 'I'll be there'." (Context-aware)
+    - "Send a message to the 'Project Phoenix' group: 'The latest designs are up for review.'"
+
+#### **B. Required Environment Variables**
+
+- `TELEGRAM_BOT_TOKEN`: The API token from BotFather.
+- `WHISPER_API_KEY`: For transcribing voice notes.
+
+### **3. Frontend Architecture: The "Smart Wrapper" Pattern**
+
+To ensure our application is scalable and maintainable, we will not use a single, monolithic chat component. Instead, we will refactor the existing `ChatSidebar.tsx` to follow a **"Dumb Component + Smart Wrapper"** pattern.
+
+- **The "Dumb" Component (`ChatSidebar.tsx`):**
+    - Its **only** responsibility is UI and presentation.
+    - It will be stripped of all business logic, state management, and hardcoded API calls.
+    - It will receive all data and functionality via props, including a generic `onCommand` callback function.
+
+- **The "Smart" Wrappers (e.g., `GmailChat.tsx`, `DocsChat.tsx`):**
+    - These are new container components we will create for each specific context (Gmail, Docs, etc.).
+    - Each wrapper's responsibility is to:
+        1.  Manage the state for its specific context (e.g., the conversation history).
+        2.  Implement the logic for handling commands (transcribing voice, calling the correct API endpoint).
+        3.  Gather necessary local context from the page (like a `document_id` from the URL) to send to the backend.
+        4.  Render the "dumb" `ChatSidebar` component, passing down the state and logic it needs via props.
+
+This architecture allows us to reuse the same beautiful chat UI across the entire application while keeping the logic for each section neatly isolated and easy to maintain.
+
+### **4. LangChain Agent Router**
 
 ```python
 # backend/app/core/agent_router.py
@@ -181,7 +233,7 @@ class EnhancedAgentRouter:
             return {"error": "Could not determine platform"}
 ```
 
-### **4. Enhanced LM Studio Integration**
+### **5. Enhanced LM Studio Integration**
 
 **Updated System Prompt:**
 ```python
