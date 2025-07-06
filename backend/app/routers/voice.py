@@ -2,7 +2,7 @@
 Enhanced Voice API with Dual Input Support
 Handles both voice and text commands with state management
 """
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import logging
@@ -10,9 +10,16 @@ import json
 import asyncio
 import time
 
-# Import voice assistant
+# Import voice assistant and LLM service
 from voice_server import get_voice_assistant
-from app.core.llm_service import GemmaLLMService
+from app.core.enhanced_llm_service import EnhancedLLMService
+
+# This is the dependency provider. It will be initialized by main.py
+def get_llm_service() -> EnhancedLLMService:
+    # This will be replaced by the actual dependency injection in main.py
+    # For now, it allows the router to load without circular imports.
+    # The real instance will be provided by the FastAPI app.
+    raise NotImplementedError("This should be overridden by the application startup.")
 
 router = APIRouter()
 
@@ -60,7 +67,10 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 @router.post("/text-command", response_model=DualInputResponse)
-async def process_text_command(command: TextCommand):
+async def process_text_command(
+    command: TextCommand,
+    llm_service: EnhancedLLMService = Depends(get_llm_service)
+):
     """Process text command (bypasses voice pipeline)"""
     try:
         voice_assistant = get_voice_assistant()
@@ -70,7 +80,6 @@ async def process_text_command(command: TextCommand):
         
         # Get LLM usage stats
         try:
-            llm_service = GemmaLLMService()
             stats = llm_service.get_usage_stats()
         except Exception as e:
             logging.warning(f"Failed to get LLM stats: {e}")
@@ -160,11 +169,10 @@ async def websocket_state_updates(websocket: WebSocket):
         manager.disconnect(websocket)
 
 @router.get("/health")
-async def voice_health_check():
+async def voice_health_check(llm_service: EnhancedLLMService = Depends(get_llm_service)):
     """Health check for voice services"""
     try:
         # Test LLM service
-        llm_service = GemmaLLMService()
         stats = llm_service.get_usage_stats()
         
         # Test voice assistant
@@ -173,7 +181,7 @@ async def voice_health_check():
         
         return {
             "status": "healthy",
-            "llm_service": "gemma-2-2b-it",
+            "llm_service": stats.get("model", "unknown"),
             "voice_state": voice_status,
             "stats": stats
         }
@@ -185,11 +193,9 @@ async def voice_health_check():
         }
 
 @router.post("/test-llm")
-async def test_llm_integration():
+async def test_llm_integration(llm_service: EnhancedLLMService = Depends(get_llm_service)):
     """Test endpoint for LLM integration"""
     try:
-        llm_service = GemmaLLMService()
-        
         test_command = "Read my unread emails"
         result = await llm_service.process_command(test_command)
         

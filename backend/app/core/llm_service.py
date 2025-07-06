@@ -178,67 +178,18 @@ class GemmaLLMService:
         """Get current API usage for monitoring"""
         try:
             if self.mock_mode:
-            return {
-                "model": "mock_mode",
-                "tier": "TESTING",
-                "status": "No credentials configured - using mock responses"
-            }
+                return {
+                    "model": "mock_mode",
+                    "tier": "TESTING",
+                    "status": "No credentials configured - using mock responses"
+                }
         
             return {
                 "model": "gemini-1.5-flash",
                 "tier": "STANDARD",
                 "authentication": "Service Account",
                 "status": "Active - Real AI responses enabled"
-                "action": "respond",
-                "params": {"text": response.content}
-            }    
+            }
         except Exception as e:
-            logging.error(f"LLM processing error: {e}")
-            return {
-                "platform": "error",
-                "action": "error",
-                "params": {"message": f"Sorry, I couldn't process that command: {str(e)}"}
-            }
-
-    def _mock_command_parsing(self, user_input: str) -> Dict[str, Any]:
-        """Mock command parsing for testing without credentials"""
-        user_lower = user_input.lower()
-        
-        if any(word in user_lower for word in ["email", "gmail", "mail"]):
-            if "read" in user_lower or "unread" in user_lower:
-                return {"platform": "gmail", "action": "read_unread", "params": {}}
-            elif "compose" in user_lower or "send" in user_lower:
-                return {"platform": "gmail", "action": "compose", "params": {"to": "test@example.com", "subject": "test"}}
-            else:
-                return {"platform": "gmail", "action": "read_unread", "params": {}}
-        
-        elif any(word in user_lower for word in ["calendar", "schedule", "meeting"]):
-            if "today" in user_lower or "schedule" in user_lower:
-                return {"platform": "calendar", "action": "check_today", "params": {}}
-            elif "create" in user_lower or "add" in user_lower:
-                return {"platform": "calendar", "action": "create_event", "params": {"title": "Test Meeting"}}
-            else:
-                return {"platform": "calendar", "action": "check_today", "params": {}}
-        
-        else:
-            return {
-                "platform": "general",
-                "action": "respond",
-                "params": {"text": f"Mock response: I understood '{user_input}' but I'm in testing mode."}
-            }
-
-    def get_usage_stats(self) -> Dict[str, Any]:
-        """Get current API usage for monitoring"""
-        if self.mock_mode:
-            return {
-                "model": "mock_mode",
-                "tier": "TESTING",
-                "status": "No credentials configured - using mock responses"
-            }
-        
-        return {
-            "model": "gemini-1.5-flash",
-            "tier": "STANDARD",
-            "authentication": "Service Account",
-            "status": "Active - Real AI responses enabled"
-        } 
+            logging.error(f"Error getting usage stats: {e}")
+            return {"status": f"Error: {e}"}

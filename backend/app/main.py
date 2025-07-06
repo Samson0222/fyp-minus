@@ -26,8 +26,8 @@ from app.routers.gmail import router as gmail_router
 from app.services.voice_email_processor import voice_email_processor
 
 # Voice integration
-from app.routers.voice import router as voice_router
-from app.core.llm_service import GemmaLLMService
+from app.routers.voice import router as voice_router, get_llm_service as voice_llm_dependency
+from app.core.enhanced_llm_service import EnhancedLLMService
 
 # Add Calendar router import
 from app.routers.calendar import router as calendar_router
@@ -52,6 +52,9 @@ app.include_router(calendar_router)  # 📅 Calendar endpoints
 app.include_router(auth_router)      # 🔐 Authentication endpoints
 app.include_router(tasks_router)     # 📋 Tasks endpoints with Google sync
 app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
+
+# Global variable to hold the LLM service instance
+llm_service: Optional[EnhancedLLMService] = None
 
 # CORS configuration
 origins = [
@@ -158,23 +161,46 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
         print(f"Auth error: {e}")
         return {"user_id": "test_user_001", "email": "test@example.com"}
 
+def get_llm_service() -> EnhancedLLMService:
+    """Dependency injector for the LLM service"""
+    if llm_service is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="LLM Service not available. Check server logs."
+        )
+    return llm_service
+
+# Override the placeholder dependency in the voice router with the real one
+app.dependency_overrides[voice_llm_dependency] = get_llm_service
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database connection and services on startup"""
-    logger.info("Starting Minus Voice Assistant API...")
+    global llm_service
+    logger.info("🚀 Starting Minus Voice Assistant API...")
     await init_database()
     
-    # Test the configured LLM connection using the factory
+    # Initialize and test the configured LLM service
     try:
-        llm_service = get_llm_service()
+        print("🧠 Initializing LLM Service...")
+        llm_service = EnhancedLLMService()
         stats = llm_service.get_usage_stats()
-        provider = os.getenv("LLM_PROVIDER", "GEMMA").upper()
+        
         # Use print to ensure visibility even if logging level filters INFO
-        print(f"✓ LLM Provider: {provider} | Stats: {stats}")
-        logger.info(f"✅ LLM initialized successfully: {stats}")
+        print("=" * 60)
+        print("✅ LLM Service Initialized")
+        for key, value in stats.items():
+            print(f"   - {key.replace('_', ' ').title()}: {value}")
+        print("=" * 60)
+        
+        logger.info(f"LLM initialized successfully: {stats}")
     except Exception as e:
-        logger.warning(f"⚠️ LLM initialization failed: {e}")
-        logger.info("Voice features may be limited without LLM service")
+        logger.error(f"⚠️ LLM initialization failed: {e}", exc_info=True)
+        print("=" * 60)
+        print("❌ LLM Service FAILED to initialize.")
+        print(f"   Error: {e}")
+        print("   Voice features will be limited without LLM service.")
+        print("=" * 60)
 
 @app.get("/")
 async def root():
@@ -472,13 +498,6 @@ async def get_recent_interactions(user = Depends(get_current_user), limit: int =
 # WebSocket endpoint for real-time voice interaction (future)
 @app.websocket("/ws/voice")
 async def websocket_voice_endpoint(websocket):
-    """WebSocket endpoint for real-time voice interaction"""
-    # TODO: Implement WebSocket voice streaming
-    pass
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)async def websocket_voice_endpoint(websocket):
     """WebSocket endpoint for real-time voice interaction"""
     # TODO: Implement WebSocket voice streaming
     pass

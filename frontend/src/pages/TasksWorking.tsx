@@ -448,7 +448,7 @@ const TasksWorking: React.FC = () => {
     } catch (error) {
       console.error('Failed to create task:', error);
       // Fallback: add to local state only
-      setTasks(prevTasks => [newTask, ...prevTasks]);
+    setTasks(prevTasks => [newTask, ...prevTasks]);
     }
   }, []);
 
@@ -896,29 +896,29 @@ const TasksWorking: React.FC = () => {
                     <Plus size={16} />
                     Create Task
                   </button>
-                  <div className="inline-flex bg-dark-tertiary rounded-lg p-1">
-                    <button
-                      onClick={() => setCurrentView('list')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                        currentView === 'list'
-                          ? 'bg-violet text-white shadow-sm'
-                          : 'text-white/70 hover:text-white'
-                      }`}
-                    >
-                      <List size={16} />
-                      List
-                    </button>
-                    <button
-                      onClick={() => setCurrentView('calendar')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                        currentView === 'calendar'
-                          ? 'bg-violet text-white shadow-sm'
-                          : 'text-white/70 hover:text-white'
-                      }`}
-                    >
-                      <Calendar size={16} />
-                      Calendar
-                    </button>
+                <div className="inline-flex bg-dark-tertiary rounded-lg p-1">
+                  <button
+                    onClick={() => setCurrentView('list')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                      currentView === 'list'
+                        ? 'bg-violet text-white shadow-sm'
+                        : 'text-white/70 hover:text-white'
+                    }`}
+                  >
+                    <List size={16} />
+                    List
+                  </button>
+                  <button
+                    onClick={() => setCurrentView('calendar')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                      currentView === 'calendar'
+                        ? 'bg-violet text-white shadow-sm'
+                        : 'text-white/70 hover:text-white'
+                    }`}
+                  >
+                    <Calendar size={16} />
+                    Calendar
+                  </button>
                   </div>
                 </div>
               </div>
@@ -952,29 +952,29 @@ const TasksWorking: React.FC = () => {
                     <Plus size={12} />
                     Create
                   </button>
-                  <div className="inline-flex bg-dark-tertiary rounded-lg p-1">
-                    <button
-                      onClick={() => setCurrentView('list')}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                        currentView === 'list'
-                          ? 'bg-violet text-white shadow-sm'
-                          : 'text-white/70 hover:text-white'
-                      }`}
-                    >
-                      <List size={12} />
-                      List
-                    </button>
-                    <button
-                      onClick={() => setCurrentView('calendar')}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                        currentView === 'calendar'
-                          ? 'bg-violet text-white shadow-sm'
-                          : 'text-white/70 hover:text-white'
-                      }`}
-                    >
-                      <Calendar size={12} />
-                      Calendar
-                    </button>
+                <div className="inline-flex bg-dark-tertiary rounded-lg p-1">
+                  <button
+                    onClick={() => setCurrentView('list')}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                      currentView === 'list'
+                        ? 'bg-violet text-white shadow-sm'
+                        : 'text-white/70 hover:text-white'
+                    }`}
+                  >
+                    <List size={12} />
+                    List
+                  </button>
+                  <button
+                    onClick={() => setCurrentView('calendar')}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                      currentView === 'calendar'
+                        ? 'bg-violet text-white shadow-sm'
+                        : 'text-white/70 hover:text-white'
+                    }`}
+                  >
+                    <Calendar size={12} />
+                    Calendar
+                  </button>
                   </div>
                 </div>
               </div>

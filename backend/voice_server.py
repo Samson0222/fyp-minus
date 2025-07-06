@@ -10,6 +10,8 @@ from typing import Optional
 import os
 import json
 
+from app.core.enhanced_llm_service import EnhancedLLMService
+
 # Note: FastRTC may not be available yet, so we'll simulate the interface
 try:
     from fastrtc import Stream, ReplyOnPause
@@ -27,7 +29,7 @@ except ImportError:
         async def start(self, host, port):
             logging.info(f"Simulated FastRTC server on {host}:{port}")
 
-from app.core.llm_factory import get_llm_service
+# from app.core.llm_factory import get_llm_service
 
 class InteractionState(Enum):
     IDLE = "idle"           # Text input enabled
@@ -55,10 +57,10 @@ class EnhancedVoiceAssistant(Stream):
         """Lazy initialization of services"""
         if self.llm_service is None:
             try:
-                self.llm_service = get_llm_service()
-                logging.info("✅ LLM service initialized via factory")
+                self.llm_service = EnhancedLLMService()
+                logging.info("✅ LLM service initialized via manager")
             except Exception as e:
-                logging.error(f"❌ Failed to initialize LLM service via factory: {e}")
+                logging.error(f"❌ Failed to initialize LLM service via manager: {e}")
                 self.llm_service = None
         
     def detect_wake_word(self, transcription: str) -> bool:

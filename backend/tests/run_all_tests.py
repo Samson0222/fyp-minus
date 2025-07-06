@@ -226,7 +226,7 @@ async def main():
     # Check environment
     print_section("Environment Check")
     missing_vars = []
-    for var in ["@", "SUPABASE_URL", "SUPABASE_ANON_KEY"]:
+    for var in ["SUPABASE_URL", "SUPABASE_ANON_KEY"]:
         if not os.getenv(var):
             missing_vars.append(var)
     

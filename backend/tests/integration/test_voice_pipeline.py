@@ -82,7 +82,6 @@ async def test_environment():
     print("\n🔧 Testing Environment Configuration...")
     
     required_vars = [
-        "GOOGLE_API_KEY",
         "SUPABASE_URL", 
         "SUPABASE_ANON_KEY"
     ]
