@@ -33,6 +33,7 @@ Building on Day 1's success (Voice Pipeline + Gmail + Calendar + LM Studio), Day
 
 #### **Task 1: Google Docs "Smart Portal" Service (120 minutes)**
 - **Concept:** Pivot from direct editor sync to an `iframe`-based "Smart Portal".
+- **Interaction Model:** Adopt the **"Suggestion Mode"** or **"Collaborator Model"**. The AI will make all edits as native Google Docs suggestions, which the user can then accept or reject within the `iframe`.
 - **Backend:**
     - Create `backend/app/services/docs_service.py` and `routers/docs.py`.
     - Implement API endpoints for document listing (`/docs`), syncing (`/docs/sync`), and processing voice commands (`/docs/{doc_id}/process-command`).
@@ -59,11 +60,11 @@ Building on Day 1's success (Voice Pipeline + Gmail + Calendar + LM Studio), Day
 #### **Task 4: Frontend "Smart Portal" Implementation (90 minutes)**
 - Build the `DocsDashboard.tsx` to list documents from the new API endpoint.
 - Build the `DocView.tsx` containing the `<iframe>` and AI sidebar.
-- Implement the "Command the Sidebar, Refresh the Frame" logic.
+- The "Command the Sidebar, Refresh the Frame" logic is now simplified. The primary interaction is the user accepting/rejecting suggestions directly in the `iframe`. A manual "Sync Status" button may be useful as a fallback.
 
 #### **Task 5: Enhanced LM Studio & Integration Testing (90 minutes)**
 - Optimize LM Studio prompts for all 4 platforms, including the new Docs commands.
-- Test the end-to-end flow for the Docs "Smart Portal".
+- Test the end-to-end flow for the Docs "Smart Portal", verifying that suggestions are created correctly.
 - Verify cross-platform routing accuracy and error handling.
 
 #### **Task 6: Final Polish & Documentation (60 minutes)**
@@ -77,14 +78,15 @@ Building on Day 1's success (Voice Pipeline + Gmail + Calendar + LM Studio), Day
 
 ### **1. Google Docs "Smart Portal" Integration**
 
-The initial concept of syncing a local text editor with the Google Docs API is fraught with complexity. We will pivot to a more robust **"Smart Portal"** UI.
+The initial concept of syncing a local text editor is too complex. The "Preview and Apply" model is also not feasible due to API limitations (we cannot get the user's selected text from the backend).
 
-**Concept:** We embed the Google Docs editor in an `<iframe>` and control it via an adjacent AI sidebar.
+Therefore, we will implement the **"Collaborator Model" using native Google Docs "Suggestion Mode"**.
 
-**Interaction Flow: "Command the Sidebar, Refresh the Frame"**
-1.  **User Issues Command:** The user gives a voice command to the AI sidebar (e.g., "Summarize this document," "Add a section about Q4 projections").
-2.  **Backend Processing:** The command is sent to our backend. The `DocsService` uses the Google Docs API to perform the requested action.
-3.  **UI Refresh:** Upon success, the frontend reloads the `<iframe>` to show the updated document. This avoids complex state management and security issues.
+**New Interaction Flow: The "Collaborator Model" (Suggestion Mode)**
+1.  **User Issues Command (No Selection Required):** The user gives a descriptive command to the AI sidebar, telling the AI what text to find and what to do with it.
+    *   *Example: "Find the paragraph starting with 'The data indicates' and rephrase it to be more casual."*
+2.  **Backend Finds Text and Creates Suggestion:** The command is sent to a single backend endpoint. The backend uses the LLM to parse the intent, finds the target text in the document using the API, and then uses a `batchUpdate` call to **insert the change as a native Google Docs suggestion**.
+3.  **User Reviews in `iframe`:** The suggestion appears highlighted within the `iframe`. The user can read it in context and use the native Google Docs buttons to **"Accept"** or **"Reject"** the change. This provides maximum safety and control with minimal custom UI.
 
 #### **A. Backend (`docs_service.py` & Supabase)**
 
@@ -94,12 +96,12 @@ The initial concept of syncing a local text editor with the Google Docs API is f
 -   **API Endpoints (`routers/docs.py`)**
     -   `POST /api/v1/docs/sync`: Fetches user's Google Drive files and syncs metadata to Supabase.
     -   `GET /api/v1/docs`: Lists documents for the dashboard view from Supabase.
-    -   `POST /api/v1/docs/{document_id}/process-command`: Takes a voice command, uses the LLM to interpret it, and executes it via the `DocsService`.
+    -   `POST /api/v1/docs/{document_id}/create-suggestion`: Takes a descriptive natural language command, uses the LLM to interpret it, finds the relevant text, and executes the change as a "suggestion" using the Google Docs API.
 
 -   **`DocsService` Voice Commands:**
-    - "Summarize this document."
-    - "Find the section about the 'Q3 budget' and bold it."
-    - "Create a new task from the last paragraph."
+    - "Find the sentence '...' and suggest a change to rephrase it."
+    - "Add a new section titled 'Future Goals' after the conclusion."
+    - "Summarize the document and suggest it as a new introductory paragraph."
     - "Tag this document with 'Project Alpha' and 'Urgent'."
 
 #### **B. Frontend**
@@ -110,7 +112,7 @@ The initial concept of syncing a local text editor with the Google Docs API is f
         ```tsx
         <iframe src={`https://docs.google.com/document/d/${docId}/edit?embedded=true`}></iframe>
         ```
-    -   **Right (20%):** The AI Assistant Sidebar for voice/text commands.
+    -   **Right (20%):** The AI Assistant Sidebar for voice/text commands. This sidebar does **not** need a complex preview/apply UI. It will only be used for input and showing status messages (e.g., "Suggestion created!").
 
 #### **C. Required Google API Scopes**
 

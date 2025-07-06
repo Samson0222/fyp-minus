@@ -1,10 +1,11 @@
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from supabase import create_client, Client
 import asyncpg
 import asyncio
 from contextlib import asynccontextmanager
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,145 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f"Error getting recent interactions: {e}")
             return []
+
+    async def create_task(self, task_data: Dict[str, Any], user_id: str) -> Optional[Dict[str, Any]]:
+        """Creates a new task in the database."""
+        if not self.client:
+            logger.warning("Supabase client not initialized")
+            return None
+
+        try:
+            # Ensure user_id is in the data
+            task_data['user_id'] = user_id
+            
+            # Insert the new task
+            result = self.client.from_("tasks").insert(task_data).execute()
+            
+            if result.data:
+                logger.info(f"✓ Task created successfully: {result.data[0]['id']}")
+                return result.data[0]
+            else:
+                logger.error(f"Failed to create task, no data returned. Supabase error: {getattr(result, 'error', 'N/A')}")
+                return None
+        except Exception as e:
+            logger.error(f"Error creating task in Supabase: {e}")
+            return None
+
+    async def get_task_by_id(self, task_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a single task by its ID."""
+        if not self.client:
+            logger.warning("Supabase client not initialized")
+            return None
+        try:
+            result = self.client.from_("tasks").select("*").eq("id", task_id).eq("user_id", user_id).single().execute()
+            if result.data:
+                return result.data
+            else:
+                logger.warning(f"Task with id {task_id} not found for user {user_id}.")
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving task {task_id}: {e}")
+            return None
+
+    async def get_tasks(self, user_id: str, offset: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+        """Retrieves a list of tasks for a user."""
+        if not self.client:
+            logger.warning("Supabase client not initialized")
+            return []
+        try:
+            result = self.client.from_("tasks").select("*").eq("user_id", user_id).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+            return result.data or []
+        except Exception as e:
+            logger.error(f"Error retrieving tasks for user {user_id}: {e}")
+            return []
+
+    async def update_task(self, task_id: str, user_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Updates a task in the database."""
+        if not self.client:
+            logger.warning("Supabase client not initialized")
+            return None
+        try:
+            # Ensure user_id is not changed
+            if 'user_id' in update_data:
+                del update_data['user_id']
+            if 'id' in update_data:
+                del update_data['id']
+
+            result = self.client.from_("tasks").update(update_data).eq("id", task_id).eq("user_id", user_id).execute()
+            
+            if result.data:
+                logger.info(f"✓ Task updated successfully: {result.data[0]['id']}")
+                return result.data[0]
+            else:
+                logger.error(f"Failed to update task {task_id}. Supabase error: {getattr(result, 'error', 'N/A')}")
+                return None
+        except Exception as e:
+            logger.error(f"Error updating task {task_id} in Supabase: {e}")
+            return None
+
+    async def delete_task(self, task_id: str, user_id: str) -> bool:
+        """Deletes a task from the database."""
+        if not self.client:
+            logger.warning("Supabase client not initialized")
+            return False
+        try:
+            result = self.client.from_("tasks").delete().eq("id", task_id).eq("user_id", user_id).execute()
+            
+            if result.data:
+                logger.info(f"✓ Task deleted successfully: {task_id}")
+                return True
+            else:
+                # Check if the task simply didn't exist
+                check_res = await self.get_task_by_id(task_id, user_id)
+                if not check_res:
+                    logger.warning(f"Task {task_id} did not exist for deletion.")
+                    return True # Idempotent: already deleted
+                logger.error(f"Failed to delete task {task_id}. Supabase error: {getattr(result, 'error', 'N/A')}")
+                return False
+        except Exception as e:
+            logger.error(f"Error deleting task {task_id} in Supabase: {e}")
+            return False
+
+    async def store_google_channel(self, user_id: str, channel_id: str, resource_id: str, expires_at: datetime) -> bool:
+        """Stores or updates a Google Calendar webhook channel."""
+        if not self.client:
+            logger.warning("Supabase client not initialized")
+            return False
+        try:
+            data = {
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "resource_id": resource_id,
+                "expires_at": expires_at.isoformat(),
+            }
+            # Use upsert to handle both creation of a new channel and updates to an existing one for the user
+            result = self.client.from_("google_calendar_channels").upsert(data, on_conflict="channel_id").execute()
+            
+            if result.data:
+                logger.info(f"✓ Google Calendar channel stored successfully for user {user_id}: {channel_id}")
+                return True
+            else:
+                logger.error(f"Failed to store Google Calendar channel. Supabase error: {getattr(result, 'error', 'N/A')}")
+                return False
+        except Exception as e:
+            logger.error(f"Error storing Google channel for user {user_id}: {e}")
+            return False
+
+    async def get_user_from_channel_id(self, channel_id: str) -> Optional[str]:
+        """Retrieves a user_id from a Google Calendar channel_id."""
+        if not self.client:
+            logger.warning("Supabase client not initialized")
+            return None
+        try:
+            result = self.client.from_("google_calendar_channels").select("user_id").eq("channel_id", channel_id).single().execute()
+            if result.data:
+                return result.data['user_id']
+            else:
+                logger.warning(f"No user found for channel_id {channel_id}.")
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving user from channel_id {channel_id}: {e}")
+            return None
 
 # Global instance
 supabase_manager = SupabaseManager()

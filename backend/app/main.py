@@ -1,5 +1,5 @@
 # app/main.py (Modified for frontend testing without live LLM)
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -29,6 +29,9 @@ from app.services.voice_email_processor import voice_email_processor
 from app.routers.voice import router as voice_router, get_llm_service as voice_llm_dependency
 from app.core.enhanced_llm_service import EnhancedLLMService
 
+# WebSocket Connection Manager
+from app.websockets import manager
+
 # Add Calendar router import
 from app.routers.calendar import router as calendar_router
 
@@ -37,6 +40,9 @@ from app.routers.auth import router as auth_router
 
 # Add Tasks router import
 from app.routers.tasks import router as tasks_router
+
+# Add Webhooks router import
+from app.routers.webhooks import router as webhooks_router
 
 load_dotenv()
 
@@ -51,6 +57,7 @@ app.include_router(gmail_router)
 app.include_router(calendar_router)  # 📅 Calendar endpoints
 app.include_router(auth_router)      # 🔐 Authentication endpoints
 app.include_router(tasks_router)     # 📋 Tasks endpoints with Google sync
+app.include_router(webhooks_router)  # 🎣 Webhooks for real-time sync
 app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
 
 # Global variable to hold the LLM service instance
@@ -484,23 +491,21 @@ async def get_user_profile(user = Depends(get_current_user)):
 @app.get("/api/v1/user/interactions")
 async def get_recent_interactions(user = Depends(get_current_user), limit: int = 10):
     """Get recent voice interactions for user"""
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
-    try:
-        db = get_database()
-        interactions = await db.get_recent_interactions(user["user_id"], limit)
-        return {"interactions": interactions}
-    except Exception as e:
-        logger.error(f"Error getting interactions: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get interactions")
+    db = get_database()
+    return await db.get_recent_interactions(user['user_id'], limit)
 
-# WebSocket endpoint for real-time voice interaction (future)
-@app.websocket("/ws/voice")
-async def websocket_voice_endpoint(websocket):
-    """WebSocket endpoint for real-time voice interaction"""
-    # TODO: Implement WebSocket voice streaming
-    pass
+@app.websocket("/ws/calendar/{user_id}")
+async def websocket_calendar_endpoint(websocket: WebSocket, user_id: str):
+    """WebSocket endpoint for real-time calendar notifications."""
+    await manager.connect(websocket, user_id)
+    try:
+        while True:
+            # Keep the connection alive. In a more advanced implementation,
+            # this could receive messages from the client.
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(user_id)
+        logger.info(f"WebSocket disconnected for user {user_id}")
 
 if __name__ == "__main__":
     import uvicorn

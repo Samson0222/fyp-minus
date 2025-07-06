@@ -22,39 +22,26 @@ import {
   PanelLeftOpen,
 } from 'lucide-react';
 
-// Types for our calendar data
-interface GoogleCalendarEvent {
+// Unified Task type matching the backend response
+interface Task {
   id: string;
-  summary: string;
-  description?: string;
-  start: Date;
-  end?: Date;
-  all_day: boolean;
-  location?: string;
-  attendees: string[];
-  creator_email?: string;
-  html_link?: string;
-  status: string;
-  source: 'google_calendar';
-}
-
-interface LocalTask {
-  id: string;
+  user_id: string;
   title: string;
   description?: string;
-  start_at?: Date;
-  end_at?: Date;
+  start_time?: string; // ISO string
+  end_time?: string; // ISO string
   is_all_day: boolean;
+  timezone?: string;
   priority: 'low' | 'medium' | 'high';
   status: 'todo' | 'inprogress' | 'done';
-  is_synced_to_google: boolean;
-  google_calendar_event_id?: string;
-  source: 'local_task';
+  type: 'todo' | 'event';
+  google_event_id?: string;
+  created_at: string; // ISO string
+  updated_at: string; // ISO string
 }
 
 interface CalendarState {
-  googleEvents: GoogleCalendarEvent[];
-  localTasks: LocalTask[];
+  tasks: Task[];
   authStatus: {
     authenticated: boolean;
     message: string;
@@ -65,14 +52,52 @@ interface CalendarState {
 
 const Calendar: React.FC = () => {
   const [calendarState, setCalendarState] = useState<CalendarState>({
-    googleEvents: [],
-    localTasks: [],
+    tasks: [],
     authStatus: { authenticated: false, message: 'Checking...' },
     loading: true
   });
   const [isPanelVisible, setIsPanelVisible] = useState(true);
   
   const { toast } = useToast();
+
+  // Establish WebSocket connection
+  useEffect(() => {
+    // A simplified user_id for the demo. In a real app, this would come from an auth context.
+    const userId = "test_user_001"; 
+
+    if (calendarState.authStatus.authenticated) {
+      const ws = new WebSocket(`ws://localhost:8000/ws/calendar/${userId}`);
+
+      ws.onopen = () => {
+        console.log("WebSocket connection established for calendar updates.");
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.event === 'sync_complete') {
+          toast({
+            title: "Real-time Update ✨",
+            description: "Your calendar has been updated automatically from Google.",
+          });
+          // A webhook triggered a sync, now we reload the data
+          loadCalendarData();
+        }
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket connection closed.");
+      };
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
+
+      // Clean up the connection when the component unmounts
+      return () => {
+        ws.close();
+      };
+    }
+  }, [calendarState.authStatus.authenticated]);
 
   // Check authentication status on mount
   useEffect(() => {
@@ -156,7 +181,7 @@ const Calendar: React.FC = () => {
             authenticated: false,
             message: 'Google Calendar disconnected'
           },
-          googleEvents: []
+          tasks: []
         }));
         
         toast({
@@ -178,68 +203,29 @@ const Calendar: React.FC = () => {
     setCalendarState(prev => ({ ...prev, loading: true }));
     
     try {
-      // Load Google Calendar events and local tasks in parallel
-      const [googleResponse, localResponse] = await Promise.allSettled([
-        fetch('/api/v1/calendar/events'),
-        // Use the existing Supabase API from TaskAPI
-        import('@/lib/api/tasks').then(({ TaskAPI }) => TaskAPI.getAllTasks())
-      ]);
-
-      let googleEvents: GoogleCalendarEvent[] = [];
-      let localTasks: LocalTask[] = [];
-
-      // Handle Google Calendar events
-      if (googleResponse.status === 'fulfilled' && googleResponse.value.ok) {
-        const googleData = await googleResponse.value.json();
-        googleEvents = googleData.map((event: any) => ({
-          ...event,
-          start: new Date(event.start),
-          end: event.end ? new Date(event.end) : undefined,
-          source: 'google_calendar' as const
-        }));
-        console.log(`Loaded ${googleEvents.length} Google Calendar events`);
-      } else {
-        console.warn('Failed to load Google Calendar events:', 
-          googleResponse.status === 'fulfilled' ? 
-            await googleResponse.value.text() : 
-            googleResponse.reason
-        );
+      const response = await fetch('/api/v1/tasks');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch tasks: ${response.statusText}`);
       }
+      
+      const data = await response.json();
+      const tasks: Task[] = data.map((task: any) => ({
+        ...task,
+        // Ensure date fields are consistently handled if needed, though FullCalendar can handle ISO strings
+      }));
 
-      // Handle local tasks from Supabase
-      if (localResponse.status === 'fulfilled') {
-        const tasksData = localResponse.value;
-        localTasks = tasksData.map((task: any) => ({
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          start_at: task.start_at,
-          end_at: task.end_at,
-          is_all_day: task.is_all_day,
-          priority: task.priority,
-          status: task.status,
-          is_synced_to_google: task.is_synced_to_google || false,
-          google_calendar_event_id: task.google_calendar_event_id,
-          source: 'local_task' as const
-        }));
-        console.log(`Loaded ${localTasks.length} local tasks`);
-      } else {
-        console.warn('Failed to load local tasks:', localResponse.reason);
-        // Don't treat this as a critical error since Google Calendar might still work
-      }
+      console.log(`Loaded ${tasks.length} tasks from the backend`);
 
       setCalendarState(prev => ({
         ...prev,
-        googleEvents,
-        localTasks,
+        tasks,
         loading: false,
         lastRefresh: new Date()
       }));
 
-      // Show success toast with summary
       toast({
-        title: "Calendar Updated",
-        description: `Loaded ${googleEvents.length} Google events and ${localTasks.length} local tasks`,
+        title: "Calendar Loaded",
+        description: `Successfully loaded ${tasks.length} tasks and events.`,
       });
 
     } catch (error) {
@@ -253,291 +239,93 @@ const Calendar: React.FC = () => {
     }
   };
 
-  const refreshCalendarData = () => {
-    if (calendarState.authStatus.authenticated) {
-      loadCalendarData();
+  const refreshCalendarData = async () => {
+    setCalendarState(prev => ({ ...prev, loading: true }));
+    toast({ title: "Syncing...", description: "Attempting to sync with Google Calendar." });
+
+    try {
+      // 1. Trigger the backend sync process
+      const syncResponse = await fetch('/api/v1/tasks/sync-from-google', {
+        method: 'POST'
+      });
+
+      if (!syncResponse.ok) {
+        throw new Error('Failed to sync with Google Calendar.');
+      }
+
+      const syncResult = await syncResponse.json();
+      toast({
+        title: "Sync Successful",
+        description: `Created: ${syncResult.details.created}, Updated: ${syncResult.details.updated}. Refreshing view...`
+      });
+
+      // 2. Re-fetch all tasks to update the view
+      await loadCalendarData();
+
+    } catch (error) {
+      console.error('Failed to refresh calendar data:', error);
+      setCalendarState(prev => ({ ...prev, loading: false }));
+      toast({
+        title: "Sync Error",
+        description: "Could not sync with Google Calendar. Please check your connection and try again.",
+        variant: "destructive",
+      });
     }
   };
 
-  // Combine Google events and local tasks into FullCalendar events
-  const calendarEvents = useMemo(() => {
-    const events = [];
+  // Memoize and transform tasks for FullCalendar
+  const memoizedEvents = useMemo(() => {
+    return calendarState.tasks.map(task => {
+      let backgroundColor = '#3174ad'; // Default blue for local tasks
+      let borderColor = '#3174ad';
 
-    // Add Google Calendar events
-    for (const event of calendarState.googleEvents) {
-      events.push({
-        id: event.id,
-        title: event.summary,
-        start: event.start,
-        end: event.end,
-        allDay: event.all_day,
-        backgroundColor: '#4285f4', // Google Blue
-        borderColor: '#4285f4',
-        textColor: 'white',
-        extendedProps: {
-          source: 'google_calendar',
-          description: event.description,
-          location: event.location,
-          attendees: event.attendees,
-          html_link: event.html_link,
-          creator_email: event.creator_email
-        },
-        className: 'google-calendar-event'
-      });
-    }
+      if (task.type === 'event' && task.google_event_id) {
+        backgroundColor = '#1e8e3e'; // Green for synced Google events
+        borderColor = '#1e8e3e';
+      } else if (task.type === 'event') {
+        backgroundColor = '#f29900'; // Amber for local-only events
+        borderColor = '#f29900';
+      }
 
-    // Add local tasks
-    for (const task of calendarState.localTasks) {
-      const priorityColors = {
-        high: '#ef4444',    // red-500
-        medium: '#f59e0b',  // yellow-500
-        low: '#10b981'      // green-500
-      };
-
-      const classNames = [
-        'local-task-event',
-        `priority-${task.priority}`,
-        `task-status-${task.status}`,
-        task.is_synced_to_google ? 'synced-task' : ''
-      ].filter(Boolean);
-
-      events.push({
+      return {
         id: task.id,
         title: task.title,
-        start: task.start_at,
-        end: task.end_at,
+        start: task.start_time,
+        end: task.end_time,
         allDay: task.is_all_day,
-        backgroundColor: priorityColors[task.priority],
-        borderColor: task.is_synced_to_google ? '#4285f4' : priorityColors[task.priority],
-        textColor: 'white',
-        extendedProps: {
-          source: 'local_task',
-          description: task.description,
-          priority: task.priority,
-          status: task.status,
-          is_synced: task.is_synced_to_google
-        },
-        className: classNames.join(' ')
-      });
-    }
+        extendedProps: { ...task },
+        backgroundColor,
+        borderColor,
+      };
+    });
+  }, [calendarState.tasks]);
 
-    return events;
-  }, [calendarState.googleEvents, calendarState.localTasks]);
-
-  // Handle clicking on calendar dates - create new task
-  const handleDateClick = async (arg: any) => {
-    const clickedDate = new Date(arg.date);
-    const isAllDay = arg.allDay !== false; // Default to all-day unless specifically timed
+  // Handle clicking on calendar events to show details
+  const handleEventClick = (clickInfo: any) => {
+    const task = clickInfo.event.extendedProps as Task;
     
-    // Simple task creation with title prompt
-    const title = prompt(`Create a new task for ${clickedDate.toLocaleDateString()}:`);
-    if (!title || title.trim() === '') return;
-    
-    try {
-      // Import TaskAPI dynamically to avoid circular dependencies
-      const { TaskAPI } = await import('@/lib/api/tasks');
-      
-      // Create the task locally first
-      const newTask = await TaskAPI.quickCreateTask(
-        clickedDate,
-        title.trim(),
-        isAllDay,
-        isAllDay ? undefined : 60 // 1 hour default for timed events
-      );
-      
-      // Ask user if they want to sync to Google Calendar
-      if (calendarState.authStatus.authenticated) {
-        const shouldSync = confirm(
-          "Task created! Would you like to sync this task to your Google Calendar?"
-        );
-        
-        if (shouldSync) {
-          await syncTaskToGoogle(newTask.id, newTask);
-        }
-      }
-      
-      // Refresh calendar data to show the new task
-      await loadCalendarData();
-      
-      toast({
-        title: "Task Created! ✅",
-        description: `"${title}" has been added to your calendar.`,
-      });
-      
-    } catch (error) {
-      console.error('Failed to create task:', error);
-      toast({
-        title: "Error",
-        description: "Failed to create task. Please try again.",
-        variant: "destructive",
-      });
-    }
+    toast({
+      title: `(Task) ${task.title}`,
+      description: (
+        <div className="text-sm text-white/80">
+          <p><strong>Status:</strong> {task.status}</p>
+          <p><strong>Priority:</strong> {task.priority}</p>
+          <p><strong>Type:</strong> {task.type}</p>
+          {task.description && <p><strong>Description:</strong> {task.description}</p>}
+          {task.google_event_id && (
+            <p className="text-green-400">Synced with Google Calendar</p>
+          )}
+        </div>
+      ),
+    });
   };
 
-  // Sync a local task to Google Calendar
-  const syncTaskToGoogle = async (taskId: string, taskData: any) => {
-    try {
-      const response = await fetch(`/api/v1/tasks/${taskId}/sync-to-google`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        toast({
-          title: "Synced to Google Calendar! 🔄",
-          description: "Task has been added to your Google Calendar.",
-        });
-        return result;
-      } else {
-        throw new Error('Sync failed');
-      }
-    } catch (error) {
-      console.error('Failed to sync task to Google Calendar:', error);
-      toast({
-        title: "Sync Failed",
-        description: "Failed to sync task to Google Calendar.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Handle clicking on events
-  const handleEventClick = (arg: any) => {
-    const event = arg.event;
-    const props = event.extendedProps;
-    
-    if (props.source === 'google_calendar') {
-      // For Google Calendar events, show details and open in Google Calendar
-      const eventDetails = [
-        `📅 ${event.title}`,
-        props.description ? `📝 ${props.description}` : '',
-        props.location ? `📍 ${props.location}` : '',
-        props.attendees?.length > 0 ? `👥 ${props.attendees.length} attendees` : '',
-        `🕒 ${event.start?.toLocaleString()} - ${event.end?.toLocaleString() || 'No end time'}`
-      ].filter(Boolean).join('\n');
-      
-      const shouldOpen = confirm(
-        `Google Calendar Event:\n\n${eventDetails}\n\nWould you like to open this event in Google Calendar?`
-      );
-      
-      if (shouldOpen && props.html_link) {
-        window.open(props.html_link, '_blank');
-      }
-    } else if (props.source === 'local_task') {
-      // For local tasks, show actions menu
-      const taskDetails = [
-        `📋 ${event.title}`,
-        props.description ? `📝 ${props.description}` : '',
-        `⚡ Priority: ${props.priority}`,
-        `📊 Status: ${props.status}`,
-        props.is_synced ? '🔄 Synced to Google Calendar' : '⚪ Not synced',
-        `🕒 ${event.start?.toLocaleString()} - ${event.end?.toLocaleString() || 'No end time'}`
-      ].filter(Boolean).join('\n');
-      
-      // Show action menu for local tasks
-      const actions = [
-        'View Details',
-        props.is_synced ? 'Remove from Google Calendar' : 'Sync to Google Calendar',
-        'Edit Task',
-        'Mark as ' + (props.status === 'done' ? 'Todo' : 'Complete'),
-        'Delete Task'
-      ];
-      
-      const choice = prompt(
-        `Local Task:\n\n${taskDetails}\n\nChoose an action:\n${actions.map((action, i) => `${i + 1}. ${action}`).join('\n')}`
-      );
-      
-      const actionIndex = parseInt(choice || '0') - 1;
-      if (actionIndex >= 0 && actionIndex < actions.length) {
-        handleTaskAction(event.id, actions[actionIndex], props);
-      }
-    }
-  };
-
-  // Handle task actions from event click
-  const handleTaskAction = async (taskId: string, action: string, taskProps: any) => {
-    try {
-      switch (action) {
-        case 'View Details':
-          // Just show the details again - could open a modal in future
-          toast({
-            title: "Task Details",
-            description: `${taskProps.description || 'No description'}`,
-          });
-          break;
-          
-        case 'Sync to Google Calendar':
-          if (calendarState.authStatus.authenticated) {
-            await syncTaskToGoogle(taskId, taskProps);
-            await loadCalendarData(); // Refresh to show updated sync status
-          } else {
-            toast({
-              title: "Not Connected",
-              description: "Please connect to Google Calendar first.",
-              variant: "destructive",
-            });
-          }
-          break;
-          
-        case 'Remove from Google Calendar':
-          // This would need to be implemented in the backend
-          const confirmRemove = confirm("Remove this task from Google Calendar? It will remain in your local tasks.");
-          if (confirmRemove) {
-            const response = await fetch(`/api/v1/tasks/${taskId}/remove-sync`, {
-              method: 'POST'
-            });
-            if (response.ok) {
-              await loadCalendarData();
-              toast({
-                title: "Removed from Google Calendar",
-                description: "Task is no longer synced to Google Calendar.",
-              });
-            }
-          }
-          break;
-          
-        case 'Edit Task':
-          // For now, just redirect to tasks page - could open inline editor
-          window.location.href = '/tasks';
-          break;
-          
-        case 'Mark as Complete':
-        case 'Mark as Todo':
-          const newStatus = action.includes('Complete') ? 'done' : 'todo';
-          // This would need the TaskAPI to update status
-          const { TaskAPI } = await import('@/lib/api/tasks');
-          await TaskAPI.updateTaskStatus(taskId, newStatus);
-          await loadCalendarData();
-          toast({
-            title: "Task Updated",
-            description: `Task marked as ${newStatus}`,
-          });
-          break;
-          
-        case 'Delete Task':
-          const confirmDelete = confirm("Are you sure you want to delete this task?");
-          if (confirmDelete) {
-            const { TaskAPI } = await import('@/lib/api/tasks');
-            await TaskAPI.deleteTask(taskId);
-            await loadCalendarData();
-            toast({
-              title: "Task Deleted",
-              description: "Task has been removed.",
-            });
-          }
-          break;
-      }
-    } catch (error) {
-      console.error('Failed to perform task action:', error);
-      toast({
-        title: "Error",
-        description: "Failed to perform action. Please try again.",
-        variant: "destructive",
-      });
-    }
+  // Placeholder for creating a new task - to be implemented fully later
+  const handleDateClick = (arg: any) => {
+    toast({
+      title: 'Create New Task',
+      description: `You clicked on ${arg.dateStr}. Feature to create a new task here is coming soon!`,
+    });
   };
 
   const formattedLastRefresh = useMemo(() => {
@@ -592,7 +380,7 @@ const Calendar: React.FC = () => {
             <div>
               <p className="text-white/70 -mt-1">
                 {calendarState.authStatus.authenticated 
-                  ? `Connected to Google Calendar • ${calendarState.googleEvents.length} events`
+                  ? `Connected to Google Calendar • ${calendarState.tasks.length} events`
                   : 'Connect your Google Calendar to get started'
                 }
               </p>
@@ -678,15 +466,9 @@ const Calendar: React.FC = () => {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-white/70 text-sm">Google Events</span>
-                      <Badge variant="secondary" className="bg-blue-500/20 text-blue-400">
-                        {calendarState.googleEvents.length}
-                      </Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-white/70 text-sm">Local Tasks</span>
+                      <span className="text-white/70 text-sm">Tasks</span>
                       <Badge variant="secondary" className="bg-violet/20 text-violet">
-                        {calendarState.localTasks.length}
+                        {calendarState.tasks.length}
                       </Badge>
                     </div>
                     {calendarState.lastRefresh && (
@@ -770,21 +552,16 @@ const Calendar: React.FC = () => {
                         center: 'title',
                         right: 'dayGridMonth,timeGridWeek,timeGridDay'
                       }}
-                      events={calendarEvents}
+                      events={memoizedEvents}
                       dateClick={handleDateClick}
                       eventClick={handleEventClick}
-                      editable={false} // Disable editing for now
+                      editable={true}
                       selectable={true}
-                      height="80vh"
-                      eventDisplay="block"
-                      dayMaxEvents={3}
-                      moreLinkText="more"
-                      eventTextColor="white"
-                      // Custom styling
-                      eventClassNames="rounded-lg"
-                      dayCellClassNames="hover:bg-white/5 cursor-pointer"
-                      // Loading state
-                      loading={calendarState.loading}
+                      selectMirror={true}
+                      dayMaxEvents={true}
+                      weekends={true}
+                      height="auto"
+                      contentHeight="auto"
                     />
                   </div>
                 ) : (
