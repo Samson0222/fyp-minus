@@ -1,217 +1,108 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 import logging
-from pydantic import BaseModel
 
 from app.models.docs import (
     DocumentListResponse, CreateSuggestionRequest, CreateSuggestionResponse,
-    SyncDocumentsRequest, SyncDocumentsResponse, VoiceDocsCommand, DocumentMetadata
+    SyncDocumentsRequest, SyncDocumentsResponse
 )
-from app.services.docs_service import docs_service
+from app.services.docs_service import DocsService
+from app.routers.auth import get_current_user  # Assuming a shared auth dependency
 
-class VoiceCommandRequest(BaseModel):
-    command: str
-
-# Get the same auth dependency from main.py
-async def get_current_user(authorization: Optional[str] = None):
-    """Extract user from authentication - simplified for demo but more robust"""
-    try:
-        # In production, this would properly validate the JWT token
-        # For now, using a consistent test user with proper error handling
-        user_id = "test_user_001"
-        logger.info(f"Authenticated user: {user_id}")
-        return {"user_id": user_id, "email": "test@example.com"}
-    except Exception as e:
-        logger.error(f"Authentication error: {e}")
-        # Return a fallback user to prevent complete failure
-        return {"user_id": "fallback_user", "email": "fallback@example.com"}
-
+# Set up logging
 logger = logging.getLogger(__name__)
+
+# Dependency to get a user-specific DocsService instance
+def get_docs_service(current_user: dict = Depends(get_current_user)) -> DocsService:
+    """Dependency to create a DocsService instance with the current user's ID."""
+    user_id = current_user.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Could not validate user credentials.")
+    return DocsService(user_id=user_id)
+
 router = APIRouter(prefix="/api/v1/docs", tags=["docs"])
 
 @router.get("/", response_model=DocumentListResponse)
 async def list_documents(
     limit: int = 20,
-    user = Depends(get_current_user)
+    trashed: bool = False,
+    docs_service: DocsService = Depends(get_docs_service)
 ):
-    """Get list of user's Google Docs documents"""
+    """Get list of user's Google Docs documents, optionally including trashed files."""
     try:
-        user_id = user["user_id"]
-        
-        result = await docs_service.list_documents(user_id, limit=limit)
-        
-        logger.info(f"Listed {len(result.documents)} documents for user {user_id}")
+        result = await docs_service.list_documents(limit=limit, trashed=trashed)
+        logger.info(f"Listed {len(result.documents)} documents for user {docs_service.user_id}")
         return result
-        
+    except HTTPException as e:
+        # Re-raise HTTPExceptions to avoid wrapping them in a 500
+        raise e
     except Exception as e:
-        logger.error(f"Error listing documents: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list documents: {str(e)}")
+        logger.error(f"Error listing documents for user {docs_service.user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list documents.")
 
 @router.post("/sync", response_model=SyncDocumentsResponse)
 async def sync_documents(
     request: SyncDocumentsRequest,
-    user = Depends(get_current_user)
+    docs_service: DocsService = Depends(get_docs_service)
 ):
     """Sync user's Google Docs to local metadata storage"""
     try:
-        user_id = user["user_id"]
-        
-        result = await docs_service.sync_documents(user_id, request)
-        
-        logger.info(f"Synced documents for user {user_id}: {result.synced_count} synced")
+        result = await docs_service.sync_documents(request)
+        logger.info(f"Sync request processed for user {docs_service.user_id}")
         return result
-        
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        logger.error(f"Error syncing documents: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to sync documents: {str(e)}")
+        logger.error(f"Error syncing documents for user {docs_service.user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to sync documents.")
 
 @router.post("/{document_id}/create-suggestion", response_model=CreateSuggestionResponse)
 async def create_suggestion(
     document_id: str,
     request: CreateSuggestionRequest,
-    user = Depends(get_current_user)
+    docs_service: DocsService = Depends(get_docs_service)
 ):
-    """Create a suggestion in a Google Doc based on natural language command"""
+    """Create a suggestion in a Google Doc based on a natural language command"""
     try:
-        user_id = user["user_id"]
-        
-        logger.info(f"Processing suggestion command for doc {document_id}: '{request.command}'")
-        
+        logger.info(f"Processing suggestion for doc {document_id} by user {docs_service.user_id}")
         result = await docs_service.create_suggestion(
-            user_id=user_id,
             document_id=document_id,
             request=request
         )
-        
-        if result.success:
-            logger.info(f"Suggestion created successfully for user {user_id} in doc {document_id}")
-        else:
-            logger.warning(f"Suggestion creation failed for user {user_id} in doc {document_id}: {result.message}")
-        
+        if not result.success:
+            logger.warning(f"Suggestion failed for user {docs_service.user_id}: {result.message}")
         return result
-        
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        logger.error(f"Error creating suggestion: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create suggestion: {str(e)}")
+        logger.error(f"Error creating suggestion for user {docs_service.user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create suggestion.")
 
-@router.get("/{document_id}/metadata")
-async def get_document_metadata(
+@router.delete("/{document_id}", status_code=204)
+async def trash_document(
     document_id: str,
-    user = Depends(get_current_user)
+    docs_service: DocsService = Depends(get_docs_service)
 ):
-    """Get metadata for a specific document"""
+    """Moves a document to the trash."""
     try:
-        user_id = user["user_id"]
-        
-        # For now, return basic metadata
-        # In a full implementation, this would fetch from Supabase
-        return {
-            "document_id": document_id,
-            "user_id": user_id,
-            "title": f"Document {document_id}",
-            "status": "Available for editing",
-            "suggestions_pending": 0
-        }
-        
+        success = await docs_service.trash_document(document_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to move document to trash.")
+        return None # Return 204 No Content on success
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        logger.error(f"Error getting document metadata: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get document metadata: {str(e)}")
+        logger.error(f"Error in trash_document endpoint for user {docs_service.user_id}: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
-@router.post("/voice-command")
-async def process_voice_docs_command(
-    request: VoiceCommandRequest,
-    user = Depends(get_current_user)
-):
-    """Process voice commands for Google Docs operations"""
-    try:
-        user_id = user["user_id"]
-        
-        logger.info(f"Processing voice command for user {user_id}: '{request.command}'")
-        
-        # Parse the command using the docs service
-        result = await docs_service.process_voice_command(
-            user_id=user_id,
-            command_data={"action": "parse_command", "params": {"command": request.command}}
-        )
-        
-        logger.info(f"Voice command processed for user {user_id}")
-        
-        return {
-            "status": "success",
-            "message": "Voice command processed",
-            "result": result,
-            "user_id": user_id
-        }
-        
-    except Exception as e:
-        logger.error(f"Error processing voice command: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to process voice command: {str(e)}")
-
-@router.post("/test-voice")
-async def test_voice_command(request: VoiceCommandRequest):
-    """Test voice command processing without authentication (for development)"""
-    try:
-        logger.info(f"Testing voice command: '{request.command}'")
-        
-        # Use test user for voice command testing
-        test_user_id = "test_user_001"
-        
-        result = await docs_service.process_voice_command(
-            user_id=test_user_id,
-            command_data={"action": "parse_command", "params": {"command": request.command}}
-        )
-        
-        return {
-            "status": "success",
-            "message": "Test voice command processed",
-            "result": result,
-            "test_mode": True
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in test voice command: {e}")
-        raise HTTPException(status_code=500, detail=f"Test failed: {str(e)}")
-
-@router.get("/auth-status")
-async def get_auth_status(user = Depends(get_current_user)):
-    """Check authentication status for Google Docs API"""
-    try:
-        user_id = user["user_id"]
-        
-        # In a real implementation, this would check actual Google API auth
-        auth_result = await docs_service.authenticate(user_id)
-        
-        return {
-            "authenticated": auth_result,
-            "user_id": user_id,
-            "service": "Google Docs",
-            "mock_mode": docs_service.mock_mode,
-            "scopes": ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/documents"]
-        }
-        
-    except Exception as e:
-        logger.error(f"Error checking auth status: {e}")
-        return {
-            "authenticated": False,
-            "error": str(e),
-            "service": "Google Docs"
-        }
-
-@router.post("/sign-out")
-async def sign_out_docs(user = Depends(get_current_user)):
-    """Sign out from Google Docs API"""
-    try:
-        user_id = user["user_id"]
-        
-        # In a real implementation, this would revoke tokens
-        logger.info(f"User {user_id} signed out from Google Docs")
-        
-        return {
-            "status": "success",
-            "message": "Signed out from Google Docs successfully",
-            "user_id": user_id
-        }
-        
-    except Exception as e:
-        logger.error(f"Error signing out: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to sign out: {str(e)}") 
+@router.get("/auth-status", summary="Check Google Docs Auth Status")
+async def get_auth_status(docs_service: DocsService = Depends(get_docs_service)):
+    """
+    Checks if the current user's Google token is valid for Docs API scopes.
+    This endpoint implicitly tests authentication by initializing the DocsService.
+    """
+    return {
+        "authenticated": True,
+        "user_id": docs_service.user_id,
+        "service": "Google Docs"
+    } 

@@ -1,38 +1,22 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
-import { Home, CheckSquare, Calendar, Mail, FileText, Settings, User, Search, Mic, Activity } from "lucide-react";
+import { Home, CheckSquare, Calendar, Mail, FileText, Settings, User, Search, Mic, Activity, FlaskConical } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 const ContentHeader = () => {
   const location = useLocation();
 
-  // Menu items to match the sidebar
-  const getPageInfo = (pathname: string) => {
-    switch (pathname) {
-      case "/":
-        return { icon: <Home size={20} />, title: "Home" };
-      case "/tasks":
-        return { icon: <CheckSquare size={20} />, title: "Tasks" };
-      case "/calendar":
-        return { icon: <Calendar size={20} />, title: "Calendar" };
-      case "/inboxes":
-        return { icon: <Mail size={20} />, title: "Emails" };
-      case "/docs":
-        return { icon: <FileText size={20} />, title: "Docs" };
-      case "/playground":
-        return { icon: <Mic size={20} />, title: "Playground" };
-      case "/settings":
-        return { icon: <Settings size={20} />, title: "Settings" };
-      case "/profile":
-        return { icon: <User size={20} />, title: "Profile" };
-      case "/mission-control":
-        return { icon: <Activity size={20} />, title: "Mission Control" };
-      default:
-        return { icon: <Home size={20} />, title: "Home" };
-    }
+  const getHeaderInfo = (pathname: string) => {
+    if (pathname.startsWith("/tasks")) return { icon: <CheckSquare size={20} />, title: "Tasks" };
+    if (pathname.startsWith("/calendar")) return { icon: <Calendar size={20} />, title: "Calendar" };
+    if (pathname.startsWith("/docs")) return { icon: <FileText size={20} />, title: "Docs" };
+    if (pathname.startsWith("/emails")) return { icon: <Mail size={20} />, title: "Email" };
+    if (pathname.startsWith("/mission-control")) return { icon: <Activity size={20} />, title: "Mission Control" };
+    if (pathname.startsWith("/playground")) return { icon: <FlaskConical size={20} />, title: "Playground" };
+    return { icon: <Home size={20} />, title: "Dashboard" };
   };
 
-  const currentPage = getPageInfo(location.pathname);
+  const { icon: Icon, title } = getHeaderInfo(location.pathname);
 
   return (
     <header className="bg-dark-secondary px-6 py-3 relative flex items-center">
@@ -40,12 +24,8 @@ const ContentHeader = () => {
       <div className="flex items-center justify-between w-full">
         {/* Page icon and title */}
         <div className="flex items-center gap-3">
-          <div className="text-white">
-            {currentPage.icon}
-          </div>
-          <h2 className="text-base font-semibold text-white">
-            {currentPage.title}
-          </h2>
+          {Icon}
+          <h1 className="text-xl font-semibold text-white">{title}</h1>
         </div>
 
         {/* Centered Search bar with more width and hover effects */}

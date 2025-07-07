@@ -60,7 +60,7 @@ interface EmailListResponse {
   next_page_token?: string;
 }
 
-const Inboxes = () => {
+const Email = () => {
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
@@ -879,4 +879,4 @@ const Inboxes = () => {
   );
 };
 
-export default Inboxes;
+export default Email; 

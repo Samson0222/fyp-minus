@@ -1,6 +1,6 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
-import { Menu, Home, CheckSquare, Calendar, Inbox, FileText, Settings, Search, BookOpen } from "lucide-react";
+import { Menu, Home, CheckSquare, Calendar, Inbox, FileText, Settings, Search, BookOpen, Mail, Activity, FlaskConical } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -13,22 +13,13 @@ const MobileTopNav: React.FC<MobileTopNavProps> = ({ onMenuClick }) => {
 
   // Map routes to page info
   const getPageInfo = (pathname: string) => {
-    switch (pathname) {
-      case "/":
-        return { icon: <Home size={20} />, title: "Home" };
-      case "/tasks":
-        return { icon: <CheckSquare size={20} />, title: "Tasks" };
-      case "/calendar":
-        return { icon: <Calendar size={20} />, title: "Calendar" };
-      case "/inboxes":
-        return { icon: <Inbox size={20} />, title: "Inboxes" };
-      case "/documents":
-        return { icon: <FileText size={20} />, title: "Docs" };
-      case "/settings":
-        return { icon: <Settings size={20} />, title: "Settings" };
-      default:
-        return { icon: <Home size={20} />, title: "Home" };
-    }
+    if (pathname.startsWith("/tasks")) return { icon: <CheckSquare size={20} />, title: "Tasks" };
+    if (pathname.startsWith("/calendar")) return { icon: <Calendar size={20} />, title: "Calendar" };
+    if (pathname.startsWith("/docs")) return { icon: <FileText size={20} />, title: "Docs" };
+    if (pathname.startsWith("/emails")) return { icon: <Mail size={20} />, title: "Email" };
+    if (pathname.startsWith("/mission-control")) return { icon: <Activity size={20} />, title: "Mission Control" };
+    if (pathname.startsWith("/playground")) return { icon: <FlaskConical size={20} />, title: "Playground" };
+    return { icon: <Home size={20} />, title: "Dashboard" };
   };
 
   const currentPage = getPageInfo(location.pathname);

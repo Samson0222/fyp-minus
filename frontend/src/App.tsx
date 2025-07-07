@@ -12,10 +12,11 @@ import Calendar from "./pages/Calendar";
 import RichTextEditorTest from "./pages/RichTextEditorTest";
 import Playground from "./pages/Playground";
 import NotFound from "./pages/NotFound";
-import Inboxes from "./pages/Inboxes";
+import Email from "./pages/Email";
 import DocsDashboard from "./pages/DocsDashboard";
 import DocView from "./pages/DocView";
 import MissionControl from "./pages/MissionControl";
+import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
 
@@ -30,12 +31,12 @@ const App = () => (
           <Route path="/tasks" element={<TasksWorking />} />
           <Route path="/playground" element={<Playground />} />
           <Route path="/test-editor" element={<RichTextEditorTest />} />
-          <Route path="/emails" element={<Inboxes />} />
+          <Route path="/email" element={<Email />} />
           <Route path="/docs" element={<DocsDashboard />} />
           <Route path="/docs/:documentId" element={<DocView />} />
-          <Route path="/settings" element={<Index />} /> {/* Placeholder for settings page */}
-          <Route path="/profile" element={<Index />} /> {/* Placeholder for profile page */}
-          <Route path="/menu" element={<Index />} /> {/* Placeholder for mobile menu page */}
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/profile" element={<Index />} />
+          <Route path="/menu" element={<Index />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/mission-control" element={<MissionControl />} />
           <Route path="*" element={<NotFound />} />

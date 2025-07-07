@@ -249,7 +249,7 @@ const MissionControl: React.FC = () => {
     return (
       <div className="flex flex-col h-full bg-gradient-main p-6">
         <div className="mb-6">
-          {/* Duplicate title removed - displayed in header */}
+          <h1 className="text-2xl font-bold text-white mb-2">Mission Control</h1>
           <Skeleton className="h-4 w-64 bg-white/10" />
         </div>
         
@@ -306,7 +306,7 @@ const MissionControl: React.FC = () => {
         <div className="flex-shrink-0 px-6 py-4 border-b border-white/10">
           <div className="flex items-center justify-between">
             <div>
-              {/* Duplicate title removed - displayed in header */}
+              <h1 className="text-2xl font-bold text-white">Mission Control</h1>
               <p className="text-white/70 mt-1">
                 AI-powered system optimization and monitoring
               </p>
