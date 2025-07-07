@@ -8,16 +8,11 @@ from googleapiclient.discovery import build, Resource
 from googleapiclient.errors import HttpError
 
 from app.models.task import Task
+from app.core.config import GOOGLE_SCOPES
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# The scopes required for the Google Calendar API
-CALENDAR_SCOPES = [
-    "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/calendar.events"
-]
 
 class GoogleCalendarService:
     """
@@ -32,11 +27,11 @@ class GoogleCalendarService:
         """
         creds = None
         tokens_dir = os.getenv("GOOGLE_TOKENS_DIR", "tokens")
-        token_path = os.path.join(tokens_dir, f"token_calendar_{user_id}.json")
+        token_path = os.path.join(tokens_dir, f"token_google_{user_id}.json")
 
         if os.path.exists(token_path):
             try:
-                creds = Credentials.from_authorized_user_file(token_path, CALENDAR_SCOPES)
+                creds = Credentials.from_authorized_user_file(token_path, GOOGLE_SCOPES)
             except Exception as e:
                 logger.error(f"Failed to load credentials from {token_path}: {e}")
                 return None
@@ -154,6 +149,4 @@ class GoogleCalendarService:
                 logger.warning(f"Google event {google_event_id} was already gone.")
                 return True
             logger.error(f"An error occurred deleting Google event {google_event_id}: {error}")
-            return False
-
-google_calendar_service = GoogleCalendarService() 
+            return False 

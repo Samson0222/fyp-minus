@@ -3,8 +3,8 @@ from typing import List, Optional
 
 from app.core.database import SupabaseManager, get_database
 from app.models.task import TaskCreate, TaskUpdate, Task as TaskResponse
-from app.services.google_calendar_service import google_calendar_service
-from app.services.sync_service import sync_service
+from app.services.google_calendar_service import GoogleCalendarService
+from app.services.sync_service import SyncService
 import logging
 
 # Dependency to get current user (simplified demo)
@@ -37,7 +37,8 @@ async def create_task(
 
     # If the task is an event (has a start time), sync it to Google Calendar
     if created_task.start_time and created_task.end_time:
-        google_event = google_calendar_service.create_event(user_id, created_task)
+        gcal_service = GoogleCalendarService()
+        google_event = gcal_service.create_event(user_id, created_task)
         if google_event and google_event.get('id'):
             # If sync is successful, update our task with the Google Event ID
             update_data = {"google_event_id": google_event['id']}
@@ -110,13 +111,14 @@ async def update_task(
     updated_task = TaskResponse(**updated_task_dict)
 
     # Now, handle Google Calendar sync logic
+    gcal_service = GoogleCalendarService()
     # Case 1: Task is already synced -> update the Google event
     if updated_task.google_event_id:
-        google_calendar_service.update_event(user_id, updated_task)
+        gcal_service.update_event(user_id, updated_task)
     
     # Case 2: Task was not synced, but is now an event -> create a new Google event
     elif not existing_task.google_event_id and updated_task.start_time and updated_task.end_time:
-        google_event = google_calendar_service.create_event(user_id, updated_task)
+        google_event = gcal_service.create_event(user_id, updated_task)
         if google_event and google_event.get('id'):
             # Link the new Google event to our task
             final_update = {"google_event_id": google_event['id']}
@@ -149,7 +151,8 @@ async def delete_task(
 
     # If it's synced, delete the Google Calendar event first
     if task_to_delete.google_event_id:
-        success = google_calendar_service.delete_event(user_id, task_to_delete.google_event_id)
+        gcal_service = GoogleCalendarService()
+        success = gcal_service.delete_event(user_id, task_to_delete.google_event_id)
         if not success:
             # If the Google deletion fails, we might not want to delete our local task.
             # This depends on desired behavior. For now, we'll log and proceed.
@@ -168,13 +171,15 @@ async def delete_task(
 
 @router.post("/sync-from-google", status_code=200)
 async def sync_from_google_calendar(
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(get_current_user),
+    db: SupabaseManager = Depends(get_database)
 ):
     """
     Triggers a full pull-sync from Google Calendar to the local database.
     """
     try:
         user_id = user["user_id"]
+        sync_service = SyncService(db)
         sync_results = await sync_service.sync_from_google(user_id)
         return {
             "status": "success",

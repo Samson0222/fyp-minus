@@ -1,6 +1,6 @@
 import React from "react";
 import { useLocation } from "react-router-dom";
-import { Home, CheckSquare, Calendar, Inbox, FileText, Settings, User, Search, Mic } from "lucide-react";
+import { Home, CheckSquare, Calendar, Mail, FileText, Settings, User, Search, Mic, Activity } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 const ContentHeader = () => {
@@ -16,8 +16,8 @@ const ContentHeader = () => {
       case "/calendar":
         return { icon: <Calendar size={20} />, title: "Calendar" };
       case "/inboxes":
-        return { icon: <Inbox size={20} />, title: "Emails" };
-      case "/documents":
+        return { icon: <Mail size={20} />, title: "Emails" };
+      case "/docs":
         return { icon: <FileText size={20} />, title: "Docs" };
       case "/playground":
         return { icon: <Mic size={20} />, title: "Playground" };
@@ -25,6 +25,8 @@ const ContentHeader = () => {
         return { icon: <Settings size={20} />, title: "Settings" };
       case "/profile":
         return { icon: <User size={20} />, title: "Profile" };
+      case "/mission-control":
+        return { icon: <Activity size={20} />, title: "Mission Control" };
       default:
         return { icon: <Home size={20} />, title: "Home" };
     }

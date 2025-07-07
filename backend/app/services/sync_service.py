@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 from datetime import datetime, timezone
 
 from app.core.database import SupabaseManager, get_database
-from app.services.google_calendar_service import GoogleCalendarService, google_calendar_service
+from app.services.google_calendar_service import GoogleCalendarService
 from app.models.task import Task, TaskCreate
 
 logger = logging.getLogger(__name__)
@@ -13,9 +13,8 @@ class SyncService:
     Handles the synchronization of events between Google Calendar and the local database.
     """
 
-    def __init__(self, db: SupabaseManager, calendar_service: GoogleCalendarService):
+    def __init__(self, db: SupabaseManager):
         self.db = db
-        self.calendar_service = calendar_service
 
     async def sync_from_google(self, user_id: str) -> Dict[str, int]:
         """
@@ -32,6 +31,7 @@ class SyncService:
         logger.info(f"Starting Google Calendar sync for user {user_id}...")
         
         # 1. Get authenticated Google Calendar service
+        self.calendar_service = GoogleCalendarService()
         g_service = self.calendar_service._get_service(user_id)
         if not g_service:
             logger.error(f"Cannot sync: Google Calendar service not available for user {user_id}.")
@@ -118,4 +118,4 @@ class SyncService:
         )
 
 # Instantiate the service with its dependencies
-sync_service = SyncService(db=get_database(), calendar_service=google_calendar_service) 
+sync_service = SyncService(db=get_database()) 

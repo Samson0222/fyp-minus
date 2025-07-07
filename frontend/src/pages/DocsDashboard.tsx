@@ -154,15 +154,18 @@ const DocsDashboard: React.FC = () => {
       <div className="flex flex-col h-full bg-gradient-main">
         {/* Header */}
         <div className="flex-shrink-0 px-6 py-4 border-b border-white/10">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-white">Google Docs</h1>
-              <p className="text-white/70 mt-1">
-                Manage and edit your documents with AI assistance
-              </p>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 relative max-w-md">
+              <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/50" />
+              <Input
+                placeholder="Search documents..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="pl-10 bg-dark-tertiary border-white/20 text-white placeholder-white/50 w-full"
+              />
             </div>
-            
-            <div className="flex items-center gap-3">
+
+            <div className="flex items-center gap-3 flex-shrink-0">
               <Button
                 onClick={createNewDocument}
                 className="bg-violet hover:bg-violet-light text-white"
@@ -182,17 +185,6 @@ const DocsDashboard: React.FC = () => {
                 {syncing ? 'Syncing...' : 'Sync with Drive'}
               </Button>
             </div>
-          </div>
-
-          {/* Search Bar */}
-          <div className="mt-4 relative max-w-md">
-            <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/50" />
-            <Input
-              placeholder="Search documents..."
-              value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-              className="pl-10 bg-dark-tertiary border-white/20 text-white placeholder-white/50"
-            />
           </div>
         </div>
 
