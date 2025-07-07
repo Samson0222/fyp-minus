@@ -52,6 +52,51 @@
 - **Google Docs**: Docs API + document operations
 - **Telegram**: Telegram Bot API + message handling
 
+### 🔑 Authentication Flow (Google OAuth2)
+To ensure secure and reusable access to Google services (Gmail, Calendar, Docs), a centralized OAuth2 authentication flow has been implemented. This flow is designed to be easily adopted by any new component or module that requires Google API access.
+
+#### **Backend (`FastAPI`)**
+The core logic resides in `backend/app/routers/auth.py`.
+
+1.  **Unified Scopes**: All required Google API permissions are consolidated into a single `GOOGLE_SCOPES` list located in `backend/app/core/config.py`. This ensures consistency and prevents scope conflicts between services.
+2.  **Authorization Endpoint (`/api/v1/auth/google/authorize`)**:
+    - This endpoint initiates the Google OAuth2 flow.
+    - It generates an authorization URL and redirects the user to Google's consent screen.
+3.  **Callback Endpoint (`/api/v1/auth/google/callback`)**:
+    - After the user grants permission, Google redirects them back to this endpoint with an authorization `code`.
+    - The backend exchanges this code for an `access_token` and, crucially, a `refresh_token`.
+    - The complete credentials are saved to a user-specific file: `tokens/token_google_{user_id}.json`.
+4.  **Status Endpoint (`/api/v1/auth/google/status`)**:
+    - A simple, unprotected endpoint that any frontend component can call.
+    - It checks if a valid `token_google_{user_id}.json` exists for the current user.
+    - Returns `{"authenticated": true}` or `{"authenticated": false}`.
+5.  **Service-Level Authentication**:
+    - Services like `GmailService` and `GoogleCalendarService` are instantiated with a `user_id`.
+    - Their constructors are responsible for loading the user's token from the corresponding file.
+    - If the token is missing or invalid (and cannot be refreshed), the service raises a `401 Unauthorized` HTTPException, preventing backend crashes and providing clear error signals to the frontend.
+
+#### **Frontend (`React`)**
+The frontend flow is designed to be robust and user-friendly.
+
+1.  **The Settings Page (`/settings`)**:
+    - This is the central hub for authentication management.
+    - It contains a "Connect Google Account" button. Clicking this button navigates the user to the backend's `/api/v1/auth/google/authorize` endpoint, starting the process.
+2.  **Protected Components (`Calendar.tsx`, `Inboxes.tsx`, etc.)**:
+    - On component mount, they first call the `/api/v1/auth/google/status` endpoint.
+    - **If `authenticated: true`**: The component proceeds to fetch its specific data (e.g., calendar events, emails).
+    - **If `authenticated: false`**: The component immediately renders the `UnauthorizedPage` component, avoiding unnecessary API calls and potential errors.
+3.  **The Reusable `UnauthorizedPage.tsx` Component**:
+    - A standardized view shown to unauthenticated users.
+    - It clearly states that a connection is required.
+    - It provides a "Go to Settings" button, directing the user to the correct page to resolve the issue, creating a smooth user journey.
+
+#### **Implementation Flow for New Pages**
+To add a new page that requires Google authentication:
+
+1.  In the new React component, use a `useEffect` hook to call `/api/v1/auth/google/status`.
+2.  Based on the result, either fetch the required data or render the `<UnauthorizedPage serviceName="Your New Service" />`.
+3.  Ensure the backend service for the new feature correctly loads the `token_google_{user_id}.json` and handles potential `401` errors.
+
 ---
 
 ## 📅 3-Week Development Timeline

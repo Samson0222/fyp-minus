@@ -16,7 +16,6 @@ import Inboxes from "./pages/Inboxes";
 import DocsDashboard from "./pages/DocsDashboard";
 import DocView from "./pages/DocView";
 import MissionControl from "./pages/MissionControl";
-import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
 
@@ -31,10 +30,10 @@ const App = () => (
           <Route path="/tasks" element={<TasksWorking />} />
           <Route path="/playground" element={<Playground />} />
           <Route path="/test-editor" element={<RichTextEditorTest />} />
-          <Route path="/inboxes" element={<Inboxes />} />
+          <Route path="/emails" element={<Inboxes />} />
           <Route path="/docs" element={<DocsDashboard />} />
           <Route path="/docs/:documentId" element={<DocView />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/settings" element={<Index />} /> {/* Placeholder for settings page */}
           <Route path="/profile" element={<Index />} /> {/* Placeholder for profile page */}
           <Route path="/menu" element={<Index />} /> {/* Placeholder for mobile menu page */}
           <Route path="/calendar" element={<Calendar />} />
