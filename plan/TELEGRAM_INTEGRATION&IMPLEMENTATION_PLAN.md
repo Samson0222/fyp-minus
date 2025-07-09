@@ -81,29 +81,62 @@ As per our discussion, we will maintain a separation of concerns between the mai
 
 This ensures the core infrastructure is solid before we introduce the complexity of the agentic workflow. The agentic features will be built on top of this foundation in Phase 2.
 
-### 3.2. Backend Implementation (FastAPI)
+### 3.2. User Consent: The "Monitored Chats" Workflow
 
-- **3.2.1. Database Model:** Create a new SQLAlchemy model (e.g., `TelegramMessage`) to store incoming messages. It should include `chat_id`, `message_id`, `sender_name`, `content`, `timestamp`, and a boolean `is_read`.
-- **3.2.2. Core Service (`telegram_service.py`):** A new service file containing a `send_message(chat_id, text)` function that makes a POST request to the Telegram Bot API using the token from the `.env` file.
-- **3.2.3. Real-time Infrastructure:**
-  - **Webhook Endpoint (`/webhook/telegram`):** Receives updates from Telegram, parses them, and saves them to the `TelegramMessage` table in the database.
+Before the system can monitor any conversation, the user must provide explicit consent on a per-chat basis. This is a critical privacy and functionality feature.
+
+- **3.2.1. Guiding Principle: Explicit Opt-In & Data Storage**
+  - We will **only** process and store messages from chats that the user has explicitly selected in the application's settings. All other messages received by the webhook from non-approved chats will be immediately discarded.
+  - As decided (Stateful Approach, Option A), message content from monitored chats will be stored in our own database to ensure a fast, responsive UI and to provide necessary context for the AI agent.
+
+- **3.2.2. Database Models**
+  - **`MonitoredChat`:** A new table to store user consent. It will link a user to the `chat_id` they have approved for monitoring (e.g., `id`, `user_id`, `chat_id`, `chat_name`).
+  - **`TelegramMessage`:** The model to store incoming messages from monitored chats. It should include `id`, `monitored_chat_id` (foreign key), `message_id`, `sender_name`, `telegram_sender_id` (the permanent numeric ID), `content`, `timestamp`, and a boolean `is_read`. Storing the immutable `telegram_sender_id` is crucial for future features, as usernames can change.
+
+- **3.2.3. New UI Component: Telegram Settings Page**
+  - A new settings page/modal will be created.
+  - It will fetch and display a list of the user's recent private and group chats, each with a checkbox.
+  - A clear title will state: "Select chats you want Minus to read and summarize."
+  - A "Save Selections" button will commit the user's choices.
+
+- **3.2.4. New API Endpoints for Consent**
+  - `GET /api/v1/telegram/selectable_chats`: Fetches the user's recent chats from the Telegram API to populate the settings page. **Note:** To prevent performance issues and avoid Telegram's API rate limits, this endpoint should initially fetch a limited number of recent chats (e.g., 30-50) and ideally support pagination to load more on demand.
+  - `POST /api/v1/telegram/monitored_chats`: Receives an array of `chat_id`s from the UI and saves them to the `MonitoredChat` table.
+
+- **3.2.5. Updated Webhook Logic**
+  - The `/webhook/telegram` endpoint logic must be updated. Before processing any message, it will perform a check: `Does a record exist in the MonitoredChat table for this user_id and chat_id?`.
+  - If `true`, the message is saved to the `TelegramMessage` table.
+  - If `false`, the message is ignored and no further action is taken.
+
+- **3.2.6. Security & Edge Case Handling**
+  - **Bot Membership:** The UI should inform the user that the bot must be a member of any group chat they wish to monitor.
+  - **User Leaves Chat:** A periodic or error-driven check should be implemented. If the bot can no longer access a monitored chat, it should be automatically removed from the user's `MonitoredChat` list.
+  - **Account Disconnection:** When a user disconnects their Telegram account from Minus, a cascade delete must be triggered to remove their API tokens, all `MonitoredChat` entries, and all stored `TelegramMessage` data associated with them.
+
+### 3.3. Backend Implementation (FastAPI)
+
+- **3.3.1. Core Service (`telegram_service.py`):** A new service file containing a `send_message(chat_id, text)` function that makes a POST request to the Telegram Bot API using the token from the `.env` file.
+- **3.3.2. Real-time Infrastructure:**
+  - **Webhook Endpoint (`/webhook/telegram`):** Receives updates from Telegram, parses them, and saves them to the `TelegramMessage` table in the database *only after validating against the `MonitoredChat` table*.
   - **WebSocket Endpoint (`/ws/notifications`):** After the webhook saves a new message, it will use this WebSocket to push a notification event to all connected frontend clients (e.g., `{ "event": "new_telegram_message", "unread_count": 5 }`).
   - **Webhook Registration:** Once the backend is deployed, we must perform a one-time API call to register our webhook URL with Telegram: `https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook?url=<YOUR_DEPLOYED_URL>/webhook/telegram`.
-- **3.2.4. API Endpoints for UI:**
+- **3.3.3. API Endpoints for UI:**
   - `GET /api/v1/telegram/unread_summary`: Fetches and formats the data for the "Summarized Unread Chat List."
   - `GET /api/v1/telegram/conversation/{chat_id}`: Fetches the full message history for a selected conversation.
   - `POST /api/v1/telegram/send`: Receives a `chat_id` and `message` from the frontend's "Send" button and uses `telegram_service` to dispatch the message.
 
-### 3.3. Frontend Implementation (React)
+### 3.4. Frontend Implementation (React)
 
-- **3.3.1. Global State & Real-time Client:**
+- **3.4.1. Global State & Real-time Client:**
   - Implement a global WebSocket client that connects to the backend on app load.
   - Use a global state management solution (e.g., React Context) to hold `telegramUnreadCount` and `isTelegramModeActive`. The WebSocket client will update this state.
-- **3.3.2. Top Navigation Bar (`TopNav.tsx`):** Add a notification icon component that displays the `telegramUnreadCount` from the global state and toggles `isTelegramModeActive` on click.
-- **3.3.3. `TelegramFocusMode.tsx` Component:**
+- **3.4.2. Top Navigation Bar (`TopNav.tsx`):** Add a notification icon component that displays the `telegramUnreadCount` from the global state and toggles `isTelegramModeActive` on click.
+- **3.4.3. `TelegramFocusMode.tsx` Component:**
   - The main container for the Hub. Conditionally rendered as an overlay on the entire application when `isTelegramModeActive` is true.
   - It will be responsible for fetching data from the `/unread_summary` and `/conversation/{chat_id}` endpoints.
-- **3.3.4. Sub-components:**
+  - **Empty State UI:** It must gracefully handle the "empty state"—the scenario where a user has not yet monitored any chats. In this case, it should display a helpful message guiding the user to the settings page to get started.
+- **3.4.4. Sub-components:**
+  - `TelegramSettings.tsx`: The new component for the "Monitored Chats" workflow.
   - `UnreadChatItem.tsx`: Renders each item in the top list.
   - `ConversationView.tsx`: Renders the message history in the bottom pane.
 

@@ -50,6 +50,9 @@ from app.routers.docs import router as docs_router
 # Add Mission Control router import
 from app.routers.mission_control import router as mission_control_router
 
+# Add Telegram router import
+from app.routers.telegram import router as telegram_router
+
 load_dotenv()
 
 # Configure logging
@@ -66,6 +69,7 @@ app.include_router(auth_router)      # 🔐 Authentication endpoints
 app.include_router(webhooks_router)  # 🎣 Webhooks for real-time sync
 app.include_router(docs_router)      # 📄 Google Docs endpoints
 app.include_router(mission_control_router)  # 🎛️ Mission Control endpoints
+app.include_router(telegram_router)  # 📱 Telegram integration endpoints
 app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
 
 # Global variable to hold the LLM service instance

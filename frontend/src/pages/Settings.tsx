@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { CheckCircle, AlertCircle, Mail, Calendar, FileText, ExternalLink, LogOut } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import TelegramSettings from '@/components/telegram/TelegramSettings';
 
 interface AuthStatus {
   authenticated: boolean;
@@ -92,7 +93,7 @@ const Settings = () => {
 
   return (
     <Layout>
-      <div className="p-6 h-full">
+      <div className="p-6 h-full space-y-8">
         <Card className="max-w-3xl mx-auto bg-dark-secondary border-white/10">
           <CardHeader>
             <CardTitle className="text-white text-2xl">Google Integration</CardTitle>
@@ -129,6 +130,10 @@ const Settings = () => {
             )}
           </CardContent>
         </Card>
+
+        <div className="max-w-3xl mx-auto">
+          <TelegramSettings />
+        </div>
       </div>
     </Layout>
   );
