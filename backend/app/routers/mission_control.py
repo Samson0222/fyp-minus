@@ -7,14 +7,13 @@ from ..models.mission_control import (
     UpdateMissionItemRequest
 )
 from ..services.mission_control_service import MissionControlService
-from ..core.enhanced_llm_service import EnhancedLLMService
 
 router = APIRouter(prefix="/api/v1/mission-control", tags=["mission-control"])
 
 # Dependency to get mission control service
 def get_mission_control_service() -> MissionControlService:
-    llm_service = EnhancedLLMService()
-    return MissionControlService(llm_service)
+    # The service now gets the LLM from the factory internally.
+    return MissionControlService()
 
 @router.get("/dashboard", response_model=MissionDashboardData)
 async def get_mission_control_dashboard(

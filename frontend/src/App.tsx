@@ -4,12 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
-import Tasks from "./pages/Tasks";
-import TasksSimple from "./pages/TasksSimple";
-import TasksDebug from "./pages/TasksDebug";
-import TasksWorking from "./pages/TasksWorking";
+
 import Calendar from "./pages/Calendar";
-import RichTextEditorTest from "./pages/RichTextEditorTest";
 import Playground from "./pages/Playground";
 import NotFound from "./pages/NotFound";
 import Email from "./pages/Email";
@@ -28,9 +24,8 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
-          <Route path="/tasks" element={<TasksWorking />} />
+
           <Route path="/playground" element={<Playground />} />
-          <Route path="/test-editor" element={<RichTextEditorTest />} />
           <Route path="/email" element={<Email />} />
           <Route path="/docs" element={<DocsDashboard />} />
           <Route path="/docs/:documentId" element={<DocView />} />

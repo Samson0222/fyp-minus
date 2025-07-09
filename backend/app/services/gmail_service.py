@@ -21,7 +21,7 @@ from app.models.email import (
     EmailMessage, EmailSender, EmailRecipient, EmailAttachment,
     EmailListResponse, SendEmailRequest, SendEmailResponse
 )
-from app.core.llm_service import GemmaLLMService
+from app.core.llm_factory import get_llm_service
 from app.core.config import GOOGLE_SCOPES
 from bs4 import BeautifulSoup
 import logging
@@ -367,38 +367,39 @@ class GmailService:
             raise Exception(f'Failed to mark as important: {e}')
     
     async def mark_as_unimportant(self, message_id: str) -> bool:
-        """Mark an email as unimportant"""
-        try:
-            self.service.users().messages().modify(
-                userId='me',
-                id=message_id,
-                body={'removeLabelIds': ['IMPORTANT']}
-            ).execute()
-            return True
-        except HttpError as e:
-            raise Exception(f'Failed to mark as unimportant: {e}')
+        """Mark an email as not important."""
+        return await self._modify_labels(message_id, remove_label_ids=['IMPORTANT'])
 
-    # Voice Command Processing Methods
     async def process_voice_command(self, command_data: dict) -> dict:
-        """Process Gmail voice commands using Gemma 3n"""
-        action = command_data.get("action")
-        params = command_data.get("params", {})
-        user_id = "test_user_001"  # Mock user for testing
+        """Processes a voice command by routing to the appropriate function."""
         
-        try:
-            if action == "read_unread":
-                return await self.read_unread_emails_voice()
-            elif action == "compose":
-                return await self.compose_email_voice(params)
-            elif action == "search":
-                return await self.search_emails_voice(params)
-            else:
-                return {"error": f"Unknown Gmail action: {action}"}
-        except Exception as e:
-            return {"error": f"Gmail command failed: {str(e)}"}
-    
+        # Initialize LLM on demand
+        llm_service = get_llm_service()
+        if not llm_service:
+            return {"response": "The AI reasoning module is not available right now."}
+
+        action = command_data.get("action", "unknown")
+        params = command_data.get("params", {})
+        
+        if action == "read_unread":
+            return await self.read_unread_emails_voice()
+        elif action == "compose":
+            # The LLM's response for "compose" might need further processing
+            # to extract details like recipient, subject, and body.
+            # For now, we assume params are well-formed.
+            return await self.compose_email_voice(params)
+        elif action == "search":
+            return await self.search_emails_voice(params)
+        else:
+            # If the action is unknown, ask the LLM to clarify or respond directly.
+            response_text = await llm_service.process_command(
+                user_input=f"The user wanted to perform an unknown email action: '{action}'. Ask for clarification.",
+            )
+            return {"response": response_text.get("params", {}).get("text", "I'm not sure how to handle that email command. Could you please rephrase?")}
+
+
     async def read_unread_emails_voice(self) -> dict:
-        """Read unread emails using voice command."""
+        """Fetches unread emails and formats them for a voice response."""
         try:
             response = await self.get_emails(max_results=5, query="is:unread")
             if not response.emails:
@@ -413,32 +414,33 @@ class GmailService:
             return {"error": str(e)}
     
     async def compose_email_voice(self, params: dict) -> dict:
-        """Compose and send an email using voice command."""
-        try:
-            recipient_email = params.get('recipient_email')
-            subject = params.get('subject')
-            body = params.get('body')
-            
-            if not all([recipient_email, subject, body]):
-                return {"error": "Missing recipient, subject, or body for the email."}
+        """Composes and sends an email based on voice parameters."""
+        recipient = params.get("to")
+        subject = params.get("subject", "(No Subject)")
+        body = params.get("body", "Sent via voice command.")
 
+        if not recipient:
+            return {"response": "I need to know who to send the email to. Please specify a recipient."}
+
+        try:
             email_req = SendEmailRequest(
-                recipients=[EmailRecipient(email=recipient_email)],
+                recipients=[EmailRecipient(email=recipient)],
                 subject=subject,
                 body=body
             )
             await self.send_email(email_req)
-            return {"summary": f"I've sent an email to {recipient_email} with the subject '{subject}'."}
+            return {"response": f"The email to {recipient} about {subject} has been sent."}
         except Exception as e:
-            return {"error": str(e)}
+            logger.error(f"Failed to send email via voice: {e}")
+            return {"response": "Sorry, I was unable to send the email."}
     
     async def search_emails_voice(self, params: dict) -> dict:
-        """Search for emails using voice command."""
+        """Searches for emails based on a voice query."""
+        query = params.get("query")
+        if not query:
+            return {"error": "No search query provided."}
+        
         try:
-            query = params.get('query')
-            if not query:
-                return {"error": "No search query provided."}
-            
             response = await self.get_emails(max_results=3, query=query)
             if not response.emails:
                 return {"summary": f"I couldn't find any emails matching '{query}'."}
@@ -449,4 +451,5 @@ class GmailService:
             
             return {"summary": summary, "emails": response.dict()['emails']}
         except Exception as e:
-            return {"error": str(e)}
+            logger.error(f"Failed to search emails via voice: {e}")
+            return {"response": "Sorry, I ran into an error while searching your emails."}

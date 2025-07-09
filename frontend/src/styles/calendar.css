@@ -225,3 +225,107 @@
 .fc-timegrid-col.fc-day-today {
   background-color: rgba(138, 107, 244, 0.05) !important; /* Very subtle purple highlight */
 } 
+
+/* Minus custom event styles */
+.minus-event-timed, .minus-event-all-day {
+  margin-bottom: 2px !important; /* slight vertical spacing */
+}
+
+.minus-event-all-day {
+  background-color: #8b5cf6 !important; /* purple fill */
+  color: #ffffff !important;
+  border-radius: 4px !important;
+  padding: 0 2px !important;
+}
+
+.minus-event-all-day:hover {
+  background-color: #9a7bff !important;
+}
+
+.minus-event-timed {
+  background-color: transparent !important;
+  border: 1px solid #8b5cf6 !important; /* purple */
+  color: rgba(255, 255, 255, 0.7) !important; /* grey text */
+  border-radius: 4px !important;
+  padding: 0 2px !important;
+}
+
+.minus-event-timed:hover {
+  background-color: rgba(139,92,246,0.15) !important;
+  border-color: #9a7bff !important;
+  color: rgba(255, 255, 255, 0.7) !important; /* keep grey text on hover */
+}
+
+.minus-event-timed .fc-event-title,
+.minus-event-all-day .fc-event-title {
+  font-size: 11px;
+}
+
+/* "+x more" link full width */
+.fc-daygrid-more-link {
+  display: block !important;
+  width: 100% !important;
+  text-align: center;
+}
+
+/* Dark theme for FullCalendar popover */
+.fc-popover {
+  background-color: #1e1e1e !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+.fc-popover-header {
+  background-color: #262626 !important;
+  color: #e5e5e5 !important;
+  border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+.fc-popover-body {
+  background-color: #1e1e1e !important;
+}
+
+/* Ensure time column shows full width */
+.fc-daygrid-event-dot {
+  display: none; /* hide default dot */
+}
+
+.fc-event-time {
+  min-width: 48px; /* give space for 12:00pm */
+}
+
+/* Custom styles for the DatePicker component's calendar popover */
+/* Force consistent rounded-square shape for date picker days */
+.rdp-day {
+  border-radius: 8px !important;
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+/* Selected Day Style */
+.rdp-day_selected,
+.rdp-day_selected:focus-visible,
+.rdp-day_selected:hover {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  opacity: 1;
+  border: none !important;
+}
+
+/* Today's Day Style */
+.rdp-day_today:not(.rdp-day_selected) {
+    background-color: transparent !important;
+    color: hsl(var(--primary)) !important; /* Purple text */
+    border: none !important;
+}
+
+/* Ensure selected state overrides today state visually */
+.rdp-day_selected.rdp-day_today {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+/* Original style for the main calendar, kept for consistency reference */
+.fc .fc-daygrid-day.fc-day-today {
+  background-color: rgba(139, 92, 246, 0.15); /* A subtle violet background */
+}

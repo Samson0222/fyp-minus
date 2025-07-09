@@ -9,9 +9,8 @@ const Sidebar = () => {
   // Menu items matching the requested structure
   const menuItems = [
     { icon: <Home size={20} />, name: "Home", path: "/" },
-    { icon: <CheckSquare size={20} />, name: "Tasks", path: "/tasks" },
-    { icon: <Calendar size={20} />, name: "Calendar", path: "/calendar" },
-    { icon: <Mail size={20} />, name: "Emails", path: "/emails" },
+    { icon: <Calendar size={20} />, name: "Schedule", path: "/calendar" },
+    { icon: <Mail size={20} />, name: "Emails", path: "/email" },
     { icon: <FileText size={20} />, name: "Docs", path: "/docs" },
     { icon: <Activity size={20} />, name: "Mission Control", path: "/mission-control" },
     { icon: <Mic size={20} />, name: "Playground", path: "/playground" },

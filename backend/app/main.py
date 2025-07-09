@@ -26,8 +26,9 @@ from app.routers.gmail import router as gmail_router
 from app.services.voice_email_processor import voice_email_processor
 
 # Voice integration
-from app.routers.voice import router as voice_router, get_llm_service as voice_llm_dependency
-from app.core.enhanced_llm_service import EnhancedLLMService
+from app.routers.voice import router as voice_router, get_llm_service_dependency
+from app.core.llm_factory import get_llm_service
+from app.core.llm_base import AbstractLLMService
 
 # WebSocket Connection Manager
 from app.websockets import manager
@@ -38,8 +39,7 @@ from app.routers.calendar import router as calendar_router
 # Add Auth router import
 from app.routers.auth import router as auth_router
 
-# Add Tasks router import
-from app.routers.tasks import router as tasks_router
+
 
 # Add Webhooks router import
 from app.routers.webhooks import router as webhooks_router
@@ -62,14 +62,14 @@ app = FastAPI(title="Minus Voice Assistant API", version="1.0.0")
 app.include_router(gmail_router)
 app.include_router(calendar_router)  # 📅 Calendar endpoints
 app.include_router(auth_router)      # 🔐 Authentication endpoints
-app.include_router(tasks_router)     # 📋 Tasks endpoints with Google sync
+
 app.include_router(webhooks_router)  # 🎣 Webhooks for real-time sync
 app.include_router(docs_router)      # 📄 Google Docs endpoints
 app.include_router(mission_control_router)  # 🎛️ Mission Control endpoints
 app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
 
 # Global variable to hold the LLM service instance
-llm_service: Optional[EnhancedLLMService] = None
+llm_service: Optional[AbstractLLMService] = None
 
 # CORS configuration
 origins = [
@@ -176,7 +176,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
         print(f"Auth error: {e}")
         return {"user_id": "test_user_001", "email": "test@example.com"}
 
-def get_llm_service() -> EnhancedLLMService:
+def get_llm_service_instance() -> AbstractLLMService:
     """Dependency injector for the LLM service"""
     if llm_service is None:
         raise HTTPException(
@@ -186,7 +186,7 @@ def get_llm_service() -> EnhancedLLMService:
     return llm_service
 
 # Override the placeholder dependency in the voice router with the real one
-app.dependency_overrides[voice_llm_dependency] = get_llm_service
+app.dependency_overrides[get_llm_service_dependency] = get_llm_service_instance
 
 @app.on_event("startup")
 async def startup_event():
@@ -198,17 +198,20 @@ async def startup_event():
     # Initialize and test the configured LLM service
     try:
         print("🧠 Initializing LLM Service...")
-        llm_service = EnhancedLLMService()
-        stats = llm_service.get_usage_stats()
-        
-        # Use print to ensure visibility even if logging level filters INFO
-        print("=" * 60)
-        print("✅ LLM Service Initialized")
-        for key, value in stats.items():
-            print(f"   - {key.replace('_', ' ').title()}: {value}")
-        print("=" * 60)
-        
-        logger.info(f"LLM initialized successfully: {stats}")
+        llm_service = get_llm_service()
+        if llm_service:
+            stats = llm_service.get_usage_stats()
+            
+            # Use print to ensure visibility even if logging level filters INFO
+            print("=" * 60)
+            print("✅ LLM Service Initialized")
+            for key, value in stats.items():
+                print(f"   - {key.replace('_', ' ').title()}: {value}")
+            print("=" * 60)
+            
+            logger.info(f"LLM initialized successfully: {stats}")
+        else:
+            raise ConnectionError("LLM service could not be initialized from factory.")
     except Exception as e:
         logger.error(f"⚠️ LLM initialization failed: {e}", exc_info=True)
         print("=" * 60)
@@ -449,17 +452,27 @@ async def process_voice_command(
             "redirect": "/api/v1/gmail/voice-command",
             "command": request.command
         }
+    elif "create" in command_lower and ("task" in command_lower or "reminder" in command_lower or "todo" in command_lower):
+        return {
+            "action": "calendar_create_event",
+            "status": "ready",
+            "message": "I'll help you create a calendar event for that task.",
+            "redirect": "/api/v1/calendar/voice-command",
+            "command": request.command
+        }
     elif "create" in command_lower and "document" in command_lower:
         return {
             "action": "docs_create", 
             "status": "preparing",
             "message": "Preparing to create a document..."
         }
-    elif "schedule" in command_lower and "meeting" in command_lower:
+    elif "schedule" in command_lower or "meeting" in command_lower or "appointment" in command_lower:
         return {
             "action": "calendar_schedule",
-            "status": "preparing", 
-            "message": "Preparing to schedule a meeting..."
+            "status": "ready",
+            "message": "I'll help you schedule that.",
+            "redirect": "/api/v1/calendar/voice-command",
+            "command": request.command
         }
     else:
         return {

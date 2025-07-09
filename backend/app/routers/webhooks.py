@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from typing import Dict, Any
 
-from app.services.sync_service import sync_service
+
 from app.core.database import get_database, SupabaseManager
 from app.websockets import manager
 
@@ -67,19 +67,17 @@ async def receive_google_calendar_notification(
         
         logger.info(f"Found user {user_id} for channel {channel_id}. Triggering background sync.")
         
-        # Run the sync in the background so we can return a 200 OK to Google immediately.
-        # Google's webhook will timeout if it doesn't get a quick response.
-        async def sync_and_notify():
-            await sync_service.sync_from_google(user_id)
-            # After sync, send a notification via WebSocket
+        # Since we no longer maintain local tasks, we just notify the frontend
+        # that the calendar has been updated and they should refresh
+        async def notify_calendar_update():
             await manager.send_json(
-                {"event": "sync_complete", "message": "Your calendar has been updated."},
+                {"event": "calendar_updated", "message": "Your Google Calendar has been updated."},
                 user_id
             )
 
-        asyncio.create_task(sync_and_notify())
+        asyncio.create_task(notify_calendar_update())
 
-        return {"status": "received", "detail": "Sync triggered in background."}
+        return {"status": "received", "detail": "Calendar update notification sent."}
 
     elif state == "exists":
         # This is the confirmation notification after subscribing.

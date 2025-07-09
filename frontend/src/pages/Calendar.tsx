@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { 
   Calendar as CalendarIcon, 
   RefreshCw, 
@@ -19,31 +19,62 @@ import {
   AlertCircle,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
+  Pencil,
+  Trash2,
+  X,
 } from 'lucide-react';
-import { CreateTaskModal, Task as ModalTask } from '@/components/tasks/CreateTaskModal';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DatePicker } from "@/components/ui/date-picker";
+import { TimePicker } from "@/components/ui/time-picker";
 import '@/styles/calendar.css';
 import UnauthorizedPage from '@/components/layout/UnauthorizedPage';
 
-// This should match the Task model from the backend
-interface Task {
+// Google Calendar Event interface
+interface CalendarEvent {
   id: string;
-  user_id: string;
-  title: string;
+  summary: string;
   description?: string;
-  start_time?: string; 
-  end_time?: string;
-  is_all_day: boolean;
-  timezone?: string;
-  priority: 'low' | 'medium' | 'high';
-  status: 'todo' | 'inprogress' | 'done';
-  type: 'todo' | 'event';
-  google_event_id?: string;
-  created_at: string;
-  updated_at: string;
+  start: string;
+  end?: string;
+  all_day: boolean;
+  location?: string;
+  attendees?: string[];
+  html_link?: string;
+  status?: string;
+  source: string;
 }
 
 interface CalendarState {
-  tasks: Task[];
+  events: CalendarEvent[];
   authStatus: {
     authenticated: boolean;
     message: string;
@@ -52,15 +83,34 @@ interface CalendarState {
   lastRefresh?: Date;
 }
 
+// Event creation modal state
+interface NewEventData {
+  summary: string;
+  description: string;
+  start: Date;
+  end: Date;
+  all_day: boolean;
+}
+
 const Calendar: React.FC = () => {
   const [calendarState, setCalendarState] = useState<CalendarState>({
-    tasks: [],
+    events: [],
     authStatus: { authenticated: false, message: 'Checking...' },
     loading: true
   });
-  const [isPanelVisible, setIsPanelVisible] = useState(true);
+  const isPanelVisible = false;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [viewEvent, setViewEvent] = useState<CalendarEvent | null>(null);
+  const [isViewOpen, setIsViewOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [newEvent, setNewEvent] = useState<NewEventData>({
+    summary: '',
+    description: '',
+    start: new Date(),
+    end: new Date(),
+    all_day: false
+  });
   
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -122,17 +172,14 @@ const Calendar: React.FC = () => {
     setCalendarState(prev => ({ ...prev, loading: true }));
     
     try {
-      const response = await fetch('/api/v1/tasks');
-      if (!response.ok) throw new Error(`Failed to fetch tasks: ${response.statusText}`);
+      const response = await fetch('/api/v1/calendar/events');
+      if (!response.ok) throw new Error(`Failed to fetch events: ${response.statusText}`);
       
-      const tasks: Task[] = await response.json();
-      console.log(`Loaded ${tasks.length} tasks from the backend`);
+      const events: CalendarEvent[] = await response.json();
+      console.log(`Loaded ${events.length} events from Google Calendar`);
 
-      setCalendarState(prev => ({ ...prev, tasks, loading: false, lastRefresh: new Date() }));
-      toast({
-        title: "Calendar Loaded",
-        description: `Successfully loaded ${tasks.length} tasks and events.`,
-      });
+      setCalendarState(prev => ({ ...prev, events, loading: false, lastRefresh: new Date() }));
+      // Removed success toast to keep UI clean
     } catch (error) {
       console.error('Failed to load calendar data:', error);
       setCalendarState(prev => ({ ...prev, loading: false }));
@@ -142,61 +189,190 @@ const Calendar: React.FC = () => {
 
   const refreshCalendarData = async () => {
     setCalendarState(prev => ({ ...prev, loading: true }));
-    toast({ title: "Syncing...", description: "Attempting to sync with Google Calendar." });
+    toast({ title: "Syncing...", description: "Refreshing from Google Calendar." });
 
     try {
-      const syncResponse = await fetch('/api/v1/tasks/sync-from-google', { method: 'POST' });
-      if (!syncResponse.ok) throw new Error('Failed to sync with Google Calendar.');
-      const syncResult = await syncResponse.json();
+      await loadCalendarData();
       toast({
         title: "Sync Successful",
-        description: `Created: ${syncResult.details.created}, Updated: ${syncResult.details.updated}. Refreshing view...`
+        description: "Calendar refreshed from Google Calendar."
       });
-      await loadCalendarData();
     } catch (error) {
       console.error('Failed to refresh calendar data:', error);
       setCalendarState(prev => ({ ...prev, loading: false }));
-      toast({ title: "Sync Error", description: "Could not sync with Google Calendar.", variant: "destructive" });
+      toast({ title: "Sync Error", description: "Could not refresh from Google Calendar.", variant: "destructive" });
     }
   };
 
   const memoizedEvents = useMemo(() => {
-    return calendarState.tasks.map(task => ({
-      id: task.id,
-      title: task.title,
-      start: task.start_time,
-      end: task.end_time,
-      allDay: task.is_all_day,
-      extendedProps: { ...task },
-      backgroundColor: task.type === 'event' && task.google_event_id ? '#1e8e3e' : (task.type === 'event' ? '#f29900' : '#3174ad'),
-      borderColor: task.type === 'event' && task.google_event_id ? '#1e8e3e' : (task.type === 'event' ? '#f29900' : '#3174ad'),
+    return calendarState.events.map(event => ({
+      id: event.id,
+      title: event.summary,
+      start: event.start,
+      end: event.end,
+      allDay: event.all_day,
+      extendedProps: { ...event },
+      className: event.all_day ? 'minus-event-all-day' : 'minus-event-timed',
     }));
-  }, [calendarState.tasks]);
+  }, [calendarState.events]);
+
+  // Count events happening today (ignores timezone for simplicity)
+  const todayEventCount = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    return calendarState.events.filter(ev => ev.start.startsWith(todayStr)).length;
+  }, [calendarState.events]);
 
   const handleEventClick = (clickInfo: EventClickArg) => {
-    const task = clickInfo.event.extendedProps as Task;
-    toast({
-      title: `(Task) ${task.title}`,
-      description: (
-        <div className="text-sm text-white/80">
-          <p><strong>Status:</strong> {task.status}</p>
-          <p><strong>Priority:</strong> {task.priority}</p>
-          <p><strong>Type:</strong> {task.type}</p>
-          {task.description && <p><strong>Description:</strong> {task.description}</p>}
-          {task.google_event_id && <p className="text-green-400">Synced with Google Calendar</p>}
-        </div>
-      ),
-    });
+    const event = clickInfo.event.extendedProps as CalendarEvent;
+    setViewEvent(event);
+    setIsViewOpen(true);
   };
 
   const handleDateClick = (arg: DateClickArg) => {
-    setSelectedDate(arg.date);
+    const now = new Date();
+    const startDate = new Date(arg.date);
+    startDate.setHours(now.getHours(), 0, 0, 0); // Set to top of the hour
+
+    const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour later
+    
+    setNewEvent({
+      summary: '',
+      description: '',
+      start: startDate,
+      end: endDate,
+      all_day: true, 
+    });
     setIsModalOpen(true);
   };
 
-  const handleTaskCreated = () => {
+  const handleNewEventClick = () => {
+    const now = new Date();
+    const startDate = new Date();
+    const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+
+    setNewEvent({
+      summary: '',
+      description: '',
+      start: startDate,
+      end: endDate,
+      all_day: true,
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleAllDayToggle = (checked: boolean) => {
+    if (!checked) {
+      // When switching from "All Day" to a timed event, set smart defaults
+      const now = new Date();
+      // Use the date from the event, but the time from right now
+      const newStartDate = new Date(newEvent.start); 
+      
+      const minutes = now.getMinutes();
+      const remainder = minutes % 15;
+      
+      newStartDate.setHours(now.getHours());
+      
+      if (remainder !== 0) {
+        newStartDate.setMinutes(minutes - remainder + 15);
+      } else {
+        newStartDate.setMinutes(minutes);
+      }
+      newStartDate.setSeconds(0, 0);
+
+      const newEndDate = new Date(newStartDate.getTime() + 60 * 60 * 1000); // 1 hour later
+
+      setNewEvent(prev => ({
+        ...prev,
+        all_day: false,
+        start: newStartDate,
+        end: newEndDate
+      }));
+    } else {
+      setNewEvent(prev => ({ ...prev, all_day: true }));
+    }
+  };
+
+
+  const handleCreateEvent = async () => {
+    try {
+      let start, end;
+      if (newEvent.all_day) {
+        start = new Date(newEvent.start).toISOString().slice(0,10);
+        const endDate = new Date(newEvent.start);
+        endDate.setDate(endDate.getDate() + 1);
+        end = endDate.toISOString().slice(0,10);
+      } else {
+        start = new Date(newEvent.start).toISOString();
+        end = new Date(newEvent.end).toISOString();
+      }
+
+      const response = await fetch('/api/v1/calendar/create-event', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          summary: newEvent.summary || '(No Title)',
+          description: newEvent.description,
+          start: start,
+          end: end,
+          timezone: 'UTC',
+          all_day: newEvent.all_day,
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to create event');
+
+      toast({
+        title: "Event Created",
+        description: "Event successfully added to your Google Calendar.",
+      });
+      
     setIsModalOpen(false);
-    loadCalendarData();
+      setNewEvent({
+        summary: '',
+        description: '',
+        start: new Date(),
+        end: new Date(),
+        all_day: false
+      });
+      
+      await loadCalendarData();
+    } catch (error) {
+      console.error('Failed to create event:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create event. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!viewEvent) return;
+    try {
+      const response = await fetch(`/api/v1/calendar/delete-event/${viewEvent.id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) throw new Error('Failed to delete event');
+      
+      toast({
+        title: "Event Deleted",
+        description: "The event has been removed from your calendar.",
+      });
+      
+      setIsViewOpen(false);
+      await loadCalendarData();
+    } catch (error) {
+      console.error('Failed to delete event:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete event. Please try again.",
+        variant: "destructive"
+      });
+    }
+    setIsDeleteConfirmOpen(false);
   };
 
   const formattedLastRefresh = useMemo(() => {
@@ -206,10 +382,13 @@ const Calendar: React.FC = () => {
 
   // Custom event rendering function
   const renderEventContent = (eventInfo: EventContentArg) => {
+    const isAllDay = (eventInfo.event.extendedProps as CalendarEvent).all_day;
     return (
-      <div className="font-sans">
-        <i>{eventInfo.timeText}</i>
-        <b>{eventInfo.event.title}</b>
+      <div className="font-sans text-xs flex items-center gap-1 whitespace-nowrap">
+        {!isAllDay && eventInfo.timeText && (
+          <span className="text-foreground/70 mr-1">{eventInfo.timeText}</span>
+        )}
+        <span className="truncate">{eventInfo.event.title}</span>
       </div>
     );
   };
@@ -237,108 +416,71 @@ const Calendar: React.FC = () => {
     <Layout>
       <div className="p-6 flex flex-col space-y-6 h-full">
         <div className="flex-shrink-0 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button
-              onClick={() => setIsPanelVisible(!isPanelVisible)}
-              variant="outline"
-              size="sm"
-              className="bg-dark-tertiary border-white/10 text-white hover:bg-dark-secondary"
-            >
-              {isPanelVisible ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-            </Button>
-            <div>
-              <p className="text-white/70 -mt-1">
-                {calendarState.authStatus.authenticated 
-                  ? `Connected to Google • ${calendarState.tasks.length} events`
-                  : 'Connect your Google account to get started'
-                }
-              </p>
-            </div>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-white">
+            {calendarState.authStatus.authenticated ? (
+              <>
+                {/* Connected icon */}
+                <CheckCircle className="w-4 h-4 text-green-400" />
+
+                {/* Total events badge */}
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-violet/30 text-violet-light">
+                  {calendarState.events.length}
+                </span>
+                <span>events</span>
+
+                {/* Today count */}
+                <span className="text-white/70">•</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-sm font-bold bg-violet text-white">
+                  {todayEventCount}
+                </span>
+                <span className="text-sm">event{todayEventCount !== 1 ? 's' : ''} today</span>
+
+                {/* Last synced */}
+                {formattedLastRefresh && (
+                  <>
+                    <span className="text-white/70">•</span>
+                    <span className="text-white/70 text-xs">Last synced: {formattedLastRefresh}</span>
+                  </>
+                )}
+              </>
+            ) : (
+              <span>Not connected</span>
+            )}
           </div>
           <div className="flex items-center gap-3">
+            <Button
+              onClick={handleNewEventClick}
+              variant="default"
+              size="sm"
+              className="bg-violet hover:bg-violet/90 text-white"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              New Event
+            </Button>
             {calendarState.authStatus.authenticated && (
               <Button onClick={refreshCalendarData} variant="outline" size="sm" disabled={calendarState.loading} className="bg-dark-tertiary border-white/10 text-white hover:bg-dark-secondary">
                 <RefreshCw className={`w-4 h-4 mr-2 ${calendarState.loading ? 'animate-spin' : ''}`} />
-                Sync with Google
+                Refresh
               </Button>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-grow min-h-0">
-          {isPanelVisible && (
-            <div className="lg:col-span-1 space-y-4">
-              <Card className="bg-dark-secondary border-white/10">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <Settings size={18} />
-                    Connection Status
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    {calendarState.authStatus.authenticated ? (
-                      <>
-                        <CheckCircle className="text-green-500" size={16} />
-                        <span className="text-green-400 text-sm font-medium">Connected</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="text-yellow-500" size={16} />
-                        <span className="text-yellow-400 text-sm font-medium">Not Connected</span>
-                      </>
-                    )}
-                  </div>
-                  <p className="text-white/70 text-sm">{calendarState.authStatus.message}</p>
-                  {!calendarState.authStatus.authenticated && (
-                    <Button onClick={() => navigate('/settings')} className="w-full bg-violet hover:bg-violet/90 text-white">
-                      Go to Settings
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-              
-              {calendarState.authStatus.authenticated && (
-                <>
-                  <Card className="bg-dark-secondary border-white/10">
-                    <CardHeader className="pb-3"><CardTitle className="text-white text-sm">Statistics</CardTitle></CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-white/70 text-sm">Events & Tasks</span>
-                        <Badge variant="secondary" className="bg-violet/20 text-violet">{calendarState.tasks.length}</Badge>
-                      </div>
-                      {calendarState.lastRefresh && (
-                        <div className="pt-2 border-t border-white/10">
-                          <span className="text-white/50 text-xs">Last updated: {formattedLastRefresh}</span>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-dark-secondary border-white/10">
-                    <CardHeader className="pb-3"><CardTitle className="text-white text-sm">Event Legend</CardTitle></CardHeader>
-                    <CardContent className="space-y-2 text-xs text-white/70">
-                        <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#1e8e3e'}}></div><span>Google Event</span></div>
-                        <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#f29900'}}></div><span>Local Event</span></div>
-                        <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#3174ad'}}></div><span>Local Task</span></div>
-                    </CardContent>
-                  </Card>
-                </>
-              )}
-            </div>
-          )}
-
-          <div className={isPanelVisible ? "lg:col-span-3" : "lg:col-span-4"}>
-            <Card className="bg-dark-secondary border-white/10 h-full">
+        <div className="flex-grow flex flex-col min-h-0">
+          <Card className="bg-dark-secondary border-white/10 flex-grow">
               <CardContent className="p-6 h-full">
-                {calendarState.authStatus.authenticated ? (
-                  <div className="calendar-container h-full">
+              <div className="h-full">
                     <FullCalendar
                       plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                  headerToolbar={{
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                  }}
                       initialView="dayGridMonth"
-                      headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
                       events={memoizedEvents}
+                  eventClick={handleEventClick}
                       dateClick={handleDateClick}
-                      eventClick={handleEventClick}
                       editable={true}
                       selectable={true}
                       selectMirror={true}
@@ -347,35 +489,191 @@ const Calendar: React.FC = () => {
                       height="100%"
                       fixedWeekCount={false}
                       eventContent={renderEventContent}
-                    />
-                  </div>
-                ) : (
-                  <div className="text-center py-16">
-                    <CalendarIcon className="mx-auto text-white/30 mb-4" size={64} />
-                    <h3 className="text-xl font-semibold text-white mb-2">Connect Your Google Account</h3>
-                    <p className="text-white/70 mb-6 max-w-md mx-auto">To sync your calendar and tasks, please connect your Google account in the settings.</p>
-                    <Button onClick={() => navigate('/settings')} className="bg-violet hover:bg-violet/90 text-white">
-                      Go to Settings
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                  eventTimeFormat={{ hour: 'numeric', minute: '2-digit', hour12: true }}
+                />
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
-      <CreateTaskModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onCreateTask={handleTaskCreated}
-        defaultDate={selectedDate}
-        availableTags={[]}
-        onCreateTag={() => ({ id: '', name: '', color: '', category: 'custom', status: 'todo', createDateTime: new Date(), lastUpdateDateTime: new Date(), severity: 'low' })}
-      />
+
+      {/* Create Event Modal */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="max-w-md bg-[#1e1e1e] text-white border border-white/10">
+          <DialogHeader>
+            <DialogTitle>Create New Event</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="summary">Event Title</Label>
+              <Input
+                id="summary"
+                value={newEvent.summary}
+                onChange={(e) => setNewEvent(prev => ({ ...prev, summary: e.target.value }))}
+                placeholder="Enter event title"
+                className="bg-dark-tertiary border-slate-700 text-white placeholder:text-gray-400"
+              />
+            </div>
+            <div>
+              <Label htmlFor="description">Description (Optional)</Label>
+              <Textarea
+                id="description"
+                value={newEvent.description}
+                onChange={(e) => setNewEvent(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Enter event description"
+                className="bg-dark-tertiary border-slate-700 text-white placeholder:text-gray-400"
+              />
+            </div>
+            
+            <div className="flex items-center space-x-2 pt-2">
+              <Checkbox
+                id="allDay"
+                checked={newEvent.all_day}
+                onCheckedChange={(checked) => handleAllDayToggle(checked as boolean)}
+              />
+              <Label htmlFor="allDay" className="text-sm text-white/70">All Day</Label>
+            </div>
+
+            {!newEvent.all_day && (
+              <>
+                <div className="space-y-2">
+                  <Label>Date</Label>
+                  <DatePicker 
+                    date={newEvent.start} 
+                    setDate={(date) => {
+                      if (date) {
+                        const newStart = new Date(date);
+                        newStart.setHours(newEvent.start.getHours(), newEvent.start.getMinutes());
+                        
+                        const newEnd = new Date(date);
+                        newEnd.setHours(newEvent.end.getHours(), newEvent.end.getMinutes());
+
+                        setNewEvent(prev => ({ ...prev, start: newStart, end: newEnd }));
+                      }
+                    }} 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Start time</Label>
+                    <TimePicker date={newEvent.start} setDate={(date) => date && setNewEvent(prev => ({ ...prev, start: date }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End time</Label>
+                    <TimePicker date={newEvent.end} setDate={(date) => date && setNewEvent(prev => ({ ...prev, end: date }))} />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCreateEvent}
+              className="bg-violet hover:bg-violet/90"
+            >
+              Create Event
+                    </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Event Details Modal */}
+      <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
+        <DialogContent className="max-w-md bg-[#1e1e1e] text-white border border-white/10">
+          {viewEvent && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {viewEvent.summary}
+                </DialogTitle>
+                <DialogDescription>
+                  {viewEvent.all_day ? 'All Day' : `${new Date(viewEvent.start).toLocaleString()} — ${viewEvent.end ? new Date(viewEvent.end).toLocaleString() : ''}`}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 text-sm py-4">
+                {viewEvent.description && (
+                  <div>
+                    <p className="whitespace-pre-wrap">{viewEvent.description}</p>
+                  </div>
+                )}
+                {viewEvent.location && (
+                  <div>
+                    <p><strong>Location:</strong> {viewEvent.location}</p>
+          </div>
+                )}
+                {viewEvent.html_link && (
+                  <div>
+                    <a href={viewEvent.html_link} target="_blank" rel="noopener noreferrer" className="text-violet-light underline">Open in Google Calendar ↗</a>
+        </div>
+                )}
+      </div>
+              <DialogFooter className="flex items-center justify-end space-x-2">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" onClick={() => {
+                        if (viewEvent) {
+                          setNewEvent({
+                            summary: viewEvent.summary,
+                            description: viewEvent.description || '',
+                            start: new Date(viewEvent.start),
+                            end: viewEvent.end ? new Date(viewEvent.end) : new Date(viewEvent.start),
+                            all_day: viewEvent.all_day,
+                          });
+                        }
+                        setIsViewOpen(false);
+                        setIsModalOpen(true);
+                      }}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Edit event</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" onClick={() => setIsDeleteConfirmOpen(true)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Delete event</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <AlertDialogContent className="bg-dark-secondary border-slate-800 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the event
+              from your Google Calendar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteEvent} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Layout>
   );
 };
 
 export default Calendar; 
+ 
  
  

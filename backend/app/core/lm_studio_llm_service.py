@@ -2,20 +2,21 @@ import os
 import logging
 import json
 import re
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from openai import AsyncOpenAI
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 
+from .llm_base import AbstractLLMService
 
-class LMStudioLLMService:
+
+class LMStudioLLMService(AbstractLLMService):
     """LLM service for OpenAI-compatible APIs like LM Studio."""
 
-    def __init__(self, model: str = None):
-        self.api_base = os.getenv("LM_STUDIO_API_BASE")
-        # The model name is now passed in from the EnhancedLLMService.
-        # We can fall back to the old environment variable for compatibility.
+    def __init__(self, base_url: str, model: Optional[str] = None):
+        self.api_base = base_url
+        # The model name can be passed in or loaded from env vars.
         self.model_name = model or os.getenv("LM_STUDIO_MODEL_NAME")
         self.llm = None
         
@@ -65,7 +66,7 @@ class LMStudioLLMService:
 
                                 IMPORTANT: Return ONLY the JSON object without any markdown formatting, code blocks, or additional text."""
 
-    async def process_command(self, user_input: str) -> Dict[str, Any]:
+    async def process_command(self, user_input: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """Process user command via LM Studio and return structured response."""
         if self.mock_mode:
             return {"error": "LM Studio service is not configured."}

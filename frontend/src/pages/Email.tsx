@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import Layout from "@/components/layout/Layout";
-import ComposeEmailModal from "@/components/tasks/ComposeEmailModal";
+import ComposeEmailModal from "@/components/email/ComposeEmailModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -147,7 +147,7 @@ const Email = () => {
 
   const checkAuthStatus = async () => {
     try {
-      const response = await fetch('/api/v1/auth/google/status');
+      const response = await fetch('/api/v1/gmail/auth-status');
       const data = await response.json();
       setAuthStatus(data.authenticated ? 'authenticated' : 'not_authenticated');
       
@@ -616,11 +616,14 @@ const Email = () => {
 
             {/* Right Side: Update | Refresh | Compose | Filter | Switch */}
             <div className="flex items-center gap-2">
-              {/* Unread Badge */}
+              {/* Unread email count */}
               {unreadCount > 0 && (
-                <Badge variant="secondary" className="bg-violet/20 text-violet text-xs">
-                  {unreadCount}
-                </Badge>
+                <>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-sm font-bold bg-violet text-white">
+                    {unreadCount}
+                  </span>
+                  <span className="text-sm">unread emails</span>
+                </>
               )}
 
               {/* Update Status */}
@@ -641,15 +644,17 @@ const Email = () => {
                 )}
               </div>
 
-              {/* Refresh Button */}
+              {/* Refresh Button at end */}
               <Button 
                 variant="outline" 
                 size="sm" 
                 onClick={manualRefresh}
                 disabled={loading || backgroundRefreshing}
                 title="Refresh emails (Ctrl+R)"
+                className="flex items-center gap-2"
               >
                 <RefreshCw className={`h-4 w-4 ${backgroundRefreshing ? 'animate-spin' : ''}`} />
+                Refresh
               </Button>
 
               {/* Compose Button */}
@@ -697,17 +702,7 @@ const Email = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Switch Button */}
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleSwitchAccount}
-                className="text-orange-400 border-orange-400/50 hover:bg-orange-400/10"
-                title="Switch Account"
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                <span className="hidden lg:inline">Switch</span>
-              </Button>
+              {/* Removed Switch button as per new design */}
             </div>
           </div>
         </div>

@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
+import logging
 
 from ..models.mission_control import (
     MissionItem, MissionSystemHealth, MissionDashboardData,
@@ -10,7 +11,9 @@ from ..models.mission_control import (
     ExecuteMissionActionRequest, ExecuteMissionActionResponse,
     MissionControlAnalytics, CreateMissionItemRequest
 )
-from ..core.enhanced_llm_service import EnhancedLLMService
+from ..core.llm_factory import get_llm_service
+from ..core.llm_base import AbstractLLMService
+
 
 class MissionControlService:
     """
@@ -18,11 +21,14 @@ class MissionControlService:
     Provides intelligent insights into system health and actionable improvement suggestions.
     """
     
-    def __init__(self, llm_service: EnhancedLLMService):
-        self.llm_service = llm_service
+    def __init__(self):
+        self.llm_service: Optional[AbstractLLMService] = get_llm_service()
         self.mission_items: Dict[str, MissionItem] = {}
         self.analytics_data = {}
         
+        if not self.llm_service:
+            logging.warning("MissionControlService: LLM could not be initialized. AI-driven insights will be disabled.")
+
         # Initialize with some sample mission items for demonstration
         self._initialize_sample_data()
     
@@ -193,6 +199,10 @@ class MissionControlService:
             Please provide productivity insights and recommendations in JSON format.
             """
             
+            if not self.llm_service:
+                logging.warning("Cannot generate productivity insights: LLM service is unavailable.")
+                return {} # Return empty dict if LLM is not available
+
             # Mock LLM response for now (replace with actual LLM call in production)
             insights = {
                 "productivity_score": 78,

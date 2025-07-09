@@ -1,20 +1,23 @@
 """
-Gemma LLM Service - Google AI API Integration with Service Account
+Google LLM Service - Google AI API Integration
 Handles command routing and response generation
 """
 import os
 import logging
 import json
 import re
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from google.oauth2 import service_account
 import google.generativeai as genai
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage, SystemMessage
 
-class GemmaLLMService:
-    def __init__(self):
-        self.credentials_path = os.getenv("GEMINI_CREDENTIALS_PATH", "credentials/gemini_credentials.json")
+from .llm_base import AbstractLLMService
+
+class GoogleLLMService(AbstractLLMService):
+    def __init__(self, credentials_path: str, model: str = "gemini-1.5-flash"):
+        self.credentials_path = credentials_path
+        self.model_name = model
         self.llm = None
         self.genai_model = None
         
@@ -34,11 +37,11 @@ class GemmaLLMService:
                 genai.configure(credentials=credentials)
                 
                 # Create direct model for testing
-                self.genai_model = genai.GenerativeModel('gemini-1.5-flash')
+                self.genai_model = genai.GenerativeModel(self.model_name)
                 
                 # Initialize LangChain integration
                 self.llm = ChatGoogleGenerativeAI(
-                    model="gemini-1.5-flash",  # Using the flash model for faster responses
+                    model=self.model_name,
                     credentials=credentials,
                     temperature=0.7,
                     max_output_tokens=500
@@ -185,7 +188,7 @@ class GemmaLLMService:
                 }
         
             return {
-                "model": "gemini-1.5-flash",
+                "model": self.model_name,
                 "tier": "STANDARD",
                 "authentication": "Service Account",
                 "status": "Active - Real AI responses enabled"

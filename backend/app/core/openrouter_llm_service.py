@@ -1,49 +1,36 @@
 """
-Qwen3 32B LLM Service - Enhanced Performance Option
-Upgrade from Gemma 3n when higher intelligence is needed
-Cost: ~$0.10/M input, $0.30/M output (~RM50-80 total)
+OpenRouter LLM Service - Access to multiple models like Qwen, Llama, etc.
 """
 import os
 import logging
 import json
 from typing import Dict, Any, Optional
-from openai import AsyncOpenAI  # For OpenRouter integration
+from openai import AsyncOpenAI
 
-class Qwen32BLLMService:
-    def __init__(self):
-        self.api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("GROQ_API_KEY")
-        self.provider = os.getenv("LLM_PROVIDER", "openrouter")  # openrouter or groq
+from .llm_base import AbstractLLMService
+
+class OpenRouterLLMService(AbstractLLMService):
+    def __init__(self, api_key: str, model: str):
+        self.api_key = api_key
         self.client = None
-        self.model_name = "qwen/qwen-2.5-72b-instruct"  # Qwen3 32B equivalent
+        self.model_name = model
         
         if not self.api_key or self.api_key.startswith("placeholder_"):
-            logging.warning("Qwen3 32B API key not set - falling back to mock mode")
+            logging.warning("OpenRouter API key not set - falling back to mock mode")
             self.mock_mode = True
         else:
             try:
-                if self.provider == "openrouter":
-                    # OpenRouter integration
-                    self.client = AsyncOpenAI(
-                        base_url="https://openrouter.ai/api/v1",
-                        api_key=self.api_key
-                    )
-                    self.model_name = "qwen/qwen-2.5-72b-instruct"
-                    logging.info("✅ Qwen3 32B via OpenRouter initialized")
-                elif self.provider == "groq":
-                    # Groq integration for faster inference
-                    self.client = AsyncOpenAI(
-                        base_url="https://api.groq.com/openai/v1",
-                        api_key=self.api_key
-                    )
-                    self.model_name = "llama-3.1-70b-versatile"  # Alternative on Groq
-                    logging.info("✅ Qwen3 32B alternative via Groq initialized")
-                
+                self.client = AsyncOpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=self.api_key
+                )
                 self.mock_mode = False
+                logging.info(f"✅ OpenRouter LLM initialized with model: {self.model_name}")
             except Exception as e:
-                logging.error(f"Failed to initialize Qwen3 32B: {e}")
+                logging.error(f"Failed to initialize OpenRouter LLM: {e}")
                 self.mock_mode = True
         
-        self.enhanced_system_prompt = """You are Minus, an advanced voice-controlled AI assistant for professional accessibility, powered by Qwen3 32B for enhanced reasoning and understanding.
+        self.enhanced_system_prompt = """You are Minus, an advanced voice-controlled AI assistant for professional accessibility, powered by advanced models for enhanced reasoning and understanding.
 
 ENHANCED CAPABILITIES:
 - Gmail: Advanced email management (read, compose, search, organize, filters, templates)
@@ -107,7 +94,7 @@ Assistant: {
 Be precise, context-aware, and always provide reasoning for accessibility users."""
 
     async def process_command(self, user_input: str, context: Optional[Dict] = None) -> Dict[str, Any]:
-        """Enhanced command processing with Qwen3 32B reasoning"""
+        """Enhanced command processing with advanced model reasoning"""
         try:
             if self.mock_mode:
                 return self._enhanced_mock_parsing(user_input)
@@ -118,7 +105,7 @@ Be precise, context-aware, and always provide reasoning for accessibility users.
                 {"role": "user", "content": f"Context: {context}\n\nCommand: {user_input}"}
             ]
             
-            # Get response from Qwen3 32B
+            # Get response from LLM
             response = await self.client.chat.completions.create(
                 model=self.model_name,
                 messages=messages,
@@ -135,15 +122,15 @@ Be precise, context-aware, and always provide reasoning for accessibility users.
                 if not all(key in command_data for key in ["platform", "action", "params"]):
                     raise ValueError("Missing required fields in LLM response")
                 
-                logging.info(f"Qwen3 32B parsed: {command_data['platform']}.{command_data['action']} (confidence: {command_data.get('params', {}).get('confidence', 'N/A')})")
+                logging.info(f"LLM parsed: {command_data['platform']}.{command_data['action']} (confidence: {command_data.get('params', {}).get('confidence', 'N/A')})")
                 return command_data
                 
             except json.JSONDecodeError as e:
-                logging.error(f"Qwen3 32B JSON parse error: {e}")
+                logging.error(f"LLM JSON parse error: {e}")
                 return self._fallback_response(user_input, "JSON parsing failed")
                 
         except Exception as e:
-            logging.error(f"Qwen3 32B processing error: {e}")
+            logging.error(f"LLM processing error: {e}")
             return self._fallback_response(user_input, str(e))
 
     def _enhanced_mock_parsing(self, user_input: str) -> Dict[str, Any]:
@@ -248,51 +235,45 @@ Be precise, context-aware, and always provide reasoning for accessibility users.
             "platform": "error",
             "action": "processing_failed",
             "params": {
-                "error_message": f"Enhanced LLM processing failed: {error}",
                 "original_input": user_input,
-                "confidence": 0.0
+                "error_message": error
             },
-            "reasoning": "LLM processing encountered an error",
-            "suggestions": ["try_simpler_command", "rephrase_request"]
+            "reasoning": "The command could not be processed due to a system error.",
+            "suggestions": ["try_rephrasing", "check_system_status"]
         }
 
     def get_usage_stats(self) -> Dict[str, Any]:
-        """Get enhanced LLM usage statistics"""
+        """Get current API usage for monitoring"""
         if self.mock_mode:
             return {
-                "model": "qwen3_32b_mock",
-                "provider": "mock",
-                "tier": "TESTING", 
-                "status": "No API key configured - using enhanced mock responses",
-                "features": ["enhanced_reasoning", "context_awareness", "multi_step_tasks"]
+                "provider": "OpenRouter (mock)",
+                "model": self.model_name,
+                "status": "Not configured - API key is missing"
             }
         
         return {
+            "provider": "OpenRouter",
             "model": self.model_name,
-            "provider": self.provider,
-            "tier": "PREMIUM",
-            "cost_estimate": "$0.10/M input, $0.30/M output",
-            "features": ["enhanced_reasoning", "context_awareness", "multi_step_tasks", "json_mode"],
-            "status": "Active - Enhanced AI capabilities available"
+            "status": "Active"
         }
 
     def get_cost_estimate(self, input_tokens: int, output_tokens: int) -> Dict[str, Any]:
-        """Calculate cost estimate for Qwen3 32B usage"""
-        if self.mock_mode:
-            return {"cost": 0.0, "currency": "USD", "note": "Mock mode - no actual costs"}
-        
-        input_cost = (input_tokens / 1_000_000) * 0.10  # $0.10 per M tokens
-        output_cost = (output_tokens / 1_000_000) * 0.30  # $0.30 per M tokens
+        """
+        Provides a rough cost estimate. Note: Prices from OpenRouter can vary.
+        This is a simplified placeholder.
+        """
+        cost_per_input_million = 0.2  # Example price
+        cost_per_output_million = 0.5 # Example price
+
+        input_cost = (input_tokens / 1_000_000) * cost_per_input_million
+        output_cost = (output_tokens / 1_000_000) * cost_per_output_million
         total_cost = input_cost + output_cost
-        
+
         return {
+            "estimated_cost_usd": round(total_cost, 6),
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
-            "input_cost_usd": round(input_cost, 4),
-            "output_cost_usd": round(output_cost, 4),
-            "total_cost_usd": round(total_cost, 4),
-            "estimated_rm": round(total_cost * 4.5, 2),  # Rough USD to RM conversion
-            "provider": self.provider
+            "notes": "This is a rough estimate. Check OpenRouter for exact pricing."
         }
  
  

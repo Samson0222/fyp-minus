@@ -10,7 +10,7 @@ from typing import Optional
 import os
 import json
 
-from app.core.enhanced_llm_service import EnhancedLLMService
+from app.core.llm_factory import get_llm_service
 
 # Note: FastRTC may not be available yet, so we'll simulate the interface
 try:
@@ -57,10 +57,13 @@ class EnhancedVoiceAssistant(Stream):
         """Lazy initialization of services"""
         if self.llm_service is None:
             try:
-                self.llm_service = EnhancedLLMService()
-                logging.info("✅ LLM service initialized via manager")
+                self.llm_service = get_llm_service()
+                if self.llm_service:
+                    logging.info("✅ LLM service initialized via factory")
+                else:
+                    logging.error("❌ LLM service initialization via factory returned None")
             except Exception as e:
-                logging.error(f"❌ Failed to initialize LLM service via manager: {e}")
+                logging.error(f"❌ Failed to initialize LLM service via factory: {e}")
                 self.llm_service = None
         
     def detect_wake_word(self, transcription: str) -> bool:

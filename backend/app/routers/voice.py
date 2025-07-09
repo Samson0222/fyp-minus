@@ -12,14 +12,16 @@ import time
 
 # Import voice assistant and LLM service
 from voice_server import get_voice_assistant
-from app.core.enhanced_llm_service import EnhancedLLMService
+from app.core.llm_factory import get_llm_service
+from app.core.llm_base import AbstractLLMService
 
 # This is the dependency provider. It will be initialized by main.py
-def get_llm_service() -> EnhancedLLMService:
-    # This will be replaced by the actual dependency injection in main.py
-    # For now, it allows the router to load without circular imports.
-    # The real instance will be provided by the FastAPI app.
-    raise NotImplementedError("This should be overridden by the application startup.")
+def get_llm_service_dependency() -> AbstractLLMService:
+    # This function is a placeholder for FastAPI's dependency injection.
+    # The actual get_llm_service() factory will be called by FastAPI's dependency
+    # management system, and an instance will be injected into the routes.
+    # We raise an error here because this function itself should not be called directly.
+    raise NotImplementedError("This should be overridden by the application startup's dependency management.")
 
 router = APIRouter()
 
@@ -69,7 +71,7 @@ manager = ConnectionManager()
 @router.post("/text-command", response_model=DualInputResponse)
 async def process_text_command(
     command: TextCommand,
-    llm_service: EnhancedLLMService = Depends(get_llm_service)
+    llm_service: AbstractLLMService = Depends(get_llm_service)
 ):
     """Process text command (bypasses voice pipeline)"""
     try:
@@ -169,7 +171,7 @@ async def websocket_state_updates(websocket: WebSocket):
         manager.disconnect(websocket)
 
 @router.get("/health")
-async def voice_health_check(llm_service: EnhancedLLMService = Depends(get_llm_service)):
+async def voice_health_check(llm_service: AbstractLLMService = Depends(get_llm_service)):
     """Health check for voice services"""
     try:
         # Test LLM service
@@ -193,7 +195,7 @@ async def voice_health_check(llm_service: EnhancedLLMService = Depends(get_llm_s
         }
 
 @router.post("/test-llm")
-async def test_llm_integration(llm_service: EnhancedLLMService = Depends(get_llm_service)):
+async def test_llm_integration(llm_service: AbstractLLMService = Depends(get_llm_service)):
     """Test endpoint for LLM integration"""
     try:
         test_command = "Read my unread emails"

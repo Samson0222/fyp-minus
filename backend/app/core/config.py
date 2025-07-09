@@ -16,5 +16,6 @@ GOOGLE_SCOPES = [
 
     # Docs & Drive Scopes
     "https://www.googleapis.com/auth/documents",
-    "https://www.googleapis.com/auth/drive" # Use full drive scope for write access (e.g., trash)
+    "https://www.googleapis.com/auth/drive",          # Full Drive scope for write operations
+    "https://www.googleapis.com/auth/drive.readonly"  # Included to prevent scope mismatch during OAuth
 ] 

@@ -16,7 +16,8 @@ from app.models.docs import (
     DocumentListResponse, SyncDocumentsRequest, SyncDocumentsResponse,
     VoiceDocsCommand, DocumentSearchResult
 )
-from app.core.enhanced_llm_service import EnhancedLLMService
+from app.core.llm_factory import get_llm_service
+from app.core.llm_base import AbstractLLMService
 
 # Google Docs API scopes
 SCOPES = [
@@ -32,7 +33,12 @@ class DocsService:
         self.credentials = self._get_credentials()
         self.service = build('docs', 'v1', credentials=self.credentials)
         self.drive_service = build('drive', 'v3', credentials=self.credentials)
-        self.llm_service = EnhancedLLMService()
+        
+        # Initialize the LLM service using the factory
+        self.llm_service: Optional[AbstractLLMService] = get_llm_service()
+        if not self.llm_service:
+            logging.error("DocsService: LLM could not be initialized. AI features will be disabled.")
+            # We don't raise an exception here to allow non-AI doc features to work.
 
     def _get_credentials(self) -> Credentials:
         """Authenticates and returns the Google API credentials, raising HTTPException on failure."""
@@ -81,6 +87,9 @@ class DocsService:
         
     async def _parse_command_with_llm(self, command: str) -> Dict[str, Any]:
         """Parse natural language command using LLM to extract intent and parameters"""
+        if not self.llm_service:
+            return {"action": "unknown", "error": "LLM service is not available."}
+
         docs_prompt = f"""
         Parse this Google Docs command and extract the action and parameters.
 
@@ -237,6 +246,10 @@ class DocsService:
                 )
             
             prompt = f"Given the text '{target_text}', revise it to '{modification}'. Only return the revised text."
+            
+            if not self.llm_service:
+                 return CreateSuggestionResponse(success=False, message="AI service is not available.", error="LLM not initialized.")
+
             llm_result = await self.llm_service.process_command(prompt)
             suggested_text = llm_result.get("response", "").strip()
 

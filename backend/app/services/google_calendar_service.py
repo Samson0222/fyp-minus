@@ -7,7 +7,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build, Resource
 from googleapiclient.errors import HttpError
 
-from app.models.task import Task
+
 from app.core.config import GOOGLE_SCOPES
 
 # Configure logging
@@ -62,73 +62,40 @@ class GoogleCalendarService:
             logger.error(f"Failed to build Google Calendar service for user {user_id}: {e}")
             return None
 
-    def _task_to_google_event(self, task: Task) -> Dict[str, Any]:
-        """Converts an application Task object to a Google Calendar event dictionary."""
-        # This is a placeholder implementation.
-        # We will need to map our Task model fields to Google Calendar event fields.
-        event = {
-            'summary': task.title,
-            'description': task.description or '',
-            'start': {
-                'dateTime': task.start_time.isoformat(),
-                'timeZone': 'UTC', # Or get user's timezone
-            },
-            'end': {
-                'dateTime': task.end_time.isoformat(),
-                'timeZone': 'UTC', # Or get user's timezone
-            },
-            # 'reminders': {
-            #     'useDefault': False,
-            #     'overrides': [
-            #         {'method': 'email', 'minutes': 24 * 60},
-            #         {'method': 'popup', 'minutes': 10},
-            #     ],
-            # },
-        }
-        return event
-
-    def create_event(self, user_id: str, task: Task) -> Optional[Dict[str, Any]]:
-        """Creates a new event on Google Calendar from a task."""
-        logger.info(f"Attempting to create Google Calendar event for task {task.id} for user {user_id}")
+    def create_event_from_dict(self, user_id: str, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Creates a new event on Google Calendar from event data dictionary."""
+        logger.info(f"Attempting to create Google Calendar event for user {user_id}")
         service = self._get_service(user_id)
         if not service:
             logger.error("Cannot create event: Google Calendar service not available.")
             return None
-
-        event_body = self._task_to_google_event(task)
         
         try:
-            created_event = service.events().insert(calendarId='primary', body=event_body).execute()
-            logger.info(f"Successfully created Google event {created_event['id']} for task {task.id}")
+            created_event = service.events().insert(calendarId='primary', body=event_data).execute()
+            logger.info(f"Successfully created Google event {created_event['id']}")
             return created_event
         except HttpError as error:
-            logger.error(f"An error occurred creating Google event for task {task.id}: {error}")
+            logger.error(f"An error occurred creating Google event: {error}")
             return None
 
-    def update_event(self, user_id: str, task: Task) -> Optional[Dict[str, Any]]:
+    def update_event_from_dict(self, user_id: str, event_id: str, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Updates an existing event on Google Calendar."""
-        if not task.google_event_id:
-            logger.warning(f"Cannot update Google event: google_event_id is missing for task {task.id}")
-            return None
-
-        logger.info(f"Attempting to update Google Calendar event {task.google_event_id} for user {user_id}")
+        logger.info(f"Attempting to update Google Calendar event {event_id} for user {user_id}")
         service = self._get_service(user_id)
         if not service:
             logger.error("Cannot update event: Google Calendar service not available.")
             return None
-        
-        event_body = self._task_to_google_event(task)
 
         try:
             updated_event = service.events().update(
                 calendarId='primary', 
-                eventId=task.google_event_id, 
-                body=event_body
+                eventId=event_id, 
+                body=event_data
             ).execute()
-            logger.info(f"Successfully updated Google event {updated_event['id']} for task {task.id}")
+            logger.info(f"Successfully updated Google event {updated_event['id']}")
             return updated_event
         except HttpError as error:
-            logger.error(f"An error occurred updating Google event {task.google_event_id}: {error}")
+            logger.error(f"An error occurred updating Google event {event_id}: {error}")
             return None
 
     def delete_event(self, user_id: str, google_event_id: str) -> bool:

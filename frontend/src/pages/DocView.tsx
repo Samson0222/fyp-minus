@@ -149,9 +149,7 @@ const DocView: React.FC = () => {
     <Layout showChatSidebar={false}>
       <div className="flex h-full bg-gradient-main">
         {/* Main Content Area */}
-        <div className={`flex-1 flex flex-col transition-all duration-300 ${
-          isSidebarCollapsed ? 'mr-16' : 'mr-80'
-        }`}>
+        <div className="flex-1 flex flex-col">
           {/* Header */}
           <div className="flex-shrink-0 bg-dark-secondary/30 border-b border-white/10 px-6 py-4">
             <div className="flex items-center justify-between">

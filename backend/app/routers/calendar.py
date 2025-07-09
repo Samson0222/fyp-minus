@@ -3,9 +3,10 @@ from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 import logging
+import re
 
 from app.services.google_calendar_service import GoogleCalendarService
-from app.services.sync_service import SyncService
+from app.services.calendar_service import CalendarService
 from app.core.database import get_database
 
 # Dependency to get current user (simplified demo)
@@ -22,8 +23,9 @@ router = APIRouter(prefix="/api/v1/calendar", tags=["calendar"])
 # -----------------------
 class CreateEventRequest(BaseModel):
     summary: str
-    start: datetime  # ISO 8601
-    end: datetime    # ISO 8601
+    start: str
+    end: Optional[str] = None
+    all_day: bool = False
     timezone: Optional[str] = "UTC"
     attendees: Optional[List[str]] = []
     description: Optional[str] = ""
@@ -48,6 +50,10 @@ class GoogleCalendarEvent(BaseModel):
     status: str = "confirmed"
     source: str = "google_calendar"
 
+class VoiceCommandRequest(BaseModel):
+    command: str
+    context: Optional[dict] = None
+
 
 # -----------------------
 # Endpoints
@@ -55,8 +61,31 @@ class GoogleCalendarEvent(BaseModel):
 @router.get("/today")
 async def get_today_schedule(user = Depends(get_current_user)):
     """Return today events in voice-friendly format."""
-    result = await calendar_service.get_today_schedule_voice(user["user_id"])
-    return result
+    try:
+        gcal_service = GoogleCalendarService()
+        service = gcal_service._get_service(user["user_id"])
+        if not service:
+            raise HTTPException(status_code=401, detail="User not authenticated with Google Calendar.")
+        
+        # Get today's events
+        now = datetime.now(timezone.utc)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        events_result = service.events().list(
+            calendarId='primary',
+            timeMin=start_of_day.isoformat(),
+            timeMax=end_of_day.isoformat(),
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        
+        events = events_result.get('items', [])
+        return {"events": events, "count": len(events)}
+        
+    except Exception as e:
+        logger.error(f"Failed to get today's schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/create-event")
@@ -70,10 +99,20 @@ async def create_event(req: CreateEventRequest, user = Depends(get_current_user)
         event_body = {
             "summary": req.summary,
             "description": req.description,
-            "start": {"dateTime": req.start.isoformat(), "timeZone": req.timezone},
-            "end": {"dateTime": req.end.isoformat(), "timeZone": req.timezone},
             "attendees": [{"email": email} for email in req.attendees],
         }
+
+        if req.all_day:
+            event_body["start"] = {"date": req.start}
+            # For all-day events, the end date is exclusive. If no end is provided, it's a single-day event.
+            # Google Calendar UI often sets the end date to the next day.
+            event_body["end"] = {"date": req.end if req.end else req.start}
+        else:
+            if not req.end:
+                raise HTTPException(status_code=400, detail="End time is required for timed events.")
+            event_body["start"] = {"dateTime": req.start, "timeZone": req.timezone}
+            event_body["end"] = {"dateTime": req.end, "timeZone": req.timezone}
+
 
         created_event = service.events().insert(calendarId='primary', body=event_body).execute()
         return created_event
@@ -109,35 +148,17 @@ async def check_availability(req: AvailabilityRequest, user = Depends(get_curren
 @router.get("/auth-status")
 async def calendar_auth_status(user = Depends(get_current_user)):
     """Simple endpoint to verify if Calendar API is authenticated for the user."""
-    authenticated = await calendar_service.authenticate(user["user_id"])
-    return {"authenticated": authenticated}
-
-
-@router.post("/sync", status_code=200)
-async def sync_google_calendar(
-    user = Depends(get_current_user), 
-    db = Depends(get_database)
-):
-    """
-    Manually trigger a sync from Google Calendar to the local database.
-    """
     try:
-        user_id = user["user_id"]
-        sync_service = SyncService(db=db)
-        sync_result = await sync_service.sync_from_google(user_id)
-        
-        logger.info(f"Manual sync completed for user {user_id}. Results: {sync_result}")
-        return {
-            "status": "success",
-            "message": "Synchronization with Google Calendar completed.",
-            "details": sync_result
-        }
-    except ConnectionError as e:
-        logger.error(f"Sync failed for user {user['user_id']}: {e}")
-        raise HTTPException(status_code=503, detail="Could not connect to Google Calendar.")
+        gcal_service = GoogleCalendarService()
+        service = gcal_service._get_service(user["user_id"])
+        authenticated = service is not None
+        return {"authenticated": authenticated}
     except Exception as e:
-        logger.error(f"An unexpected error occurred during sync for user {user['user_id']}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during synchronization.")
+        logger.error(f"Failed to check calendar auth status: {e}")
+        return {"authenticated": False}
+
+
+
 
 
 @router.get("/events", response_model=List[GoogleCalendarEvent])
@@ -248,3 +269,121 @@ async def get_google_calendar_events(
         ) 
  
  
+@router.post("/voice-command")
+async def process_calendar_voice_command(
+    request: VoiceCommandRequest,
+    user = Depends(get_current_user)
+):
+    """Process voice commands for calendar operations."""
+    try:
+        user_id = user["user_id"]
+        command = request.command.lower()
+        
+        calendar_service = CalendarService()
+        
+        # Parse the voice command to extract intent and parameters
+        if "today" in command or "schedule" in command:
+            command_data = {
+                "action": "check_today",
+                "params": {},
+                "user_id": user_id
+            }
+        elif "create" in command or "schedule" in command or "remind" in command:
+            # Extract event details from the command
+            params = _parse_create_event_command(command)
+            command_data = {
+                "action": "create_event", 
+                "params": params,
+                "user_id": user_id
+            }
+        elif "upcoming" in command or "next" in command:
+            # Extract number of days if mentioned
+            days_match = re.search(r'(\d+)\s*days?', command)
+            days = int(days_match.group(1)) if days_match else 7
+            command_data = {
+                "action": "get_upcoming",
+                "params": {"days": days},
+                "user_id": user_id
+            }
+        else:
+            # Default to general calendar inquiry
+            command_data = {
+                "action": "check_today",
+                "params": {},
+                "user_id": user_id
+            }
+        
+        # Process the command
+        result = await calendar_service.process_voice_command(command_data)
+        
+        return {
+            "command_type": "calendar",
+            "response": result.get("response", "Command processed."),
+            "data": result,
+            "success": result.get("success", True)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing calendar voice command: {e}")
+        return {
+            "command_type": "error",
+            "response": f"Sorry, I encountered an error: {str(e)}",
+            "success": False
+        }
+
+
+def _parse_create_event_command(command: str) -> dict:
+    """Parse a voice command to extract event creation parameters."""
+    params = {}
+    
+    # Extract title - common patterns
+    title_patterns = [
+        r'(?:create|schedule|add|remind me to)\s+(?:a\s+)?(?:task|event|meeting|appointment)?\s*(?:to\s+|for\s+)?(.+?)(?:\s+(?:at|on|for|tomorrow|today|next week))',
+        r'(?:create|schedule|add|remind me to)\s+(.+?)(?:\s+(?:at|on|for|tomorrow|today|next week))',
+        r'(?:create|schedule|add|remind me to)\s+(.+)'
+    ]
+    
+    for pattern in title_patterns:
+        match = re.search(pattern, command, re.IGNORECASE)
+        if match:
+            params['title'] = match.group(1).strip()
+            break
+    
+    if not params.get('title'):
+        params['title'] = "New Event"
+    
+    # Extract time information
+    now = datetime.now(timezone.utc)
+    
+    if "tomorrow" in command:
+        start_time = now.replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    elif "today" in command:
+        start_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
+        if start_time < now:
+            start_time = now + timedelta(hours=1)
+    elif "next week" in command:
+        start_time = now.replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=7)
+    else:
+        # Try to extract specific time
+        time_match = re.search(r'(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)', command, re.IGNORECASE)
+        if time_match:
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2)) if time_match.group(2) else 0
+            ampm = time_match.group(3).lower()
+            
+            if ampm == 'pm' and hour != 12:
+                hour += 12
+            elif ampm == 'am' and hour == 12:
+                hour = 0
+                
+            start_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if start_time < now:
+                start_time += timedelta(days=1)
+        else:
+            # Default to next hour
+            start_time = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    
+    params['start_time'] = start_time.isoformat()
+    params['end_time'] = (start_time + timedelta(hours=1)).isoformat()
+    
+    return params

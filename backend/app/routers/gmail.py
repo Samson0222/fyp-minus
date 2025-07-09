@@ -35,6 +35,20 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+# ----------------------------
+# Authentication Status Check
+# ----------------------------
+@router.get("/auth-status", summary="Check Gmail Auth Status")
+async def gmail_auth_status(user = Depends(get_current_user)):
+    """Quickly verify if the current user has a valid Gmail token by attempting to instantiate GmailService."""
+    try:
+        GmailService(user["user_id"])
+        return {"authenticated": True}
+    except Exception as e:
+        # Log at debug level to avoid noisy logs for expected unauthenticated cases
+        logger.debug(f"Gmail auth status check failed for user {user['user_id']}: {e}")
+        return {"authenticated": False}
+
 @router.get("/emails", response_model=EmailListResponse)
 async def get_emails(
     count: int = 20,
