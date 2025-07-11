@@ -80,17 +80,6 @@ const Index = () => {
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-white mb-4">Quick Actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Link to="/tasks">
-              <div className="bg-dark-secondary p-6 rounded-lg border border-white/5 hover:border-violet-light/50 transition-all cursor-pointer group">
-                <div className="flex items-center justify-between mb-3">
-                  <CheckSquare className="h-6 w-6 text-violet-light group-hover:text-violet transition-colors" />
-                  <Plus className="h-4 w-4 text-white/40 group-hover:text-white/70 transition-colors" />
-                </div>
-                <h3 className="font-semibold text-white mb-1">Manage Tasks</h3>
-                <p className="text-white/60 text-sm">Create and organize your tasks</p>
-              </div>
-            </Link>
-
             <Link to="/emails">
               <div className="bg-dark-secondary p-6 rounded-lg border border-white/5 hover:border-violet-light/50 transition-all cursor-pointer group">
                 <div className="flex items-center justify-between mb-3">

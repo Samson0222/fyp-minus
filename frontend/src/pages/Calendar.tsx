@@ -292,6 +292,16 @@ const Calendar: React.FC = () => {
     }
   };
 
+  const handleDateChange = (date: Date | null, type: 'start' | 'end') => {
+    if (date) {
+      const newDate = new Date(date);
+      if (type === 'start') {
+        setNewEvent(prev => ({ ...prev, start: newDate }));
+      } else {
+        setNewEvent(prev => ({ ...prev, end: newDate }));
+      }
+    }
+  };
 
   const handleCreateEvent = async () => {
     try {
@@ -414,173 +424,177 @@ const Calendar: React.FC = () => {
 
   return (
     <Layout>
-      <div className="p-6 flex flex-col space-y-6 h-full">
-        <div className="flex-shrink-0 flex items-center justify-between">
-          <div className="flex flex-wrap items-center gap-3 text-sm text-white">
-            {calendarState.authStatus.authenticated ? (
-              <>
-                {/* Connected icon */}
-                <CheckCircle className="w-4 h-4 text-green-400" />
+      <div className={`h-full flex flex-col transition-all duration-300 ${isPanelVisible ? 'md:grid-cols-[1fr_350px]' : ''}`}>
+        <div className="flex-1 flex flex-col bg-dark-primary text-white overflow-hidden">
+          {/* Main header */}
+          <header className="flex items-center justify-between p-4 border-b border-white/10">
+            <div className="flex items-center space-x-4">
+              <CalendarIcon className="w-6 h-6 text-violet-300" />
+              <h1 className="text-xl font-bold">My Schedule</h1>
+              <Badge variant="secondary">{todayEventCount} events today</Badge>
+            </div>
+            <div className="flex items-center space-x-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={refreshCalendarData} disabled={calendarState.loading}>
+                      <RefreshCw className={`w-5 h-5 ${calendarState.loading ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Refresh from Google</p>
+                  </TooltipContent>
+                </Tooltip>
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={() => navigate('/settings')}>
+                      <Settings className="w-5 h-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Calendar Settings</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
 
-                {/* Total events badge */}
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-violet/30 text-violet-light">
-                  {calendarState.events.length}
-                </span>
-                <span>events</span>
-
-                {/* Today count */}
-                <span className="text-white/70">•</span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-sm font-bold bg-violet text-white">
-                  {todayEventCount}
-                </span>
-                <span className="text-sm">event{todayEventCount !== 1 ? 's' : ''} today</span>
-
-                {/* Last synced */}
-                {formattedLastRefresh && (
-                  <>
-                    <span className="text-white/70">•</span>
-                    <span className="text-white/70 text-xs">Last synced: {formattedLastRefresh}</span>
-                  </>
-                )}
-              </>
-            ) : (
-              <span>Not connected</span>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <Button
-              onClick={handleNewEventClick}
-              variant="default"
-              size="sm"
-              className="bg-violet hover:bg-violet/90 text-white"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              New Event
-            </Button>
-            {calendarState.authStatus.authenticated && (
-              <Button onClick={refreshCalendarData} variant="outline" size="sm" disabled={calendarState.loading} className="bg-dark-tertiary border-white/10 text-white hover:bg-dark-secondary">
-                <RefreshCw className={`w-4 h-4 mr-2 ${calendarState.loading ? 'animate-spin' : ''}`} />
-                Refresh
+              <Button onClick={handleNewEventClick} className="bg-violet hover:bg-violet-light">
+                <Plus className="w-4 h-4 mr-2" />
+                New Event
               </Button>
-            )}
+            </div>
+          </header>
+
+          {/* Main content */}
+          <div className="flex-grow flex flex-col min-h-0">
+            <Card className="bg-dark-secondary border-white/10 flex-grow">
+                <CardContent className="p-6 h-full">
+                <div className="h-full">
+                      <FullCalendar
+                        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                    headerToolbar={{
+                      left: 'prev,next today',
+                      center: 'title',
+                      right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                    }}
+                        initialView="dayGridMonth"
+                        events={memoizedEvents}
+                    eventClick={handleEventClick}
+                        dateClick={handleDateClick}
+                        editable={true}
+                        selectable={true}
+                        selectMirror={true}
+                        dayMaxEvents={true}
+                        weekends={true}
+                        height="100%"
+                        fixedWeekCount={false}
+                        eventContent={renderEventContent}
+                    eventTimeFormat={{ hour: 'numeric', minute: '2-digit', hour12: true }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
 
-        <div className="flex-grow flex flex-col min-h-0">
-          <Card className="bg-dark-secondary border-white/10 flex-grow">
-              <CardContent className="p-6 h-full">
-              <div className="h-full">
-                    <FullCalendar
-                      plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-                  headerToolbar={{
-                    left: 'prev,next today',
-                    center: 'title',
-                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
-                  }}
-                      initialView="dayGridMonth"
-                      events={memoizedEvents}
-                  eventClick={handleEventClick}
-                      dateClick={handleDateClick}
-                      editable={true}
-                      selectable={true}
-                      selectMirror={true}
-                      dayMaxEvents={true}
-                      weekends={true}
-                      height="100%"
-                      fixedWeekCount={false}
-                      eventContent={renderEventContent}
-                  eventTimeFormat={{ hour: 'numeric', minute: '2-digit', hour12: true }}
-                />
+        {/* Sidebar for settings/info */}
+        <div className="hidden md:block w-full md:w-auto bg-dark-secondary border-l border-white/10">
+          <div className="p-6">
+            <h2 className="text-lg font-bold mb-4">Calendar Settings</h2>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="calendar-source">Calendar Source</Label>
+                <Input id="calendar-source" value="Google Calendar" disabled />
               </div>
-            </CardContent>
-          </Card>
+              <div>
+                <Label htmlFor="last-sync">Last Sync</Label>
+                <Input id="last-sync" value={formattedLastRefresh} disabled />
+              </div>
+              <div>
+                <Label htmlFor="auth-status">Authentication Status</Label>
+                <Input id="auth-status" value={calendarState.authStatus.message} disabled />
+              </div>
+              <div>
+                <Label htmlFor="total-events">Total Events</Label>
+                <Input id="total-events" value={calendarState.events.length} disabled />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Create Event Modal */}
+      {/* Create/Edit Event Modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-md bg-[#1e1e1e] text-white border border-white/10">
+        <DialogContent className="bg-dark-secondary border-violet-light/30 text-white">
           <DialogHeader>
             <DialogTitle>Create New Event</DialogTitle>
+            <DialogDescription>
+              Add a new event to your Google Calendar. This will be synced automatically.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="summary">Event Title</Label>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="summary" className="text-right">
+                Title
+              </Label>
               <Input
                 id="summary"
                 value={newEvent.summary}
-                onChange={(e) => setNewEvent(prev => ({ ...prev, summary: e.target.value }))}
-                placeholder="Enter event title"
-                className="bg-dark-tertiary border-slate-700 text-white placeholder:text-gray-400"
+                onChange={(e) => setNewEvent({ ...newEvent, summary: e.target.value })}
+                className="col-span-3 bg-dark-tertiary border-white/20"
               />
             </div>
-            <div>
-              <Label htmlFor="description">Description (Optional)</Label>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="description" className="text-right">
+                Description
+              </Label>
               <Textarea
                 id="description"
                 value={newEvent.description}
-                onChange={(e) => setNewEvent(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Enter event description"
-                className="bg-dark-tertiary border-slate-700 text-white placeholder:text-gray-400"
+                onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
+                className="col-span-3 bg-dark-tertiary border-white/20"
+                rows={3}
               />
             </div>
-            
-            <div className="flex items-center space-x-2 pt-2">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label className="text-right">
+                Starts
+              </Label>
+              <div className="col-span-3 flex items-center gap-2">
+                 <DatePicker date={newEvent.start} onDateChange={(d) => handleDateChange(d, 'start')} />
+                 {!newEvent.all_day && <TimePicker date={newEvent.start} onDateChange={(d) => handleDateChange(d, 'start')} />}
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label className="text-right">
+                Ends
+              </Label>
+              <div className="col-span-3 flex items-center gap-2">
+                 <DatePicker date={newEvent.end} onDateChange={(d) => handleDateChange(d, 'end')} />
+                 {!newEvent.all_day && <TimePicker date={newEvent.end} onDateChange={(d) => handleDateChange(d, 'end')} />}
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="all-day" className="text-right">
+                All-day
+              </Label>
               <Checkbox
-                id="allDay"
+                id="all-day"
                 checked={newEvent.all_day}
-                onCheckedChange={(checked) => handleAllDayToggle(checked as boolean)}
+                onCheckedChange={handleAllDayToggle}
               />
-              <Label htmlFor="allDay" className="text-sm text-white/70">All Day</Label>
             </div>
-
-            {!newEvent.all_day && (
-              <>
-                <div className="space-y-2">
-                  <Label>Date</Label>
-                  <DatePicker 
-                    date={newEvent.start} 
-                    setDate={(date) => {
-                      if (date) {
-                        const newStart = new Date(date);
-                        newStart.setHours(newEvent.start.getHours(), newEvent.start.getMinutes());
-                        
-                        const newEnd = new Date(date);
-                        newEnd.setHours(newEvent.end.getHours(), newEvent.end.getMinutes());
-
-                        setNewEvent(prev => ({ ...prev, start: newStart, end: newEnd }));
-                      }
-                    }} 
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Start time</Label>
-                    <TimePicker date={newEvent.start} setDate={(date) => date && setNewEvent(prev => ({ ...prev, start: date }))} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>End time</Label>
-                    <TimePicker date={newEvent.end} setDate={(date) => date && setNewEvent(prev => ({ ...prev, end: date }))} />
-                  </div>
-                </div>
-              </>
-            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleCreateEvent}
-              className="bg-violet hover:bg-violet/90"
-            >
+            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreateEvent} className="bg-violet hover:bg-violet-light">
               Create Event
-                    </Button>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* View Event Details Modal */}
+      {/* View Event Details Dialog */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
         <DialogContent className="max-w-md bg-[#1e1e1e] text-white border border-white/10">
           {viewEvent && (

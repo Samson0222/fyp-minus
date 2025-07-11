@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
 import Sidebar from "@/components/layout/Sidebar";
-import GmailChat from "@/pages/GmailChat";
 import ContentHeader from "@/components/layout/ContentHeader";
 import MobileTopNav from "@/components/layout/MobileTopNav";
 import MobileSidebar from "@/components/layout/MobileSidebar";
@@ -11,25 +10,11 @@ import { useTelegramNotifications } from "@/hooks/useTelegramNotifications";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Home, Calendar, LayoutGrid, Mail, FileText, Settings, Send, Bot } from "lucide-react";
+import GeneralPurposeChatWrapper from "./GeneralPurposeChatWrapper";
 
-// Voice command callback interface for Gmail integration
-interface VoiceCommandCallbacks {
-  onUnreadFilter?: () => void;
-  onRefreshEmails?: () => void;
-  onComposeEmail?: () => void;
-  onMarkAsUnread?: (emailId?: string) => void;
-  onSearchEmails?: (query: string) => void;
-  onClearFilters?: () => void;
-  onReplyEmail?: () => void;
-  onForwardEmail?: (recipient?: string) => void;
-  onStarEmail?: () => void;
-  onMarkImportant?: () => void;
-}
-
+// Voice command callbacks are no longer needed here as the new agent handles this.
 interface LayoutProps {
   children: React.ReactNode;
-  onComposeEmail?: () => void;
-  voiceCommandCallbacks?: VoiceCommandCallbacks;
 }
 
 const pageConfig: { [key: string]: { title: string; icon: React.ReactNode } } = {
@@ -41,12 +26,11 @@ const pageConfig: { [key: string]: { title: string; icon: React.ReactNode } } = 
   "/mission-control": { title: "Mission Control", icon: <Bot size={22} /> },
 };
 
-const Layout: React.FC<LayoutProps> = ({ children, onComposeEmail, voiceCommandCallbacks }) => {
+const Layout: React.FC<LayoutProps> = ({ children }) => {
   const isMobile = useIsMobile();
   const location = useLocation();
 
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [isChatSidebarCollapsed, setIsChatSidebarCollapsed] = useState(false);
 
   const {
     unreadCount,
@@ -68,7 +52,6 @@ const Layout: React.FC<LayoutProps> = ({ children, onComposeEmail, voiceCommandC
 
   const handleMenuClick = () => setIsMobileSidebarOpen(true);
   const handleCloseSidebar = () => setIsMobileSidebarOpen(false);
-  const handleToggleChatSidebar = () => setIsChatSidebarCollapsed(!isChatSidebarCollapsed);
 
   const currentPage = pageConfig[location.pathname] || { title: "Dashboard", icon: <Home size={22} /> };
 
@@ -121,13 +104,9 @@ const Layout: React.FC<LayoutProps> = ({ children, onComposeEmail, voiceCommandC
         </div>
       </main>
       
+      {/* The old GmailChat sidebar is replaced by the new general purpose AI assistant */}
       {!isMobile && (
-        <GmailChat 
-          isCollapsed={isChatSidebarCollapsed}
-          onToggleCollapse={handleToggleChatSidebar}
-          onComposeEmail={onComposeEmail}
-          voiceCommandCallbacks={voiceCommandCallbacks}
-        />
+        <GeneralPurposeChatWrapper />
       )}
       
       {isMobile && (

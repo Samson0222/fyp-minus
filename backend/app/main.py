@@ -55,6 +55,9 @@ from app.routers.mission_control import router as mission_control_router
 # Add Telegram router import
 from app.routers.telegram import router as telegram_router
 
+# Add Assistant router import
+from app.routers.assistant import router as assistant_router
+
 # Configure logging
 # logging.basicConfig(level=logging.INFO) # This is now handled by setup_logging
 logger = logging.getLogger(__name__)
@@ -72,6 +75,7 @@ app.include_router(docs_router)      # 📄 Google Docs endpoints
 app.include_router(mission_control_router)  # 🎛️ Mission Control endpoints
 app.include_router(telegram_router)  # 📱 Telegram integration endpoints
 app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
+app.include_router(assistant_router, prefix="/api/v1/assistant", tags=["assistant"])
 
 # Global variable to hold the LLM service instance
 llm_service: Optional[AbstractLLMService] = None
