@@ -1,8 +1,11 @@
 import logging
 from typing import List, Dict, Optional
-from fastapi import WebSocket
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
+
+# Create a router for WebSocket endpoints
+router = APIRouter()
 
 class ConnectionManager:
     """Manages active WebSocket connections."""
@@ -41,6 +44,8 @@ class ConnectionManager:
             websocket = self.active_connections[user_id]
             await websocket.send_json(data)
             logger.info(f"Sent JSON to user {user_id}: {data}")
+
+# Create a single global instance of the ConnectionManager
 
 # Create a single global instance of the ConnectionManager
 manager = ConnectionManager() 

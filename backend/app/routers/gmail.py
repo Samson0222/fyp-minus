@@ -11,6 +11,8 @@ from app.models.email import (
 from app.services.gmail_service import GmailService
 from app.services.voice_email_processor import voice_email_processor
 
+logger = logging.getLogger(__name__)
+
 class VoiceCommandRequest(BaseModel):
     command: str
 
@@ -28,7 +30,6 @@ async def get_current_user(authorization: Optional[str] = None):
         # Return a fallback user to prevent complete failure
         return {"user_id": "fallback_user", "email": "fallback@example.com"}
 
-logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/gmail",
     tags=["gmail"],

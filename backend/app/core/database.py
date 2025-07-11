@@ -16,17 +16,24 @@ class SupabaseManager:
         self.client: Optional[Client] = None
         self.url = os.getenv("SUPABASE_URL")
         self.anon_key = os.getenv("SUPABASE_ANON_KEY")
-        self.service_key = os.getenv("SUPABASE_SERVICE_KEY")
+        # Prefer service role key; fall back to alternative name; finally anon key as last resort
+        self.service_key = (
+            os.getenv("SUPABASE_SERVICE_KEY")
+            or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_ANON_KEY")
+        )
         
     def initialize(self) -> bool:
         """Initialize Supabase client"""
         try:
-            if not self.url or not self.anon_key:
+            if not self.url or not self.service_key:
                 logger.warning("Supabase credentials not found in environment")
                 return False
                 
-            self.client = create_client(self.url, self.anon_key)
-            logger.info("✓ Supabase client initialized successfully")
+            key_type = "SERVICE_ROLE_KEY" if os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") else "ANON_KEY"
+
+            self.client = create_client(self.url, self.service_key)
+            logger.info(f"✓ Supabase client initialized successfully ({key_type})")
             return True
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}")

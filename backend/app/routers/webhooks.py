@@ -5,10 +5,11 @@ from typing import Dict, Any
 
 
 from app.core.database import get_database, SupabaseManager
-from app.websockets import manager
+from app.websockets import ConnectionManager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
+manager = ConnectionManager()
 
 # It's crucial to validate that the request is coming from Google.
 # This would typically involve checking a secret token or signature.
@@ -70,9 +71,9 @@ async def receive_google_calendar_notification(
         # Since we no longer maintain local tasks, we just notify the frontend
         # that the calendar has been updated and they should refresh
         async def notify_calendar_update():
-            await manager.send_json(
-                {"event": "calendar_updated", "message": "Your Google Calendar has been updated."},
-                user_id
+            await manager.broadcast_to_user(
+                user_id,
+                {"event": "calendar_updated", "message": "Your Google Calendar has been updated."}
             )
 
         asyncio.create_task(notify_calendar_update())

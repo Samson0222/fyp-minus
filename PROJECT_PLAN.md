@@ -90,12 +90,34 @@ The frontend flow is designed to be robust and user-friendly.
     - It clearly states that a connection is required.
     - It provides a "Go to Settings" button, directing the user to the correct page to resolve the issue, creating a smooth user journey.
 
+#### **Development & Testing (Stub User)**
+During development, the `get_current_user` dependency in `backend/app/main.py` is stubbed to facilitate testing without requiring a full authentication flow. This is a temporary measure.
+
+-   **Stub Implementation**: The function returns a hard-coded user object.
+-   **User ID Requirement**: The `user_id` in the stubbed object **must be a valid UUID** (e.g., `"00000000-0000-0000-0000-000000000001"`).
+-   **Reason**: This is necessary to satisfy the foreign key constraints in the database, where tables like `tasks` or `monitored_chats` link back to a central `user_profiles` table using a UUID. This same `user_id` is used to name the user's Google credential file (`tokens/token_google_{user_id}.json`), creating a direct link between the authenticated Google session and the user's data in the database. Using a non-UUID string like `"test_user_001"` will cause database insertion errors.
+-   **Production Goal**: This stub will be replaced by a proper JWT-based authentication mechanism that extracts the real user UUID from the token.
+
 #### **Implementation Flow for New Pages**
 To add a new page that requires Google authentication:
 
 1.  In the new React component, use a `useEffect` hook to call `/api/v1/auth/google/status`.
 2.  Based on the result, either fetch the required data or render the `<UnauthorizedPage serviceName="Your New Service" />`.
 3.  Ensure the backend service for the new feature correctly loads the `token_google_{user_id}.json` and handles potential `401` errors.
+
+### 🪵 Centralized Logging System
+To improve debugging and maintainability, a centralized logging system has been implemented in the backend. This addresses the initial problem of inconsistent and unreliable logging across different modules.
+
+#### **Backend Implementation (`FastAPI`)**
+1.  **Central Configuration**: A `setup_logging()` function is defined in `backend/app/core/config.py`. This function acts as the single source of truth for all logging settings, including log level (e.g., INFO, DEBUG), format, and output handlers (e.g., console).
+2.  **Initialization on Startup**: The `setup_logging()` function is called from the `startup_event` in `backend/app/main.py`. This guarantees that logging is fully configured before any other part of the application starts, ensuring all log messages are captured reliably.
+3.  **Standardized Usage**: All modules continue to use the standard Python practice (`logger = logging.getLogger(__name__)`), which now automatically inherits the central configuration.
+
+#### **Benefits for Future Development**
+This centralized approach significantly streamlines development and debugging:
+- **Simplified Debugging**: To see more detailed logs, a developer only needs to change the log level in `config.py` (e.g., from `logging.INFO` to `logging.DEBUG`). This change is instantly applied across the entire backend, providing deep insight without modifying multiple files.
+- **Consistency & Readability**: All log messages now follow a uniform format (`timestamp - logger_name - level - message`), making the application's behavior easier to trace and understand.
+- **Maintainability**: If logging needs to be directed to a file or an external service in the future, the change only needs to be made in the `setup_logging()` function, simplifying maintenance.
 
 ---
 

@@ -10,7 +10,7 @@ import TelegramFocusMode from "@/components/telegram/TelegramFocusMode";
 import { useTelegramNotifications } from "@/hooks/useTelegramNotifications";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Home, LayoutGrid, Mail, FileText, Settings, Send, Bot } from "lucide-react";
+import { Home, Calendar, LayoutGrid, Mail, FileText, Settings, Send, Bot } from "lucide-react";
 
 // Voice command callback interface for Gmail integration
 interface VoiceCommandCallbacks {
@@ -34,8 +34,8 @@ interface LayoutProps {
 
 const pageConfig: { [key: string]: { title: string; icon: React.ReactNode } } = {
   "/": { title: "Home", icon: <Home size={22} /> },
-  "/schedule": { title: "Schedule", icon: <LayoutGrid size={22} /> },
-  "/emails": { title: "Emails", icon: <Mail size={22} /> },
+  "/calendar": { title: "Schedule", icon: <Calendar size={22} /> },
+  "/email": { title: "Emails", icon: <Mail size={22} /> },
   "/docs": { title: "Docs", icon: <FileText size={22} /> },
   "/settings": { title: "Settings", icon: <Settings size={22} /> },
   "/mission-control": { title: "Mission Control", icon: <Bot size={22} /> },
@@ -47,19 +47,22 @@ const Layout: React.FC<LayoutProps> = ({ children, onComposeEmail, voiceCommandC
 
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isChatSidebarCollapsed, setIsChatSidebarCollapsed] = useState(false);
-  
+
   const {
     unreadCount,
     isFocusModeActive,
     toggleFocusMode,
     closeFocusMode,
-    refreshUnreadCount
+    unreadChats,
+    recentChats,
+    loadingSummary,
+    refreshSummary,
   } = useTelegramNotifications();
 
   const handleToggleFocusMode = () => {
     toggleFocusMode();
     if (!isFocusModeActive) {
-      refreshUnreadCount();
+      refreshSummary();
     }
   };
 
@@ -105,7 +108,14 @@ const Layout: React.FC<LayoutProps> = ({ children, onComposeEmail, voiceCommandC
           {children}
           {isFocusModeActive && (
             <div className="absolute inset-0 z-40">
-              <TelegramFocusMode isOpen={isFocusModeActive} onClose={closeFocusMode} />
+              <TelegramFocusMode
+                isOpen={isFocusModeActive}
+                onClose={closeFocusMode}
+                unreadChats={unreadChats}
+                recentChats={recentChats}
+                loading={loadingSummary}
+                onRefresh={refreshSummary}
+              />
             </div>
           )}
         </div>

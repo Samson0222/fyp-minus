@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, status
 from typing import List, Dict, Any, Optional
 import logging
 from datetime import datetime
@@ -6,28 +6,42 @@ from pydantic import BaseModel
 
 from app.core.database import get_database, SupabaseManager
 from app.services.telegram_service import TelegramService
-from app.websockets import manager
+from app.websockets import ConnectionManager
+from app.dependencies import get_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/telegram", tags=["telegram"])
+manager = ConnectionManager()
 
 # Pydantic models
-class MonitoredChatRequest(BaseModel):
-    chat_ids: List[int]
+class ChatSelection(BaseModel):
+    chat_id: int
+    is_active: bool
+
+class MonitoredChatsUpdateRequest(BaseModel):
+    chats: List[ChatSelection]
 
 class SendMessageRequest(BaseModel):
     chat_id: int
     message: str
+
+class ReplyRequest(BaseModel):
+    content: str
 
 class TelegramUpdate(BaseModel):
     """Simplified Telegram update model for webhook"""
     update_id: int
     message: Optional[Dict[str, Any]] = None
 
+class TelegramSendMessage(BaseModel):
+    chat_id: int
+    message: str
+
 # Dependency to get current user (using the same pattern as other routers)
 async def get_current_user():
     """Stub user extraction - replace with real auth if needed."""
-    return {"user_id": "test_user_001", "email": "test@example.com"}
+    # This UUID must match a real user in the Supabase `auth.users` table.
+    return {"user_id": "cbede3b0-2f68-47df-9c26-09a46e588567", "email": "test@example.com"}
 
 def get_telegram_service(db: SupabaseManager = Depends(get_database)) -> TelegramService:
     """Dependency to get Telegram service instance"""
@@ -40,14 +54,12 @@ async def get_selectable_chats(
 ):
     """
     Get the user's recent/available chats for monitoring selection.
-    
-    Note: Telegram Bot API doesn't provide a direct way to list user chats.
-    This endpoint returns chats that are already being monitored or have been
-    interacted with through the bot.
+    This returns all discovered chats (both active and inactive).
     """
     try:
         user_id = user["user_id"]
-        chats = await telegram_service.get_user_chats(user_id)
+        # Correctly call the new service method
+        chats = await telegram_service.get_selectable_chats(user_id)
         
         return {
             "success": True,
@@ -59,69 +71,59 @@ async def get_selectable_chats(
         logger.error(f"Error getting selectable chats: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve chats")
 
-@router.post("/monitored_chats")
-async def set_monitored_chats(
-    request: MonitoredChatRequest,
+@router.put("/monitored_chats")
+async def update_monitored_chats(
+    request: MonitoredChatsUpdateRequest,
     user = Depends(get_current_user),
     telegram_service: TelegramService = Depends(get_telegram_service)
 ):
     """
-    Set which chats the user wants to monitor.
-    This endpoint receives a list of chat IDs and saves them to the database.
+    Update the monitoring status for multiple chats at once.
+    The frontend should send the full list of selectable chats with their
+    desired `is_active` status.
     """
     try:
         user_id = user["user_id"]
         
-        # For this implementation, we'll need to handle the limitation that
-        # we can't get chat names without prior interaction
-        # In a real scenario, this would be populated when messages are received
+        # Convert Pydantic models to dicts for the service layer
+        chat_selections = [chat.dict() for chat in request.chats]
         
-        success_count = 0
-        for chat_id in request.chat_ids:
-            # For now, use placeholder names - these will be updated when messages arrive
-            chat_name = f"Chat {chat_id}"
-            success = await telegram_service.save_monitored_chat(
-                user_id, chat_id, chat_name, "private"
-            )
-            if success:
-                success_count += 1
+        success = await telegram_service.update_monitored_chats(user_id, chat_selections)
         
-        return {
-            "success": True,
-            "monitored_count": success_count,
-            "total_requested": len(request.chat_ids),
-            "message": f"Successfully set up monitoring for {success_count} chats"
-        }
+        if success:
+            return {
+                "success": True,
+                "message": "Chat monitoring status updated successfully."
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update chat monitoring status.")
         
     except Exception as e:
-        logger.error(f"Error setting monitored chats: {e}")
-        raise HTTPException(status_code=500, detail="Failed to set up chat monitoring")
+        logger.error(f"Error updating monitored chats: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
-@router.get("/unread_summary")
-async def get_unread_summary(
-    user = Depends(get_current_user),
-    telegram_service: TelegramService = Depends(get_telegram_service)
+
+@router.get("/summary", status_code=status.HTTP_200_OK)
+async def get_telegram_summary(
+    user_id: str = Depends(get_user_id),
+    db: SupabaseManager = Depends(get_database)
 ):
-    """
-    Get a summary of unread messages grouped by chat.
-    Returns data for the Telegram Focus Mode UI.
-    """
-    try:
-        user_id = user["user_id"]
-        summary = await telegram_service.get_unread_summary(user_id)
-        
-        return {
-            "success": True,
-            "unread_chats": summary,
-            "total_unread_chats": len(summary),
-            "total_unread_messages": sum(chat.get("unread_count", 0) for chat in summary)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting unread summary: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve unread messages")
+    """Gets a summary of unread and recent chats."""
+    telegram_service = TelegramService(db)
+    summary = await telegram_service.get_telegram_summary(user_id)
+    return {"success": True, "summary": summary}
 
-@router.get("/conversation/{chat_id}")
+@router.get("/active_chats", status_code=status.HTTP_200_OK)
+async def get_active_chats(
+    user_id: str = Depends(get_user_id),
+    db: SupabaseManager = Depends(get_database)
+):
+    """Gets all active chats for the search/composer feature."""
+    telegram_service = TelegramService(db)
+    chats = await telegram_service.get_active_chats_for_search(user_id)
+    return {"success": True, "chats": chats}
+
+@router.get("/conversation/{chat_id}", status_code=status.HTTP_200_OK)
 async def get_conversation(
     chat_id: int,
     limit: int = 50,
@@ -136,7 +138,7 @@ async def get_conversation(
         messages = await telegram_service.get_conversation_history(user_id, chat_id, limit)
         
         # Mark messages as read when conversation is viewed
-        await telegram_service.mark_messages_as_read(user_id, chat_id)
+        # await telegram_service.mark_chat_as_read(user_id, chat_id) # Removed for new logic
         
         return {
             "success": True,
@@ -149,159 +151,131 @@ async def get_conversation(
         logger.error(f"Error getting conversation for chat {chat_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve conversation")
 
-@router.post("/send")
-async def send_message(
-    request: SendMessageRequest,
-    user = Depends(get_current_user),
-    telegram_service: TelegramService = Depends(get_telegram_service)
+@router.post("/conversation/{chat_id}/reply", status_code=status.HTTP_200_OK)
+async def reply_to_chat(
+    chat_id: int,
+    request: ReplyRequest,
+    user_id: str = Depends(get_user_id),
+    db: SupabaseManager = Depends(get_database)
 ):
-    """
-    Send a message to a Telegram chat.
-    """
-    try:
-        user_id = user["user_id"]
-        
-        # Verify the user is allowed to send to this chat
-        if not await telegram_service.is_chat_monitored(user_id, request.chat_id):
-            raise HTTPException(
-                status_code=403, 
-                detail="You can only send messages to monitored chats"
-            )
-        
-        success = await telegram_service.send_message(request.chat_id, request.message)
-        
-        if success:
-            return {
-                "success": True,
-                "message": "Message sent successfully",
-                "chat_id": request.chat_id
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to send message")
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error sending message: {e}")
+    """Sends a reply to a specific chat."""
+    telegram_service = TelegramService(db)
+    sent_message_data = await telegram_service.send_message(
+        chat_id=chat_id,
+        text=request.content,
+        user_id=user_id
+    )
+    if sent_message_data:
+        return {"success": True, "message": sent_message_data}
+    else:
         raise HTTPException(status_code=500, detail="Failed to send message")
+
+@router.post("/send", status_code=status.HTTP_200_OK)
+async def send_telegram_message(
+    payload: TelegramSendMessage,
+    user_id: str = Depends(get_user_id),
+    db: SupabaseManager = Depends(get_database)
+):
+    """Endpoint to send a message to a Telegram chat."""
+    telegram_service = TelegramService(db)
+    sent_message_data = await telegram_service.send_message(payload.chat_id, payload.message, user_id)
+    if sent_message_data:
+        return {"success": True, "message": "Message sent successfully.", "data": sent_message_data}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send message")
+
+@router.post("/conversation/{chat_id}/mark_unread", status_code=status.HTTP_200_OK)
+async def mark_chat_as_unread(
+    chat_id: int,
+    user_id: str = Depends(get_user_id),
+    db: SupabaseManager = Depends(get_database)
+):
+    """Marks all messages in a chat as UNREAD."""
+    telegram_service = TelegramService(db)
+    success = await telegram_service.mark_chat_as_unread(user_id, chat_id)
+    if success:
+        return {"success": True, "message": "Chat marked as unread."}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to mark chat as unread")
+
+@router.post("/conversation/{chat_id}/mark_read", status_code=status.HTTP_200_OK)
+async def mark_chat_as_read(
+    chat_id: int,
+    user_id: str = Depends(get_user_id),
+    db: SupabaseManager = Depends(get_database)
+):
+    """Marks all messages in a chat as read."""
+    telegram_service = TelegramService(db)
+    success = await telegram_service.mark_chat_as_read(user_id, chat_id)
+    if success:
+        return {"success": True, "message": "Chat marked as read."}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to mark chat as read")
+
+@router.post("/conversation/{chat_id}/clear_history", status_code=status.HTTP_200_OK)
+async def clear_chat_history_endpoint(
+    chat_id: int,
+    user_id: str = Depends(get_user_id),
+    db: SupabaseManager = Depends(get_database)
+):
+    """Deletes all messages for a specific chat."""
+    telegram_service = TelegramService(db)
+    success = await telegram_service.clear_chat_history(user_id, chat_id)
+    if success:
+        return {"success": True, "message": "Chat history cleared."}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to clear chat history.")
 
 @router.post("/webhook")
 async def telegram_webhook(
     request: Request,
+    user = Depends(get_current_user), # Using the stub user for now
     telegram_service: TelegramService = Depends(get_telegram_service)
 ):
     """
     Webhook endpoint to receive updates from Telegram.
-    This endpoint should be registered with Telegram using setWebhook.
+    This endpoint now delegates all logic to the TelegramService.
     """
     try:
-        # Parse the incoming update
         update_data = await request.json()
         logger.info(f"Received Telegram update: {update_data}")
         
-        # Extract message data
-        message = update_data.get("message")
-        if not message:
-            # Not a message update, ignore for now
-            return {"status": "ok", "message": "Update processed"}
+        # The user_id is hardcoded for now, as the webhook is unauthenticated.
+        # This is a key area for improvement in a real production system.
+        user_id = user["user_id"] 
         
-        chat = message.get("chat", {})
-        chat_id = chat.get("id")
-        sender = message.get("from", {})
+        await telegram_service.handle_webhook_update(update_data, user_id)
         
-        if not chat_id:
-            logger.warning("Received message without chat ID")
-            return {"status": "ok", "message": "No chat ID found"}
-        
-        # Extract message details
-        message_id = message.get("message_id")
-        sender_id = sender.get("id")
-        sender_name = sender.get("first_name", "Unknown")
-        if sender.get("last_name"):
-            sender_name += f" {sender['last_name']}"
-        
-        content = message.get("text", "")
-        message_type = "text"
-        
-        # Handle different message types
-        if message.get("photo"):
-            content = message.get("caption", "[Photo]")
-            message_type = "photo"
-        elif message.get("document"):
-            content = message.get("caption", "[Document]")
-            message_type = "document"
-        elif message.get("voice"):
-            content = "[Voice message]"
-            message_type = "voice"
-        elif message.get("video"):
-            content = message.get("caption", "[Video]")
-            message_type = "video"
-        elif message.get("sticker"):
-            content = "[Sticker]"
-            message_type = "sticker"
-        elif not content:
-            content = "[Unsupported message type]"
-            message_type = "other"
-        
-        timestamp = datetime.fromtimestamp(message.get("date", 0))
-        
-        # Check if any user is monitoring this chat
-        # Note: This is a simplified approach - in production you might want
-        # to optimize this by maintaining a mapping of chat_id to user_id
-        db = telegram_service.db
-        if not db.client:
-            return {"status": "error", "message": "Database not available"}
-        
-        # Find users monitoring this chat
-        monitored_chats = db.client.from_("monitored_chats").select(
-            "user_id, chat_name"
-        ).eq("chat_id", chat_id).eq("is_active", True).execute()
-        
-        if not monitored_chats.data:
-            # No users monitoring this chat, ignore the message
-            logger.info(f"Message received for unmonitored chat {chat_id}")
-            return {"status": "ok", "message": "Chat not monitored"}
-        
-        # Update chat name if we have better information
-        chat_name = chat.get("title") or chat.get("first_name", f"Chat {chat_id}")
-        
-        # Save message for each monitoring user
-        for monitored_chat in monitored_chats.data:
-            user_id = monitored_chat["user_id"]
-            
-            # Update chat name if it's different
-            current_name = monitored_chat["chat_name"]
-            if current_name.startswith("Chat ") and chat_name != current_name:
-                await telegram_service.save_monitored_chat(
-                    user_id, chat_id, chat_name, chat.get("type", "private")
-                )
-            
-            # Save the message
-            message_db_id = await telegram_service.save_telegram_message(
-                user_id, chat_id, message_id, sender_name, 
-                sender_id, content, message_type, timestamp
-            )
-            
-            if message_db_id:
-                # Send real-time notification to the user
-                try:
-                    await manager.send_json({
-                        "event": "new_telegram_message",
-                        "chat_id": chat_id,
-                        "chat_name": chat_name,
-                        "sender_name": sender_name,
-                        "content": content[:100] + "..." if len(content) > 100 else content,
-                        "message_type": message_type,
-                        "timestamp": timestamp.isoformat()
-                    }, user_id)
-                except Exception as ws_error:
-                    logger.error(f"Failed to send WebSocket notification: {ws_error}")
-        
-        return {"status": "ok", "message": "Message processed successfully"}
-        
+        return {"status": "ok", "message": "Update processed"}
+
     except Exception as e:
-        logger.error(f"Error processing Telegram webhook: {e}")
-        return {"status": "error", "message": "Failed to process update"}
+        # Log the exception but return a 200 to Telegram to prevent retries
+        logger.error(f"Error processing Telegram webhook: {e}", exc_info=True)
+        return {"status": "error", "message": "An internal error occurred"}
+
+@router.post("/webhook/test")
+async def telegram_webhook_test(
+    request: TelegramUpdate, # Use pydantic model for testing
+    user = Depends(get_current_user),
+    telegram_service: TelegramService = Depends(get_telegram_service)
+):
+    """
+    Test endpoint for webhook updates.
+    """
+    try:
+        update_data = request.dict()
+        logger.info(f"Received Telegram update for test: {update_data}")
+        
+        # The user_id is hardcoded for now, as the webhook is unauthenticated.
+        # This is a key area for improvement in a real production system.
+        user_id = user["user_id"] 
+        
+        await telegram_service.handle_webhook_update(update_data, user_id)
+        
+        return {"status": "ok", "message": "Update processed for test"}
+    except Exception as e:
+        logger.error(f"Error processing Telegram webhook test: {e}")
+        return {"status": "error", "message": "Failed to process test update"}
 
 @router.get("/status")
 async def get_telegram_status(
