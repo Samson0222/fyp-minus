@@ -2,7 +2,7 @@
 -- Run this in Supabase SQL Editor
 
 -- Enable RLS (Row Level Security)
-ALTER DATABASE postgres SET "app.jwt_secret" TO 'your-jwt-secret';
+-- ALTER DATABASE postgres SET "app.jwt_secret" TO 'your-jwt-secret'; -- This is set in the Supabase project settings (Authentication -> JWT Settings) and running it here will cause a permission error. This line can be safely ignored.
 
 -- Create core tables
 CREATE TABLE IF NOT EXISTS public.user_profiles (
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS public.cached_items (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id UUID REFERENCES public.user_profiles(id) ON DELETE CASCADE,
     platform TEXT NOT NULL,
-    item_type TEXT NOT NULL, -- 'email', 'calendar_event', 'document', 'task'
+    item_type TEXT NOT NULL, -- 'email', 'calendar_event', 'document'
     external_id TEXT NOT NULL,
     title TEXT,
     content TEXT,
@@ -86,6 +86,17 @@ ALTER TABLE public.voice_interactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.platform_integrations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cached_items ENABLE ROW LEVEL SECURITY;
+
+-- Remove 'task' from the check constraint to align with the new design
+-- This is a safe operation that will only modify the constraint
+DO $$
+BEGIN
+    ALTER TABLE public.cached_items DROP CONSTRAINT IF EXISTS cached_items_item_type_check;
+    ALTER TABLE public.cached_items ADD CONSTRAINT cached_items_item_type_check 
+        CHECK (item_type IN ('email', 'calendar_event', 'document'));
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Could not update cached_items constraint';
+END $$;
 
 -- RLS Policies (users can only access their own data)
 CREATE POLICY "Users can view own profile" ON public.user_profiles
@@ -128,11 +139,15 @@ CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.platform_integrations
 CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.cached_items
     FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
--- Insert sample data for testing
-INSERT INTO public.user_profiles (id, email, full_name, accessibility_preferences)
-VALUES (
-    gen_random_uuid(),
-    'test@example.com',
-    'Test User',
-    '{"voice_feedback": true, "high_contrast": false, "large_text": false}'
-) ON CONFLICT (email) DO NOTHING; 
+-- The sample data insertion below is removed because it will fail on a fresh database
+-- where no user exists in auth.users yet. A test user should be created through
+-- the application's sign-up flow instead.
+--
+-- -- Insert sample data for testing
+-- INSERT INTO public.user_profiles (id, email, full_name, accessibility_preferences)
+-- VALUES (
+--     gen_random_uuid(),
+--     'test@example.com',
+--     'Test User',
+--     '{"voice_feedback": true, "high_contrast": false, "large_text": false}'
+-- ) ON CONFLICT (email) DO NOTHING; 

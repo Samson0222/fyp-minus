@@ -1,7 +1,17 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { Home, CheckSquare, Calendar, Inbox, FileText, Settings, User, LogOut } from "lucide-react";
+import { Home, CheckSquare, Calendar, Inbox, FileText, Settings, User, LogOut, Mail, Activity, FlaskConical } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+
+const navItems = [
+  { icon: Home, label: "Dashboard", href: "/" },
+  { icon: CheckSquare, label: "Tasks", href: "/tasks" },
+  { icon: Calendar, label: "Calendar", href: "/calendar" },
+  { icon: FileText, label: "Docs", href: "/docs" },
+  { icon: Mail, label: "Email", href: "/emails" },
+  { icon: Activity, label: "Mission Control", href: "/mission-control" },
+  { icon: FlaskConical, label: "Playground", href: "/playground" },
+];
 
 interface MobileSidebarProps {
   isOpen: boolean;
@@ -9,15 +19,6 @@ interface MobileSidebarProps {
 }
 
 const MobileSidebar: React.FC<MobileSidebarProps> = ({ isOpen, onClose }) => {
-  const menuItems = [
-    { icon: <Home size={20} />, name: "Home", path: "/" },
-    { icon: <CheckSquare size={20} />, name: "Tasks", path: "/tasks" },
-    { icon: <Calendar size={20} />, name: "Calendar", path: "/calendar" },
-    { icon: <Inbox size={20} />, name: "Inboxes", path: "/inboxes" },
-    { icon: <FileText size={20} />, name: "Docs", path: "/documents" },
-    { icon: <Settings size={20} />, name: "Settings", path: "/settings" },
-  ];
-
   const handleLogout = () => {
     // Add logout logic here
     console.log("Logging out...");
@@ -48,19 +49,19 @@ const MobileSidebar: React.FC<MobileSidebarProps> = ({ isOpen, onClose }) => {
           {/* Navigation Menu */}
           <nav className="flex-1 p-4">
             <ul className="space-y-2">
-              {menuItems.map((item) => (
-                <li key={item.name}>
+              {navItems.map((item) => (
+                <li key={item.label}>
                   <Link
-                    to={item.path}
+                    to={item.href}
                     onClick={onClose}
                     className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                      location.pathname === item.path
+                      location.pathname === item.href
                         ? "bg-violet text-white"
                         : "text-foreground/70 hover:text-white hover:bg-dark-tertiary"
                     }`}
                   >
                     {item.icon}
-                    <span>{item.name}</span>
+                    <span>{item.label}</span>
                   </Link>
                 </li>
               ))}

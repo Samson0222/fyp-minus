@@ -13,426 +13,294 @@
 ## 📋 Academic Objectives
 
 1. **Primary Goal**: Design and implement a voice-controlled AI assistant that enables users with physical disabilities to manage professional communications effectively
-2. **Technical Innovation**: Demonstrate integration of FastRTC, STT, NLP, LLMs, and intelligent agents for accessibility applications
-3. **User-Centered Design**: Create an intuitive, accessible interface validated through user testing
-4. **Academic Contribution**: Advance research in workplace accessibility technology
+2. **Technical Innovation**: Integrate cutting-edge voice recognition, natural language processing, and AI agent technologies
+3. **Accessibility Focus**: Create an intuitive, hands-free interface for professional task management
+4. **Platform Integration**: Seamlessly connect with major productivity platforms (Gmail, Google Docs, Google Calendar, Telegram)
+5. **User Validation**: Conduct User Acceptance Testing (UAT) with target accessibility users
 
 ---
 
-## 🏗️ Technical Architecture
+## 🏗️ Technology Stack
 
-```
-Voice Input → FastRTC (Moonshine STT) → LangChain Agent → Platform APIs
-                                              ↓              ↓
-                                      [Command Router]  [Gmail, Docs, Calendar, Telegram]
-                                              ↓              ↓
-                                     [Response Generator] ← [Unified Results]
-                                              ↓
-                                   Response → Kokoro TTS → Audio Output
-```
+### **Core Infrastructure**
+- **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS + shadcn/ui
+- **Backend**: FastAPI + Python + LangChain
+- **Database**: Supabase (PostgreSQL + Authentication)
+- **Voice Pipeline**: FastRTC with Moonshine STT + Kokoro TTS
 
-### Updated Technology Stack
-- **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS (existing UI preserved)
-- **Voice Pipeline**: FastRTC with built-in Moonshine STT + Kokoro TTS
-- **Backend**: FastAPI + Python + LangChain Agent
-- **Database**: Supabase (PostgreSQL + Auth)
-- **LLM**: Groq (fast, free tier) with local Gemma fallback
-- **Integration**: Direct API integration for all platforms
+### **🧠 LLM Strategy (Budget-Optimized)**
+**Primary Choice**: Google Gemma 3n (FREE Tier)
+- ✅ **Cost**: Completely FREE - saves entire RM300-500 budget
+- ✅ **Limits**: 30 RPM, 15,000 TPM, 14,400 RPD
+- ✅ **Benefits**: Google ecosystem consistency, academic credibility
+- ✅ **Integration**: Direct Google AI API access
+
+**Upgrade Path**: Qwen3 32B (If Enhanced Performance Needed)
+- 💰 **Cost**: $0.10/M input, $0.30/M output (~RM50-80 total)
+- 🚀 **Performance**: 32.8B parameters, advanced reasoning
+- ⚡ **Speed**: Available on Groq (~400 T/s) or OpenRouter
+- 🎯 **Use Case**: Switch during UAT if Gemma 3n insufficient
+
+**Emergency Fallback**: DeepSeek R1 Distill Qwen 32B
+- 💰 **Cost**: $0.30/M tokens (~RM40-70 total)
+- 🧠 **Reasoning**: Distilled from DeepSeek R1 capabilities
+- 🔧 **Features**: Tool calling, JSON mode support
+
+### **Platform Integrations**
+- **Gmail**: Gmail API + OAuth2 authentication
+- **Google Calendar**: Calendar API + event management
+- **Google Docs**: Docs API + document operations
+- **Telegram**: Telegram Bot API + message handling
+
+### 🔑 Authentication Flow (Google OAuth2)
+To ensure secure and reusable access to Google services (Gmail, Calendar, Docs), a centralized OAuth2 authentication flow has been implemented. This flow is designed to be easily adopted by any new component or module that requires Google API access.
+
+#### **Backend (`FastAPI`)**
+The core logic resides in `backend/app/routers/auth.py`.
+
+1.  **Unified Scopes**: All required Google API permissions are consolidated into a single `GOOGLE_SCOPES` list located in `backend/app/core/config.py`. This ensures consistency and prevents scope conflicts between services.
+2.  **Authorization Endpoint (`/api/v1/auth/google/authorize`)**:
+    - This endpoint initiates the Google OAuth2 flow.
+    - It generates an authorization URL and redirects the user to Google's consent screen.
+3.  **Callback Endpoint (`/api/v1/auth/google/callback`)**:
+    - After the user grants permission, Google redirects them back to this endpoint with an authorization `code`.
+    - The backend exchanges this code for an `access_token` and, crucially, a `refresh_token`.
+    - The complete credentials are saved to a user-specific file: `tokens/token_google_{user_id}.json`.
+4.  **Status Endpoint (`/api/v1/auth/google/status`)**:
+    - A simple, unprotected endpoint that any frontend component can call.
+    - It checks if a valid `token_google_{user_id}.json` exists for the current user.
+    - Returns `{"authenticated": true}` or `{"authenticated": false}`.
+5.  **Service-Level Authentication**:
+    - Services like `GmailService` and `GoogleCalendarService` are instantiated with a `user_id`.
+    - Their constructors are responsible for loading the user's token from the corresponding file.
+    - If the token is missing or invalid (and cannot be refreshed), the service raises a `401 Unauthorized` HTTPException, preventing backend crashes and providing clear error signals to the frontend.
+
+#### **Frontend (`React`)**
+The frontend flow is designed to be robust and user-friendly.
+
+1.  **The Settings Page (`/settings`)**:
+    - This is the central hub for authentication management.
+    - It contains a "Connect Google Account" button. Clicking this button navigates the user to the backend's `/api/v1/auth/google/authorize` endpoint, starting the process.
+2.  **Protected Components (`Calendar.tsx`, `Inboxes.tsx`, etc.)**:
+    - On component mount, they first call the `/api/v1/auth/google/status` endpoint.
+    - **If `authenticated: true`**: The component proceeds to fetch its specific data (e.g., calendar events, emails).
+    - **If `authenticated: false`**: The component immediately renders the `UnauthorizedPage` component, avoiding unnecessary API calls and potential errors.
+3.  **The Reusable `UnauthorizedPage.tsx` Component**:
+    - A standardized view shown to unauthenticated users.
+    - It clearly states that a connection is required.
+    - It provides a "Go to Settings" button, directing the user to the correct page to resolve the issue, creating a smooth user journey.
+
+#### **Development & Testing (Stub User)**
+During development, the `get_current_user` dependency in `backend/app/main.py` is stubbed to facilitate testing without requiring a full authentication flow. This is a temporary measure.
+
+-   **Stub Implementation**: The function returns a hard-coded user object.
+-   **User ID Requirement**: The `user_id` in the stubbed object **must be a valid UUID** (e.g., `"00000000-0000-0000-0000-000000000001"`).
+-   **Reason**: This is necessary to satisfy the foreign key constraints in the database, where tables like `tasks` or `monitored_chats` link back to a central `user_profiles` table using a UUID. This same `user_id` is used to name the user's Google credential file (`tokens/token_google_{user_id}.json`), creating a direct link between the authenticated Google session and the user's data in the database. Using a non-UUID string like `"test_user_001"` will cause database insertion errors.
+-   **Production Goal**: This stub will be replaced by a proper JWT-based authentication mechanism that extracts the real user UUID from the token.
+
+#### **Implementation Flow for New Pages**
+To add a new page that requires Google authentication:
+
+1.  In the new React component, use a `useEffect` hook to call `/api/v1/auth/google/status`.
+2.  Based on the result, either fetch the required data or render the `<UnauthorizedPage serviceName="Your New Service" />`.
+3.  Ensure the backend service for the new feature correctly loads the `token_google_{user_id}.json` and handles potential `401` errors.
+
+### 🪵 Centralized Logging System
+To improve debugging and maintainability, a centralized logging system has been implemented in the backend. This addresses the initial problem of inconsistent and unreliable logging across different modules.
+
+#### **Backend Implementation (`FastAPI`)**
+1.  **Central Configuration**: A `setup_logging()` function is defined in `backend/app/core/config.py`. This function acts as the single source of truth for all logging settings, including log level (e.g., INFO, DEBUG), format, and output handlers (e.g., console).
+2.  **Initialization on Startup**: The `setup_logging()` function is called from the `startup_event` in `backend/app/main.py`. This guarantees that logging is fully configured before any other part of the application starts, ensuring all log messages are captured reliably.
+3.  **Standardized Usage**: All modules continue to use the standard Python practice (`logger = logging.getLogger(__name__)`), which now automatically inherits the central configuration.
+
+#### **Benefits for Future Development**
+This centralized approach significantly streamlines development and debugging:
+- **Simplified Debugging**: To see more detailed logs, a developer only needs to change the log level in `config.py` (e.g., from `logging.INFO` to `logging.DEBUG`). This change is instantly applied across the entire backend, providing deep insight without modifying multiple files.
+- **Consistency & Readability**: All log messages now follow a uniform format (`timestamp - logger_name - level - message`), making the application's behavior easier to trace and understand.
+- **Maintainability**: If logging needs to be directed to a file or an external service in the future, the change only needs to be made in the `setup_logging()` function, simplifying maintenance.
 
 ---
 
-## 📅 Revised 3-Week Development Timeline
+## 📅 3-Week Development Timeline
 
-### **WEEK 1: BROAD - All 4 Platforms Basic Functions (Days 1-7)**
-**Strategy**: Go broad first - get basic functionality working across all platforms simultaneously
+### **Week 1: Broad Development - All 4 Platforms (Days 1-7)**
+**Strategy**: Build basic functionality across all platforms simultaneously
 
 #### **Day 1: Foundation + Gmail + Calendar**
-**Time**: 8 hours  
-**Morning Session (4h)**:
-- [ ] FastRTC setup + LangChain agent foundation
-- [ ] Voice pipeline test (record → transcribe → respond)
-- [ ] Groq LLM integration with command routing
+**Morning (4h):**
+- ✅ FastRTC setup + LangChain agent foundation
+- ✅ **Gemma 3n integration** (Google AI API)
+- ✅ Voice pipeline test (record → transcribe → respond)
 
-**Afternoon Session (4h)**:
-- [ ] **Gmail Basic**: Read unread emails, basic compose functionality
-- [ ] **Calendar Basic**: Check today's schedule, create simple event
-- [ ] Test voice commands: "read my emails", "what's my schedule today"
-
-**Deliverables**:
-- Working voice pipeline with FastRTC
-- Basic Gmail email reading and composition
-- Basic Calendar schedule checking and event creation
+**Afternoon (4h):**
+- ✅ Gmail: read unread emails, basic compose
+- ✅ Calendar: check today's schedule, create simple event
 
 #### **Day 2: Docs + Telegram + Agent Router**
-**Time**: 8 hours  
-**Morning Session (4h)**:
-- [ ] **Google Docs Basic**: Create document, read document content
-- [ ] **Telegram Basic**: Send message, read recent messages
+**Morning (4h):**
+- ✅ Google Docs: create document, read document content
+- ✅ Telegram: send message, read recent messages
 
-**Afternoon Session (4h)**:
-- [ ] LangChain agent router for all 4 platforms
-- [ ] Command routing logic: detect which platform to use
-- [ ] Voice commands: "create document", "send message to team"
+**Afternoon (4h):**
+- ✅ **LangChain agent with Gemma 3n** for all 4 platforms
+- ✅ Command routing: "read emails" → Gmail, "check schedule" → Calendar
 
-**Deliverables**:
-- Basic Google Docs document creation and reading
-- Basic Telegram messaging functionality
-- Intelligent command routing across platforms
+#### **Day 3: Integration + Voice Interface**
+**Morning (4h):**
+- ✅ Test end-to-end: voice input → Gemma 3n → platform action → voice response
+- ✅ **Performance evaluation**: Check if Gemma 3n meets requirements
 
-#### **Day 3: Integration + UI Bridge + Error Handling**
-**Time**: 8 hours  
-**Morning Session (4h)**:
-- [ ] End-to-end voice testing across all 4 platforms
-- [ ] Add voice button to existing React UI (minimal disruption)
-- [ ] Connect FastRTC service to existing ChatSidebar
+**Afternoon (4h):**
+- ✅ Voice UI integration with existing React frontend
+- ✅ Basic error handling and fallback responses
 
-**Afternoon Session (4h)**:
-- [ ] Error handling and fallback responses for all platforms
-- [ ] Voice feedback for successful/failed commands
-- [ ] Basic accessibility features (clear voice responses)
+#### **Day 4: Basic Commands All Platforms**
+**Morning (4h):**
+- ✅ Gmail: reply to emails, search with keywords
+- ✅ Calendar: schedule meetings, set reminders
 
-**Deliverables**:
-- All 4 platforms working with voice commands
-- Voice integration with existing UI
-- Robust error handling
+**Afternoon (4h):**
+- ✅ Docs: edit documents, format text
+- ✅ Telegram: manage groups, forward messages
 
-### **WEEK 1 MILESTONE**: ✅ Basic voice control for Gmail, Calendar, Docs, and Telegram
+#### **Day 5: Cross-Platform Testing**
+**Morning (4h):**
+- ✅ Test voice commands across all 4 platforms
+- ✅ **LLM Performance Check**: Evaluate if upgrade to Qwen3 32B needed
 
----
+**Afternoon (4h):**
+- ✅ Bug fixes and optimization
+- ✅ **Decision Point**: Stick with Gemma 3n or upgrade to Qwen3 32B
 
-### **Days 4-7: DEEP - Advanced Features for All Platforms**
+#### **Day 6: Voice Optimization + Intelligence**
+**Morning (4h):**
+- ✅ Voice recognition optimization for domain commands
+- ✅ **LLM Enhancement**: Implement upgrade if decided (Qwen3 32B setup)
 
-#### **Day 4: Gmail + Calendar Advanced Features**
-**Time**: 8 hours  
-**Morning Session (4h)**:
-- [ ] **Gmail Advanced**: Reply to emails, search with filters, email templates
-- [ ] Voice commands: "reply to John's email", "search emails from Sarah about budget"
+**Afternoon (4h):**
+- ✅ Context memory and smart command suggestions
+- ✅ Accessibility features refinement
 
-**Afternoon Session (4h)**:
-- [ ] **Calendar Advanced**: Schedule meetings with attendees, set reminders, check availability
-- [ ] Voice commands: "schedule meeting with John and Sarah tomorrow at 2pm"
-
-**Deliverables**:
-- Advanced Gmail email management
-- Sophisticated calendar scheduling with multiple participants
-
-#### **Day 5: Docs + Telegram Advanced Features**
-**Time**: 8 hours  
-**Morning Session (4h)**:
-- [ ] **Docs Advanced**: Edit documents, format text, share documents, collaborative features
-- [ ] Voice commands: "add bullet points", "format as heading", "share document with team"
-
-**Afternoon Session (4h)**:
-- [ ] **Telegram Advanced**: Manage groups, forward messages, media handling
-- [ ] Voice commands: "forward this message to project group", "notify all team channels"
-
-**Deliverables**:
-- Professional document editing via voice
-- Advanced team communication features
-
-#### **Day 6: AI Intelligence + Voice Optimization**
-**Time**: 8 hours  
-**Morning Session (4h)**:
-- [ ] Optimize voice recognition for domain-specific commands
-- [ ] Accessibility improvements (adjustable speech rate, voice feedback)
-- [ ] Context-aware command suggestions
-
-**Afternoon Session (4h)**:
-- [ ] Enhance LangChain agent with context memory
-- [ ] Cross-platform workflow automation
-- [ ] Smart command disambiguation
-
-**Deliverables**:
-- Optimized voice recognition accuracy
-- Intelligent cross-platform workflows
-- Enhanced accessibility features
-
-#### **Day 7: Week 1 Polish + Performance**
-**Time**: 8 hours  
-- [ ] Bug fixes across all platforms
-- [ ] Performance optimization (sub-2 second response times)
-- [ ] Cross-platform integration testing
-- [ ] Prepare system for UAT
-- [ ] Documentation for user testing
-
-**Deliverables**:
-- Polished, stable system ready for user testing
-- All 4 platforms with basic + advanced features
-- Performance-optimized voice interface
+#### **Day 7: Week 1 Polish**
+**Full Day (8h):**
+- ✅ End-to-end testing across all platforms
+- ✅ Performance optimization and bug fixes
+- ✅ **Final LLM configuration** for UAT phase
+- ✅ Prepare demonstration for UAT users
 
 ---
 
-### **WEEK 2: UAT + Refinement (Days 8-14)**
+### **Week 2: UAT + Deep Features + Refinement (Days 8-14)**
+**Strategy**: User testing with accessibility users + advanced features
 
-#### **Days 8-10: User Acceptance Testing**
-**Focus**: Testing with accessibility users
-**Tasks**:
-- [ ] Recruit 3-5 users with hand mobility limitations
-- [ ] Conduct structured user testing sessions
-- [ ] Test all 4 platforms with real-world scenarios
-- [ ] Collect usability feedback and performance metrics
-- [ ] Document accessibility compliance
+#### **LLM Strategy for Week 2:**
+- **Continue with chosen model** from Week 1 (Gemma 3n or Qwen3 32B)
+- **Monitor performance** during UAT sessions
+- **Ready to upgrade** to Qwen3 32B if user feedback demands higher intelligence
 
-**Testing Scenarios**:
-1. **Email Workflow**: Compose and send professional email via voice only
-2. **Document Creation**: Create formatted meeting agenda using voice commands
-3. **Calendar Management**: Schedule complex meeting with multiple participants
-4. **Team Communication**: Send announcements and updates via Telegram
-5. **Cross-Platform**: Execute workflow spanning multiple platforms
+#### **Day 8-9: User Acceptance Testing Setup**
+- ✅ Recruit accessibility users for testing
+- ✅ Set up controlled testing environment
+- ✅ **LLM monitoring**: Track response quality and user satisfaction
 
-#### **Days 11-14: Refinement Based on UAT**
-**Tasks**:
-- [ ] Fix critical bugs identified during UAT
-- [ ] Improve voice recognition accuracy based on user feedback
-- [ ] Enhance accessibility features per user suggestions
-- [ ] Polish UI/UX for better user experience
-- [ ] Optimize performance and error handling
-- [ ] Prepare final demonstration
+#### **Day 10-11: Intensive UAT Sessions**
+- ✅ Conduct 6-8 hour daily UAT sessions
+- ✅ **Performance evaluation**: Real user interaction with current LLM
+- ✅ Gather detailed user feedback on voice assistant intelligence
 
-**Deliverables**:
-- User-validated system with improved accessibility
-- Enhanced features based on real user feedback
-- Demo-ready application
+#### **Day 12-13: Advanced Features Based on Feedback**
+- ✅ **LLM Upgrade Decision**: Switch to Qwen3 32B if users need more intelligence
+- ✅ Implement advanced Gmail features (templates, filters)
+- ✅ Enhanced Calendar features (attendee management, availability)
+
+#### **Day 14: Week 2 Integration**
+- ✅ **Final LLM optimization** based on UAT results
+- ✅ Integration of all UAT feedback
+- ✅ Performance optimization and accessibility improvements
 
 ---
 
-### **WEEK 3: Final Polish + Report Writing (Days 15-21)**
+### **Week 3: Final Polish + FYP Report (Days 15-21)**
 
-#### **Days 15-17: Final System Polish**
-**Tasks**:
-- [ ] Final bug fixes and performance optimization
-- [ ] Comprehensive system testing
-- [ ] Demo script preparation and practice
-- [ ] Technical documentation completion
-- [ ] User manual creation
+#### **Day 15-16: Final System Polish**
+- ✅ **LLM fine-tuning**: Optimize prompts and response quality
+- ✅ Final bug fixes and performance optimization
+- ✅ Documentation and code cleanup
 
-#### **Days 18-21: FYP Report Writing**
-**Tasks**:
-- [ ] Write methodology section (implementation approach)
-- [ ] Document technical architecture and design decisions
-- [ ] Analyze user testing results and accessibility impact
-- [ ] Write conclusions and future work recommendations
-- [ ] Prepare final presentation materials
+#### **Day 17-21: FYP Report Writing**
+- ✅ **Methodology**: Document LLM selection process and rationale
+- ✅ **Implementation**: Technical details including cost-effective LLM strategy
+- ✅ **Testing Results**: UAT findings and LLM performance analysis
+- ✅ **Analysis**: Cost analysis showing budget savings with Gemma 3n approach
+- ✅ **Conclusion**: Demonstration preparation
 
 ---
 
-## 🎯 Core Voice Commands by Platform
+## 💰 Budget Allocation
 
-### Gmail (Email Management)
-**Basic Commands**:
-- "Read my unread emails"
-- "Compose email to [person] about [subject]"
-- "Send the email"
+### **LLM Costs (Optimized Strategy)**
+- **Development Phase**: RM0 (Gemma 3n FREE)
+- **UAT Phase**: RM0-80 (Gemma 3n or upgrade to Qwen3 32B)
+- **Final Polish**: RM0-30 (minimal additional usage)
+- **Total LLM Cost**: RM0-110 (saving RM190-500 from original budget!)
 
-**Advanced Commands**:
-- "Reply to [person's] email: [message]"
-- "Search for emails from [person] about [topic]"
-- "Mark this email as important"
-- "Schedule email to send at [time]"
-
-### Google Docs (Document Management)
-**Basic Commands**:
-- "Create new document called [name]"
-- "Read document content"
-- "Add paragraph: [content]"
-
-**Advanced Commands**:
-- "Format this text as heading"
-- "Create bullet points with [items]"
-- "Share document with [email]"
-- "Insert table with [rows] and [columns]"
-
-### Google Calendar (Meeting Management)
-**Basic Commands**:
-- "What's on my calendar today?"
-- "Create meeting [title] tomorrow at [time]"
-- "Check my schedule for [day]"
-
-**Advanced Commands**:
-- "Schedule meeting with [person1] and [person2] [day] at [time]"
-- "Set reminder for [event] 30 minutes before"
-- "Move my [time] meeting to [new time]"
-- "Block 2 hours for focused work on [day]"
-
-### Telegram (Team Communication)
-**Basic Commands**:
-- "Send message to [person]: [message]"
-- "Read my recent messages"
-- "Tell the team: [announcement]"
-
-**Advanced Commands**:
-- "Forward this message to [group]"
-- "Notify all project channels about [update]"
-- "Send urgent message to [group]: [message]"
-- "Create group announcement: [content]"
+### **Other Potential Costs**
+- **API Usage**: Gmail/Calendar/Docs APIs (FREE tiers)
+- **Hosting**: Supabase (FREE tier)
+- **FastRTC**: Open source (FREE)
+- **Total Project Cost**: RM0-110 (maximum)
 
 ---
 
-## 🧪 Testing & Evaluation Plan
+## 🎯 Success Metrics
 
-### Success Metrics
-- **Task Completion Rate**: >90% successful completion of voice commands
-- **Time Efficiency**: <50% of traditional keyboard/mouse time for tasks
-- **User Satisfaction**: >4/5 rating on usability scale
-- **Accessibility Compliance**: WCAG 2.1 AA standard compliance
-- **Voice Recognition Accuracy**: >95% command understanding
-- **Response Time**: <2 seconds for voice command processing
+### **Technical Metrics**
+- ✅ Voice recognition accuracy >90%
+- ✅ **LLM response relevance** >85% (measured during UAT)
+- ✅ Platform integration success rate >95%
+- ✅ End-to-end response time <3 seconds
 
-### Platform-Specific Testing
-**Gmail**: Email composition, reading, and management efficiency
-**Calendar**: Meeting scheduling accuracy and calendar navigation
-**Docs**: Document creation and editing capability
-**Telegram**: Team communication effectiveness
+### **User Experience Metrics**
+- ✅ User satisfaction score >4/5
+- ✅ **LLM intelligence rating** >4/5 from accessibility users
+- ✅ Task completion rate >90%
+- ✅ Accessibility compliance score >95%
 
----
-
-## 📊 Academic Deliverables
-
-### FYP Report Structure (40 pages)
-1. **Introduction** (5 pages)
-   - Problem statement: workplace accessibility challenges
-   - Research objectives and innovation scope
-   - FastRTC and voice interface significance
-
-2. **Literature Review** (8 pages)
-   - Accessibility technology research
-   - Voice interface design principles
-   - AI applications in assistive technology
-
-3. **Methodology** (6 pages)
-   - Broad-first development approach
-   - FastRTC integration strategy
-   - Multi-platform voice command design
-
-4. **Implementation** (12 pages)
-   - FastRTC voice pipeline architecture
-   - LangChain agent design and command routing
-   - Platform integration strategies (Gmail, Calendar, Docs, Telegram)
-   - Accessibility feature implementation
-
-5. **Evaluation** (8 pages)
-   - User testing methodology with accessibility users
-   - Performance metrics and voice recognition accuracy
-   - Accessibility compliance assessment
-   - Cross-platform workflow effectiveness
-
-6. **Conclusion** (1 page)
-   - Contribution to accessibility research
-   - Impact on professional productivity for disabled users
-   - Future work and scalability potential
+### **Academic Metrics**
+- ✅ **Cost-effectiveness demonstration** (Gemma 3n vs premium models)
+- ✅ Technical innovation in accessibility
+- ✅ Comprehensive UAT with target users
+- ✅ **LLM strategy optimization** for academic constraints
 
 ---
 
-## 🚀 Demo Preparation
+## 🚀 Innovation Highlights
 
-### 5-Minute FYP Presentation Demo
-1. **Opening** (30 seconds): Accessibility problem and voice solution
-2. **Cross-Platform Voice Control** (3 minutes):
-   - Gmail: Voice email composition and reading
-   - Calendar: Meeting scheduling via voice
-   - Docs: Document creation and editing
-   - Telegram: Team communication
-3. **Advanced Workflows** (1 minute): Cross-platform task automation
-4. **Closing** (30 seconds): Accessibility impact and future potential
-
-### Demo Script Focus
-- **User Persona**: Professional with RSI/hand mobility limitations
-- **Real Scenarios**: Actual workplace tasks requiring multi-platform coordination
-- **Efficiency Demonstration**: Voice commands faster than traditional input methods
-- **Accessibility Impact**: Clear improvement in workplace productivity
+1. **Budget-Optimized LLM Strategy**: Demonstrating enterprise-quality AI assistant with minimal costs
+2. **Multi-Platform Voice Control**: Seamless integration across 4 major productivity platforms
+3. **Accessibility-First Design**: Purpose-built for users with hand mobility limitations
+4. **Real-Time Voice Processing**: Sub-second response times with FastRTC
+5. **Academic Rigor**: Comprehensive UAT with systematic LLM performance evaluation
 
 ---
 
-## 🛠️ Technical Implementation Details
+## 📝 Deliverables
 
-### FastRTC Integration Architecture
-```python
-# Standalone FastRTC service
-from fastrtc import Stream, ReplyOnPause, get_stt_model, get_tts_model
-from langchain.agents import create_openai_tools_agent
-from langchain_groq import ChatGroq
+### **Technical Deliverables**
+- ✅ Complete voice-controlled AI assistant application
+- ✅ **LLM integration documentation** (Gemma 3n implementation + upgrade strategy)
+- ✅ Multi-platform API integrations (Gmail, Calendar, Docs, Telegram)
+- ✅ Comprehensive testing suite and UAT results
 
-# Built-in models (local, free)
-stt_model = get_stt_model()  # Moonshine
-tts_model = get_tts_model()  # Kokoro
-
-# LangChain agent with all platform tools
-agent_tools = [
-    GmailTool(),      # Email management
-    CalendarTool(),   # Meeting scheduling  
-    DocsTool(),       # Document creation
-    TelegramTool()    # Team communication
-]
-
-def voice_handler(audio):
-    # 1. Transcribe with FastRTC's built-in STT
-    transcript = stt_model.stt(audio)
-    
-    # 2. Route command through LangChain agent
-    response = agent.run(transcript)
-    
-    # 3. Convert response to speech and stream
-    for chunk in tts_model.stream_tts_sync(response):
-        yield chunk
-
-# FastRTC handles all WebRTC complexity
-stream = Stream(ReplyOnPause(voice_handler))
-stream.ui.launch()  # Or integrate with existing FastAPI
-```
-
-### Platform Integration Strategy
-- **Minimal UI Disruption**: Single voice button added to existing React interface
-- **Microservice Approach**: FastRTC service communicates with existing FastAPI backend
-- **API Reuse**: Leverage existing Gmail service, extend with Calendar/Docs/Telegram
-- **Error Handling**: Voice feedback for failed commands, fallback to existing UI
+### **Academic Deliverables**
+- ✅ **FYP Report**: Including cost-effective LLM strategy analysis
+- ✅ Technical documentation and system architecture
+- ✅ **LLM Performance Analysis**: Comparing Gemma 3n vs alternatives
+- ✅ UAT findings and accessibility impact assessment
+- ✅ Live demonstration and code repository
 
 ---
 
-## 📈 Success Criteria & Risk Mitigation
-
-### Technical Success Criteria
-- ✅ All 4 platforms integrated with voice control
-- ✅ Voice recognition accuracy >95%
-- ✅ Response time <2 seconds
-- ✅ Cross-platform workflows functional
-- ✅ Accessibility features implemented
-
-### Academic Success Criteria
-- ✅ User validation with disability community
-- ✅ Measurable productivity improvement
-- ✅ Technical innovation demonstrated
-- ✅ Comprehensive evaluation completed
-- ✅ Contribution to accessibility research documented
-
-### Risk Mitigation
-- **Technical Risk**: FastRTC fallback to existing voice components if issues arise
-- **Timeline Risk**: Broad-first approach ensures core functionality by Day 3
-- **User Testing Risk**: Multiple accessibility user recruitment channels
-- **Platform Risk**: Direct API integration reduces dependency complexity
-
----
-
-## 📞 Updated Resource Requirements
-
-### Development Tools
-- **Voice Pipeline**: FastRTC (handles WebRTC, STT, TTS complexity)
-- **LLM Service**: Groq API (free tier, fast responses)
-- **Platform APIs**: Gmail, Google Calendar, Google Docs, Telegram Bot
-- **Development**: Existing React + FastAPI setup
-
-### API Quotas & Costs
-- **Groq**: Free tier (sufficient for development and testing)
-- **FastRTC**: Built-in local models (Moonshine STT + Kokoro TTS)
-- **Google APIs**: Free tier limits adequate for testing
-- **Telegram Bot**: Free for standard usage
-
----
-
-**Project Start Date**: [Current Date]  
-**Week 1 Completion**: [Start Date + 7 days] - All platforms basic + advanced features  
-**Week 2 Completion**: [Start Date + 14 days] - UAT completed, system refined  
-**Week 3 Completion**: [Start Date + 21 days] - Report completed, demo ready  
-
----
-
-*This updated project plan reflects a strategic broad-first approach, ensuring all four platforms have working voice control by Day 3, with advanced features and polish in the remaining time. The FastRTC integration simplifies the technical complexity while delivering professional-grade voice interface capabilities.*
+**Last Updated**: January 2025  
+**LLM Strategy**: Gemma 3n (Primary) → Qwen3 32B (Upgrade) → DeepSeek R1 Distill (Fallback)  
+**Budget Status**: Optimized for RM0-110 total cost (saving RM190-390!)

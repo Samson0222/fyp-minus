@@ -77,6 +77,21 @@ class VoiceEmailProcessor:
                 r"update (?:my )?inbox",
                 r"reload (?:my )?emails?",
                 r"get (?:new )?emails?"
+            ],
+            'star_email': [
+                r"star (?:this |the )?email",
+                r"add (?:a )?star (?:to )?(?:this |the )?email",
+                r"mark (?:this |the )?email (?:as )?starred",
+                r"unstar (?:this |the )?email",
+                r"remove (?:the )?star (?:from )?(?:this |the )?email"
+            ],
+            'mark_important': [
+                r"mark (?:this |the )?email (?:as )?important",
+                r"mark (?:as )?important",
+                r"make (?:this |the )?email important",
+                r"set (?:this |the )?email (?:as )?important",
+                r"unmark (?:this |the )?email (?:as )?important",
+                r"mark (?:this |the )?email (?:as )?not important"
             ]
         }
     
@@ -86,8 +101,8 @@ class VoiceEmailProcessor:
         
         # Check for specific patterns first (order matters - more specific patterns first)
         priority_patterns = ['read_unread', 'mark_as_unread', 'reply_email', 'forward_email', 
-                           'send_email', 'send_email_simple', 'search_emails', 'switch_account', 
-                           'refresh_emails', 'read_emails']
+                           'star_email', 'mark_important', 'send_email', 'send_email_simple', 
+                           'search_emails', 'switch_account', 'refresh_emails', 'read_emails']
         
         for command_type in priority_patterns:
             if command_type in self.patterns:
@@ -205,6 +220,12 @@ class VoiceEmailProcessor:
             parameters = {}
         
         elif command_type == 'refresh_emails':
+            parameters = {}
+        
+        elif command_type == 'star_email':
+            parameters = {}
+        
+        elif command_type == 'mark_important':
             parameters = {}
         
         return VoiceEmailCommand(
@@ -362,6 +383,14 @@ class VoiceEmailProcessor:
                 count = len(result.emails)
                 return f"I've refreshed your emails and found {count} emails. The interface has been updated with the latest data."
             return "I'm refreshing your emails now and updating the interface."
+             
+        elif command.command_type == 'star_email':
+            return "I'll mark the selected email as starred."
+            
+        elif command.command_type == 'mark_important':
+            if result and hasattr(result, 'status') and result.status == 'success':
+                return "I've marked the email as important for you."
+            return "I'll mark the selected email as important. Please make sure you have an email selected first."
              
         else:
             return "I can help you read emails, send emails, search your inbox, mark emails as unread, refresh your emails, or switch accounts. What would you like to do?"

@@ -15,62 +15,75 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from fastapi import HTTPException
 
 from app.models.email import (
     EmailMessage, EmailSender, EmailRecipient, EmailAttachment,
     EmailListResponse, SendEmailRequest, SendEmailResponse
 )
+from app.core.llm_factory import get_llm_service
+from app.core.config import GOOGLE_SCOPES
+from bs4 import BeautifulSoup
+import logging
 
-# Gmail API scopes
-SCOPES = [
-    'https://www.googleapis.com/auth/gmail.readonly',
-    'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/gmail.modify'
-]
+logger = logging.getLogger(__name__)
 
 class GmailService:
     """Gmail API service for handling email operations"""
     
-    def __init__(self):
-        self.service = None
-        self.credentials = None
+    def __init__(self, user_id: str):
+        self.user_id = user_id
+        self.service = self._get_gmail_service()
         
-    async def authenticate(self, user_id: str) -> bool:
-        """Authenticate with Gmail API using OAuth2"""
+    def _get_gmail_service(self):
+        """Authenticates and returns the Gmail service, raising HTTPException on failure."""
+        creds = None
+        tokens_dir = os.getenv("GOOGLE_TOKENS_DIR", "tokens")
+        os.makedirs(tokens_dir, exist_ok=True)
+        token_path = os.path.join(tokens_dir, f"token_google_{self.user_id}.json")
+
+        if not os.path.exists(token_path):
+            logger.warning(f"Authentication token not found for user_id: {self.user_id}")
+            raise HTTPException(
+                status_code=401,
+                detail="User is not authenticated. Please connect your Google account via the settings page.",
+            )
+
         try:
-            creds = None
-            token_path = f"tokens/token_{user_id}.json"
-            
-            # Load existing credentials
-            if os.path.exists(token_path):
-                creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-            
-            # If there are no (valid) credentials available, let the user log in
-            if not creds or not creds.valid:
-                if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(Request())
-                else:
-                    # For production, you'd handle this differently
-                    # This is a simplified version for demonstration
-                    credentials_path = os.getenv("GMAIL_CREDENTIALS_PATH", "credentials.json")
-                    if not os.path.exists(credentials_path):
-                        raise Exception("Gmail credentials file not found. Please set up OAuth2 credentials.")
-                    
-                    flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-                    creds = flow.run_local_server(port=0)
-                
-                # Save the credentials for the next run
-                os.makedirs("tokens", exist_ok=True)
-                with open(token_path, 'w') as token:
-                    token.write(creds.to_json())
-            
-            self.credentials = creds
-            self.service = build('gmail', 'v1', credentials=creds)
-            return True
-            
+            creds = Credentials.from_authorized_user_file(token_path, GOOGLE_SCOPES)
         except Exception as e:
-            print(f"Gmail authentication error: {e}")
-            return False
+            logger.error(f"Failed to load credentials for user {self.user_id}: {e}")
+            raise HTTPException(
+                status_code=401,
+                detail="Could not load credentials. Please try re-authenticating.",
+            )
+
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                logger.info(f"Refreshing expired token for user_id: {self.user_id}")
+                try:
+                    creds.refresh(Request())
+                    # Save the refreshed credentials
+                    with open(token_path, 'w') as token:
+                        token.write(creds.to_json())
+                except Exception as e:
+                    logger.error(f"Failed to refresh token for user {self.user_id}: {e}")
+                    # If refresh fails, the token is likely invalid.
+                    # Delete the bad token and force re-authentication.
+                    os.remove(token_path)
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Failed to refresh authentication token. Please re-authenticate.",
+                    )
+            else:
+                # No valid credentials and no refresh token.
+                logger.warning(f"Invalid credentials and no refresh token for user_id: {self.user_id}")
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid credentials. Please re-authenticate.",
+                )
+        
+        return build('gmail', 'v1', credentials=creds)
     
     def _parse_email_address(self, address_string: str) -> EmailSender:
         """Parse email address string into EmailSender object"""
@@ -161,9 +174,9 @@ class GmailService:
         # Parse date
         date_str = headers.get('Date', '')
         try:
-            date = datetime.strptime(date_str, '%a, %d %b %Y %H:%M:%S %z')
-        except:
-            date = datetime.now()
+            parsed_date = email.utils.parsedate_to_datetime(date_str)
+        except Exception:
+            parsed_date = datetime.utcnow()
         
         # Extract body
         plain_body, html_body = self._extract_email_body(message['payload'])
@@ -172,6 +185,7 @@ class GmailService:
         labels = message.get('labelIds', [])
         is_read = 'UNREAD' not in labels
         is_important = 'IMPORTANT' in labels
+        is_starred = 'STARRED' in labels
         
         return EmailMessage(
             id=message['id'],
@@ -183,19 +197,17 @@ class GmailService:
             bcc=bcc_recipients,
             body_plain=plain_body,
             body_html=html_body,
-            date=date,
+            date=parsed_date,
             is_read=is_read,
             is_important=is_important,
+            is_starred=is_starred,
             labels=labels,
             snippet=message.get('snippet', ''),
             attachments=[]  # TODO: Parse attachments if needed
         )
     
-    async def get_emails(self, user_id: str, max_results: int = 10, query: str = '', minimal: bool = False) -> EmailListResponse:
+    async def get_emails(self, max_results: int = 10, query: str = '', minimal: bool = False) -> EmailListResponse:
         """Get list of emails. If minimal=True only return headers/snippet for speed."""
-        if not await self.authenticate(user_id):
-            raise Exception('Failed to authenticate with Gmail')
-
         try:
             # first list call
             list_resp = self.service.users().messages().list(
@@ -211,15 +223,25 @@ class GmailService:
                         userId='me', id=m['id'], format='metadata', metadataHeaders=['Subject', 'From', 'Date']
                     ).execute()
                     headers = {h['name']: h['value'] for h in meta['payload'].get('headers', [])}
+                    
+                    # Correctly parse the date from headers
+                    date_str = headers.get('Date', '')
+                    try:
+                        # Gmail dates can be in various formats, so we need a robust parser
+                        parsed_date = email.utils.parsedate_to_datetime(date_str)
+                    except Exception:
+                        parsed_date = datetime.utcnow() # Fallback
+
                     email_obj = EmailMessage(
                         id=meta['id'],
                         thread_id=meta['threadId'],
                         subject=headers.get('Subject', '(No Subject)'),
                         sender=self._parse_email_address(headers.get('From', '')),
                         recipients=[],
-                        date=datetime.utcnow(),
+                        date=parsed_date,
                         is_read='UNREAD' not in meta.get('labelIds', []),
                         is_important='IMPORTANT' in meta.get('labelIds', []),
+                        is_starred='STARRED' in meta.get('labelIds', []),
                         labels=meta.get('labelIds', []),
                         snippet=meta.get('snippet', '')
                     )
@@ -235,23 +257,17 @@ class GmailService:
         except HttpError as e:
             raise Exception(f'Gmail API error: {e}')
 
-    async def get_message(self, user_id: str, message_id: str) -> EmailMessage:
+    async def get_message(self, message_id: str) -> EmailMessage:
         """Fetch full content for a single message."""
-        if not await self.authenticate(user_id):
-            raise Exception('Failed to authenticate with Gmail')
         try:
             full = self.service.users().messages().get(userId='me', id=message_id, format='full').execute()
             return self._parse_gmail_message(full)
         except HttpError as e:
             raise Exception(f'Failed to fetch message: {e}')
     
-    async def send_email(self, user_id: str, email_request: SendEmailRequest) -> SendEmailResponse:
-        """Send email via Gmail"""
-        if not await self.authenticate(user_id):
-            raise Exception("Failed to authenticate with Gmail")
-        
+    async def send_email(self, email_request: SendEmailRequest) -> SendEmailResponse:
+        """Sends an email on behalf of the user"""
         try:
-            # Create message
             message = MIMEMultipart()
             message['to'] = ', '.join(email_request.to)
             if email_request.cc:
@@ -286,11 +302,8 @@ class GmailService:
             print(f"Gmail send error: {error}")
             raise Exception(f"Failed to send email: {error}")
     
-    async def mark_as_read(self, user_id: str, message_id: str) -> bool:
-        """Mark email as read"""
-        if not await self.authenticate(user_id):
-            return False
-        
+    async def mark_as_read(self, message_id: str) -> bool:
+        """Mark an email as read"""
         try:
             self.service.users().messages().modify(
                 userId='me',
@@ -298,15 +311,11 @@ class GmailService:
                 body={'removeLabelIds': ['UNREAD']}
             ).execute()
             return True
-        except HttpError as error:
-            print(f"Error marking email as read: {error}")
-            return False
+        except HttpError as e:
+            raise Exception(f'Failed to mark as read: {e}')
     
-    async def mark_as_unread(self, user_id: str, message_id: str) -> bool:
-        """Mark email as unread"""
-        if not await self.authenticate(user_id):
-            return False
-        
+    async def mark_as_unread(self, message_id: str) -> bool:
+        """Mark an email as unread"""
         try:
             self.service.users().messages().modify(
                 userId='me',
@@ -314,13 +323,133 @@ class GmailService:
                 body={'addLabelIds': ['UNREAD']}
             ).execute()
             return True
-        except HttpError as error:
-            print(f"Error marking email as unread: {error}")
-            return False
+        except HttpError as e:
+            raise Exception(f'Failed to mark as unread: {e}')
     
-    async def search_emails(self, user_id: str, query: str, max_results: int = 10) -> EmailListResponse:
-        """Search emails with specific query"""
-        return await self.get_emails(user_id, max_results, query)
+    async def search_emails(self, query: str, max_results: int = 10) -> EmailListResponse:
+        """Alias for get_emails with a query"""
+        return await self.get_emails(max_results=max_results, query=query)
+    
+    async def star_email(self, message_id: str) -> bool:
+        """Star an email"""
+        try:
+            self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'addLabelIds': ['STARRED']}
+            ).execute()
+            return True
+        except HttpError as e:
+            raise Exception(f'Failed to star email: {e}')
+    
+    async def unstar_email(self, message_id: str) -> bool:
+        """Unstar an email"""
+        try:
+            self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'removeLabelIds': ['STARRED']}
+            ).execute()
+            return True
+        except HttpError as e:
+            raise Exception(f'Failed to unstar email: {e}')
+    
+    async def mark_as_important(self, message_id: str) -> bool:
+        """Mark an email as important"""
+        try:
+            self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body={'addLabelIds': ['IMPORTANT']}
+            ).execute()
+            return True
+        except HttpError as e:
+            raise Exception(f'Failed to mark as important: {e}')
+    
+    async def mark_as_unimportant(self, message_id: str) -> bool:
+        """Mark an email as not important."""
+        return await self._modify_labels(message_id, remove_label_ids=['IMPORTANT'])
 
-# Global Gmail service instance
-gmail_service = GmailService()
+    async def process_voice_command(self, command_data: dict) -> dict:
+        """Processes a voice command by routing to the appropriate function."""
+        
+        # Initialize LLM on demand
+        llm_service = get_llm_service()
+        if not llm_service:
+            return {"response": "The AI reasoning module is not available right now."}
+
+        action = command_data.get("action", "unknown")
+        params = command_data.get("params", {})
+        
+        if action == "read_unread":
+            return await self.read_unread_emails_voice()
+        elif action == "compose":
+            # The LLM's response for "compose" might need further processing
+            # to extract details like recipient, subject, and body.
+            # For now, we assume params are well-formed.
+            return await self.compose_email_voice(params)
+        elif action == "search":
+            return await self.search_emails_voice(params)
+        else:
+            # If the action is unknown, ask the LLM to clarify or respond directly.
+            response_text = await llm_service.process_command(
+                user_input=f"The user wanted to perform an unknown email action: '{action}'. Ask for clarification.",
+            )
+            return {"response": response_text.get("params", {}).get("text", "I'm not sure how to handle that email command. Could you please rephrase?")}
+
+
+    async def read_unread_emails_voice(self) -> dict:
+        """Fetches unread emails and formats them for a voice response."""
+        try:
+            response = await self.get_emails(max_results=5, query="is:unread")
+            if not response.emails:
+                return {"summary": "You have no unread emails."}
+
+            summary = f"You have {len(response.emails)} unread emails. "
+            for i, email in enumerate(response.emails):
+                summary += f"Email {i+1} is from {email.sender.name or email.sender.email} with subject: {email.subject}. "
+            
+            return {"summary": summary, "emails": response.dict()['emails']}
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def compose_email_voice(self, params: dict) -> dict:
+        """Composes and sends an email based on voice parameters."""
+        recipient = params.get("to")
+        subject = params.get("subject", "(No Subject)")
+        body = params.get("body", "Sent via voice command.")
+
+        if not recipient:
+            return {"response": "I need to know who to send the email to. Please specify a recipient."}
+
+        try:
+            email_req = SendEmailRequest(
+                recipients=[EmailRecipient(email=recipient)],
+                subject=subject,
+                body=body
+            )
+            await self.send_email(email_req)
+            return {"response": f"The email to {recipient} about {subject} has been sent."}
+        except Exception as e:
+            logger.error(f"Failed to send email via voice: {e}")
+            return {"response": "Sorry, I was unable to send the email."}
+    
+    async def search_emails_voice(self, params: dict) -> dict:
+        """Searches for emails based on a voice query."""
+        query = params.get("query")
+        if not query:
+            return {"error": "No search query provided."}
+        
+        try:
+            response = await self.get_emails(max_results=3, query=query)
+            if not response.emails:
+                return {"summary": f"I couldn't find any emails matching '{query}'."}
+            
+            summary = f"I found {len(response.emails)} emails matching your search. "
+            for i, email in enumerate(response.emails):
+                summary += f"Email {i+1} from {email.sender.name or email.sender.email}, subject: {email.subject}. "
+            
+            return {"summary": summary, "emails": response.dict()['emails']}
+        except Exception as e:
+            logger.error(f"Failed to search emails via voice: {e}")
+            return {"response": "Sorry, I ran into an error while searching your emails."}

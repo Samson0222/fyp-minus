@@ -1,0 +1,331 @@
+.fc-theme-standard .fc-scrollgrid {
+  border-color: rgba(255, 255, 255, 0.1);
+  border-left: none;
+  border-right: none;
+}
+
+.fc-theme-standard td, .fc-theme-standard th {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.fc-col-header-cell {
+  background-color: #1e1e1e !important;
+  color: white;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-top: none !important;
+}
+
+.fc-theme-standard .fc-timegrid-slots .fc-day-today,
+.fc .fc-daygrid-day.fc-day-today {
+  background-color: rgba(138, 107, 244, 0.1) !important;
+}
+
+.fc .fc-col-header-cell.fc-day-today {
+    background-color: #1e1e1e !important;
+}
+
+.fc-daygrid-day {
+  background-color: transparent;
+  color: white;
+}
+
+.fc-button-primary {
+  background-color: #8a6bf4;
+  border-color: #8a6bf4;
+}
+
+.fc-button-primary:hover {
+  background-color: #7c3aed;
+  border-color: #7c3aed;
+}
+
+.fc-toolbar-title {
+  color: white;
+  font-size: 1.125rem;
+}
+
+.fc .fc-toolbar.fc-header-toolbar {
+  margin-bottom: 1.5rem;
+  align-items: center;
+}
+
+/* --- LEFT-SIDE BUTTONS (prev, next, today) --- */
+/* Style all buttons on the left to be purple */
+.fc .fc-toolbar-chunk:first-child .fc-button {
+    padding: 0.4rem 1rem !important;
+    font-size: 0.875rem !important;
+    border-radius: 0.75rem !important;
+    border: none !important;
+    background-color: #8b5cf6 !important;
+    color: white !important;
+    box-shadow: none !important;
+    text-transform: capitalize !important;
+    opacity: 0.9;
+    margin: 0 2px;
+}
+
+.fc .fc-toolbar-chunk:first-child .fc-button:hover {
+    opacity: 1;
+}
+
+/* Remove the "group" look from the prev/next buttons */
+.fc .fc-toolbar-chunk:first-child .fc-button-group {
+    background-color: transparent;
+    border: none;
+}
+
+/* --- RIGHT-SIDE BUTTONS (Month, Week, Day) --- */
+/* Style the view-switcher group as a single dark container */
+.fc .fc-toolbar-chunk:last-child .fc-button-group {
+  background-color: rgba(30, 30, 30, 0.7);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Make the buttons inside the right group transparent by default */
+.fc .fc-toolbar-chunk:last-child .fc-button {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+  padding: 0.4rem 1rem;
+  font-size: 0.875rem;
+  text-transform: capitalize;
+  border-radius: 0;
+}
+
+/* Add a separator line between buttons in the right group */
+.fc .fc-toolbar-chunk:last-child .fc-button:not(:last-child) {
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.fc .fc-toolbar-chunk:last-child .fc-button:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Highlight only the active button in the right group */
+.fc .fc-toolbar-chunk:last-child .fc-button.fc-button-active {
+    background-color: #8b5cf6 !important;
+    color: white !important;
+}
+
+.fc-theme-standard .fc-list-day-text, .fc-theme-standard .fc-col-header-cell-cushion {
+    color: #e5e7eb;
+    text-decoration: none;
+}
+
+/* Google Calendar Events - Blue with Google icon indicator */
+.google-calendar-event {
+  border-left: 4px solid #4285f4 !important;
+  background: linear-gradient(135deg, #4285f4 0%, #34a853 100%) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 2px 4px rgba(66, 133, 244, 0.3);
+  position: relative;
+}
+
+.google-calendar-event::before {
+  content: "🌐";
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+/* Local Tasks - Different colors by priority with sync indicators */
+.local-task-event.priority-high {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+  border-left: 4px solid #ef4444 !important;
+}
+
+.local-task-event.priority-medium {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+  border-left: 4px solid #f59e0b !important;
+}
+
+.local-task-event.priority-low {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  border-left: 4px solid #10b981 !important;
+}
+
+/* Synced tasks get a Google Calendar border */
+.synced-task {
+  border-right: 4px solid #4285f4 !important;
+  position: relative;
+}
+
+.synced-task::after {
+  content: "🔄";
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 10px;
+  opacity: 0.9;
+}
+
+/* Completed tasks styling */
+.task-status-done {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
+.task-status-done .fc-event-title {
+  text-decoration: line-through;
+}
+
+/* In-progress tasks get a pulsing effect */
+.task-status-inprogress {
+  animation: pulse-glow 2s infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 2px 4px rgba(138, 107, 244, 0.3); }
+  50% { box-shadow: 0 4px 8px rgba(138, 107, 244, 0.6); }
+}
+
+/* Event text styling */
+.fc-event-title {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+/* Hover effects */
+.fc-event:hover {
+  transform: translateY(-1px);
+  transition: transform 0.2s ease;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Calendar grid improvements */
+.fc-daygrid-day:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+}
+
+.fc-daygrid-day-frame {
+  min-height: 100px;
+}
+
+/* More link styling */
+.fc-daygrid-more-link {
+  background: rgba(138, 107, 244, 0.8) !important;
+  color: white !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
+  font-size: 11px !important;
+}
+
+/* Change the highlight for the "all-day" slot in week/day view */
+.fc-theme-standard .fc-timegrid-allday-area .fc-day-today {
+  background-color: rgba(138, 107, 244, 0.1) !important;
+}
+
+/* Specifically target the time grid column for "today" */
+.fc-timegrid-col.fc-day-today {
+  background-color: rgba(138, 107, 244, 0.05) !important; /* Very subtle purple highlight */
+} 
+
+/* Minus custom event styles */
+.minus-event-timed, .minus-event-all-day {
+  margin-bottom: 2px !important; /* slight vertical spacing */
+}
+
+.minus-event-all-day {
+  background-color: #8b5cf6 !important; /* purple fill */
+  color: #ffffff !important;
+  border-radius: 4px !important;
+  padding: 0 2px !important;
+}
+
+.minus-event-all-day:hover {
+  background-color: #9a7bff !important;
+}
+
+.minus-event-timed {
+  background-color: transparent !important;
+  border: 1px solid #8b5cf6 !important; /* purple */
+  color: rgba(255, 255, 255, 0.7) !important; /* grey text */
+  border-radius: 4px !important;
+  padding: 0 2px !important;
+}
+
+.minus-event-timed:hover {
+  background-color: rgba(139,92,246,0.15) !important;
+  border-color: #9a7bff !important;
+  color: rgba(255, 255, 255, 0.7) !important; /* keep grey text on hover */
+}
+
+.minus-event-timed .fc-event-title,
+.minus-event-all-day .fc-event-title {
+  font-size: 11px;
+}
+
+/* "+x more" link full width */
+.fc-daygrid-more-link {
+  display: block !important;
+  width: 100% !important;
+  text-align: center;
+}
+
+/* Dark theme for FullCalendar popover */
+.fc-popover {
+  background-color: #1e1e1e !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+.fc-popover-header {
+  background-color: #262626 !important;
+  color: #e5e5e5 !important;
+  border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+.fc-popover-body {
+  background-color: #1e1e1e !important;
+}
+
+/* Ensure time column shows full width */
+.fc-daygrid-event-dot {
+  display: none; /* hide default dot */
+}
+
+.fc-event-time {
+  min-width: 48px; /* give space for 12:00pm */
+}
+
+/* Custom styles for the DatePicker component's calendar popover */
+/* Force consistent rounded-square shape for date picker days */
+.rdp-day {
+  border-radius: 8px !important;
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+/* Selected Day Style */
+.rdp-day_selected,
+.rdp-day_selected:focus-visible,
+.rdp-day_selected:hover {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  opacity: 1;
+  border: none !important;
+}
+
+/* Today's Day Style */
+.rdp-day_today:not(.rdp-day_selected) {
+    background-color: transparent !important;
+    color: hsl(var(--primary)) !important; /* Purple text */
+    border: none !important;
+}
+
+/* Ensure selected state overrides today state visually */
+.rdp-day_selected.rdp-day_today {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+
+/* Original style for the main calendar, kept for consistency reference */
+.fc .fc-daygrid-day.fc-day-today {
+  background-color: rgba(139, 92, 246, 0.15); /* A subtle violet background */
+}

@@ -1,10 +1,11 @@
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from supabase import create_client, Client
 import asyncpg
 import asyncio
 from contextlib import asynccontextmanager
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -15,17 +16,24 @@ class SupabaseManager:
         self.client: Optional[Client] = None
         self.url = os.getenv("SUPABASE_URL")
         self.anon_key = os.getenv("SUPABASE_ANON_KEY")
-        self.service_key = os.getenv("SUPABASE_SERVICE_KEY")
+        # Prefer service role key; fall back to alternative name; finally anon key as last resort
+        self.service_key = (
+            os.getenv("SUPABASE_SERVICE_KEY")
+            or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_ANON_KEY")
+        )
         
     def initialize(self) -> bool:
         """Initialize Supabase client"""
         try:
-            if not self.url or not self.anon_key:
+            if not self.url or not self.service_key:
                 logger.warning("Supabase credentials not found in environment")
                 return False
                 
-            self.client = create_client(self.url, self.anon_key)
-            logger.info("✓ Supabase client initialized successfully")
+            key_type = "SERVICE_ROLE_KEY" if os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") else "ANON_KEY"
+
+            self.client = create_client(self.url, self.service_key)
+            logger.info(f"✓ Supabase client initialized successfully ({key_type})")
             return True
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}")
@@ -196,6 +204,49 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f"Error getting recent interactions: {e}")
             return []
+
+
+
+    async def store_google_channel(self, user_id: str, channel_id: str, resource_id: str, expires_at: datetime) -> bool:
+        """Stores or updates a Google Calendar webhook channel."""
+        if not self.client:
+            logger.warning("Supabase client not initialized")
+            return False
+        try:
+            data = {
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "resource_id": resource_id,
+                "expires_at": expires_at.isoformat(),
+            }
+            # Use upsert to handle both creation of a new channel and updates to an existing one for the user
+            result = self.client.from_("google_calendar_channels").upsert(data, on_conflict="channel_id").execute()
+            
+            if result.data:
+                logger.info(f"✓ Google Calendar channel stored successfully for user {user_id}: {channel_id}")
+                return True
+            else:
+                logger.error(f"Failed to store Google Calendar channel. Supabase error: {getattr(result, 'error', 'N/A')}")
+                return False
+        except Exception as e:
+            logger.error(f"Error storing Google channel for user {user_id}: {e}")
+            return False
+
+    async def get_user_from_channel_id(self, channel_id: str) -> Optional[str]:
+        """Retrieves a user_id from a Google Calendar channel_id."""
+        if not self.client:
+            logger.warning("Supabase client not initialized")
+            return None
+        try:
+            result = self.client.from_("google_calendar_channels").select("user_id").eq("channel_id", channel_id).single().execute()
+            if result.data:
+                return result.data['user_id']
+            else:
+                logger.warning(f"No user found for channel_id {channel_id}.")
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving user from channel_id {channel_id}: {e}")
+            return None
 
 # Global instance
 supabase_manager = SupabaseManager()

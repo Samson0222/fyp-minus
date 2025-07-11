@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Home, CheckSquare, Mail, FileText, Settings, User, LogOut, Mic, ChevronLeft, ChevronRight } from "lucide-react";
+import { Home, CheckSquare, Mail, FileText, Settings, User, LogOut, Mic, ChevronLeft, ChevronRight, Calendar, Activity } from "lucide-react";
 
 const Sidebar = () => {
   const location = useLocation();
@@ -9,9 +9,10 @@ const Sidebar = () => {
   // Menu items matching the requested structure
   const menuItems = [
     { icon: <Home size={20} />, name: "Home", path: "/" },
-    { icon: <CheckSquare size={20} />, name: "Tasks", path: "/tasks" },
-    { icon: <Mail size={20} />, name: "Emails", path: "/inboxes" },
-    { icon: <FileText size={20} />, name: "Docs", path: "/documents" },
+    { icon: <Calendar size={20} />, name: "Schedule", path: "/calendar" },
+    { icon: <Mail size={20} />, name: "Emails", path: "/email" },
+    { icon: <FileText size={20} />, name: "Docs", path: "/docs" },
+    { icon: <Activity size={20} />, name: "Mission Control", path: "/mission-control" },
     { icon: <Mic size={20} />, name: "Playground", path: "/playground" },
     { icon: <Settings size={20} />, name: "Settings", path: "/settings" },
   ];
@@ -105,3 +106,4 @@ const Sidebar = () => {
 };
 
 export default Sidebar;
+
