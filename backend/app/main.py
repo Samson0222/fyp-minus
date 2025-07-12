@@ -9,7 +9,7 @@ load_dotenv()
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import whisper
+# import whisper
 import shutil # For handling file uploads
 import tempfile # For creating temporary files
 import asyncio
@@ -74,7 +74,7 @@ app.include_router(webhooks_router)  # 🎣 Webhooks for real-time sync
 app.include_router(docs_router)      # 📄 Google Docs endpoints
 app.include_router(mission_control_router)  # 🎛️ Mission Control endpoints
 app.include_router(telegram_router)  # 📱 Telegram integration endpoints
-app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
+# app.include_router(voice_router, prefix="/api/v1/voice", tags=["voice"])
 app.include_router(assistant_router, prefix="/api/v1/assistant", tags=["assistant"])
 
 # Global variable to hold the LLM service instance
@@ -106,28 +106,31 @@ app.add_middleware(
 # the centralized `SupabaseManager` (service-role key) exclusively.
 supabase = None  # Placeholder to satisfy any residual references
 
-# Load the Whisper model (once, when the application starts)
-# You can choose different model sizes: "tiny", "base", "small", "medium", "large"
-# Smaller models are faster and use less VRAM/RAM but are less accurate.
-# "base" is a good starting point for decent quality on CPU.
-try:
-    print("Loading local Whisper model...")
-    # Default to local whisper unless explicitly disabled
-    if os.getenv("USE_LOCAL_WHISPER", "true").lower() == "true":
-        whisper_model = whisper.load_model("base", device="cpu")
-        print("✓ Local Whisper model loaded successfully")
-    else:
-        whisper_model = None
-        print("✓ Using OpenAI Whisper API")
-except Exception as e:
-    print(f"⚠ Error loading Whisper model: {e}")
-    print("Falling back to simplified local whisper loading...")
-    try:
-        whisper_model = whisper.load_model("base")
-        print("✓ Local Whisper model loaded successfully (fallback)")
-    except Exception as e2:
-        print(f"⚠ Fallback also failed: {e2}")
-        whisper_model = None
+# # Load the Whisper model (once, when the application starts)
+# # You can choose different model sizes: "tiny", "base", "small", "medium", "large"
+# # Smaller models are faster and use less VRAM/RAM but are less accurate.
+# # "base" is a good starting point for decent quality on CPU.
+# try:
+#     print("Loading local Whisper model...")
+#     # Default to local whisper unless explicitly disabled
+#     if os.getenv("USE_LOCAL_WHISPER", "true").lower() == "true":
+#         whisper_model = whisper.load_model("base", device="cpu")
+#         print("✓ Local Whisper model loaded successfully")
+#     else:
+#         whisper_model = None
+#         print("✓ Using OpenAI Whisper API")
+# except Exception as e:
+#     print(f"⚠ Error loading Whisper model: {e}")
+#     print("Falling back to simplified local whisper loading...")
+#     try:
+#         whisper_model = whisper.load_model("base")
+#         print("✓ Local Whisper model loaded successfully (fallback)")
+#     except Exception as e2:
+#         print(f"⚠ Fallback also failed: {e2}")
+#         whisper_model = None
+
+# You should also set whisper_model to None so other parts of the app don't fail
+whisper_model = None
 
 # Pydantic models
 class TextMessageRequest(BaseModel):
@@ -280,125 +283,125 @@ async def process_text_message(
         raise HTTPException(status_code=500, detail="An error occurred while processing your message.")
 
 
-@app.post("/api/v1/audio/transcribe", response_model=TranscriptionResponse)
-async def transcribe_audio(
-    audio_file: UploadFile = File(...),
-    user = Depends(get_current_user)
-):
-    """
-    Transcribes audio using Whisper. It can use either a local model or the
-    OpenAI API depending on the server configuration.
-    """
-    if not whisper_model and not os.getenv("OPENAI_API_KEY"):
-        raise HTTPException(status_code=503, detail="Transcription service not configured.")
+# @app.post("/api/v1/audio/transcribe", response_model=TranscriptionResponse)
+# async def transcribe_audio(
+#     audio_file: UploadFile = File(...),
+#     user = Depends(get_current_user)
+# ):
+#     """
+#     Transcribes audio using Whisper. It can use either a local model or the
+#     OpenAI API depending on the server configuration.
+#     """
+#     if not whisper_model and not os.getenv("OPENAI_API_KEY"):
+#         raise HTTPException(status_code=503, detail="Transcription service not configured.")
 
-    try:
-        # Save the uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            shutil.copyfileobj(audio_file.file, tmp)
-            tmp_path = tmp.name
+#     try:
+#         # Save the uploaded file temporarily
+#         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+#             shutil.copyfileobj(audio_file.file, tmp)
+#             tmp_path = tmp.name
 
-        # --- Local Whisper Transcription ---
-        if whisper_model:
-            print(f"Transcribing with local Whisper model: {tmp_path}")
-            # The 'fp16=False' option can improve compatibility on CPUs
-            result = whisper_model.transcribe(tmp_path, fp16=False)
-            print(f"Transcription result: {result['text']}")
+#         # --- Local Whisper Transcription ---
+#         if whisper_model:
+#             print(f"Transcribing with local Whisper model: {tmp_path}")
+#             # The 'fp16=False' option can improve compatibility on CPUs
+#             result = whisper_model.transcribe(tmp_path, fp16=False)
+#             print(f"Transcription result: {result['text']}")
             
-            # Clean up the temporary file
-            os.remove(tmp_path)
+#             # Clean up the temporary file
+#             os.remove(tmp_path)
             
-            return TranscriptionResponse(
-                transcribed_text=result["text"].strip(),
-                confidence=result.get("avg_logprob") # This may not always be present
-            )
+#             return TranscriptionResponse(
+#                 transcribed_text=result["text"].strip(),
+#                 confidence=result.get("avg_logprob") # This may not always be present
+#             )
         
-        # --- OpenAI Whisper API Transcription ---
-        else:
-            print("Transcribing with OpenAI Whisper API...")
-            from openai import OpenAI
-            client = OpenAI()
+#         # --- OpenAI Whisper API Transcription ---
+#         else:
+#             print("Transcribing with OpenAI Whisper API...")
+#             from openai import OpenAI
+#             client = OpenAI()
             
-            with open(tmp_path, "rb") as audio:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio
-                )
+#             with open(tmp_path, "rb") as audio:
+#                 transcript = client.audio.transcriptions.create(
+#                     model="whisper-1",
+#                     file=audio
+#                 )
 
-            os.remove(tmp_path)
+#             os.remove(tmp_path)
 
-            return TranscriptionResponse(
-                transcribed_text=transcript.text.strip()
-            )
+#             return TranscriptionResponse(
+#                 transcribed_text=transcript.text.strip()
+#             )
 
-    except Exception as e:
-        logger.error(f"Error during transcription: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # Ensure the file is closed before cleanup
-        audio_file.file.close()
-
-
-@app.post("/api/v1/audio/tts")
-async def text_to_speech(
-    request: TTSRequest,
-    user = Depends(get_current_user)
-):
-    """Placeholder for Text-to-Speech functionality"""
-    # In a real implementation, you'd use a TTS service like ElevenLabs, Google TTS, etc.
-    return {"message": "TTS endpoint not implemented yet.", "text_received": request.text}
+#     except Exception as e:
+#         logger.error(f"Error during transcription: {e}", exc_info=True)
+#         raise HTTPException(status_code=500, detail=str(e))
+#     finally:
+#         # Ensure the file is closed before cleanup
+#         audio_file.file.close()
 
 
-@app.post("/api/v1/voice/command")
-async def process_voice_command(
-    request: VoiceCommandRequest,
-    user = Depends(get_current_user)
-):
-    """
-    Processes a transcribed voice command through the core logic pipeline.
-    This endpoint now orchestrates the interaction between different services.
-    """
-    if not llm_service:
-        raise HTTPException(status_code=503, detail="LLM service is not available")
+# @app.post("/api/v1/audio/tts")
+# async def text_to_speech(
+#     request: TTSRequest,
+#     user = Depends(get_current_user)
+# ):
+#     """Placeholder for Text-to-Speech functionality"""
+#     # In a real implementation, you'd use a TTS service like ElevenLabs, Google TTS, etc.
+#     return {"message": "TTS endpoint not implemented yet.", "text_received": request.text}
+
+
+# @app.post("/api/v1/voice/command")
+# async def process_voice_command(
+#     request: VoiceCommandRequest,
+#     user = Depends(get_current_user)
+# ):
+#     """
+#     Processes a transcribed voice command through the core logic pipeline.
+#     This endpoint now orchestrates the interaction between different services.
+#     """
+#     if not llm_service:
+#         raise HTTPException(status_code=503, detail="LLM service is not available")
     
-    command = request.command
-    context = request.context or {}
-    user_id = user["user_id"]
+#     command = request.command
+#     context = request.context or {}
+#     user_id = user["user_id"]
     
-    # 1. Determine the user's intent using the LLM
-    try:
-        intent_response = await llm_service.determine_intent(command, context)
-        intent = intent_response.get("intent", "unknown")
-        entities = intent_response.get("entities", {})
+#     # 1. Determine the user's intent using the LLM
+#     try:
+#         intent_response = await llm_service.determine_intent(command, context)
+#         intent = intent_response.get("intent", "unknown")
+#         entities = intent_response.get("entities", {})
         
-        logger.info(f"Intent determined: {intent}, Entities: {entities}")
+#         logger.info(f"Intent determined: {intent}, Entities: {entities}")
 
-        # 2. Route to the appropriate service based on intent
-        # This is where the core logic orchestration happens.
-        # Example for Gmail:
-        if intent and "email" in intent:
-            final_response = await voice_email_processor.process_command(
-                user_id=user_id,
-                command=command,
-                intent_data=intent_response
-            )
-        else:
-            # Fallback for general queries or unhandled intents
-            final_response = {
-                "verbal_response": "I'm not sure how to handle that yet, but I'm learning.",
-                "platform_updates": {},
-                "actions": []
-            }
+#         # 2. Route to the appropriate service based on intent
+#         # This is where the core logic orchestration happens.
+#         # Example for Gmail:
+#         if intent and "email" in intent:
+#             final_response = await voice_email_processor.process_command(
+#                 user_id=user_id,
+#                 command=command,
+#                 intent_data=intent_response
+#             )
+#         else:
+#             # Fallback for general queries or unhandled intents
+#             final_response = {
+#                 "verbal_response": "I'm not sure how to handle that yet, but I'm learning.",
+#                 "platform_updates": {},
+#                 "actions": []
+#             }
             
-        return {
-            "reply": final_response.get("verbal_response", "Something went wrong."),
-            "actions": final_response.get("actions", []),
-            "platform_updates": final_response.get("platform_updates", {})
-        }
+#         return {
+#             "reply": final_response.get("verbal_response", "Something went wrong."),
+#             "actions": final_response.get("actions", []),
+#             "platform_updates": final_response.get("platform_updates", {})
+#         }
 
-    except Exception as e:
-        logger.error(f"Error processing voice command: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An error occurred while processing your command.")
+#     except Exception as e:
+#         logger.error(f"Error processing voice command: {e}", exc_info=True)
+#         raise HTTPException(status_code=500, detail="An error occurred while processing your command.")
 
 
 @app.get("/api/v1/user/profile")

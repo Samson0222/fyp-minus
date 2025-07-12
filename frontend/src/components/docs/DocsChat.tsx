@@ -37,7 +37,7 @@ const DocsChat: React.FC<DocsChatProps> = ({
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !documentId) {
         if (!documentId) setError("No document is open.");
-        return;
+      return;
     }
 
     const userMessage: Message = {
@@ -62,7 +62,7 @@ const DocsChat: React.FC<DocsChatProps> = ({
       const response = await fetch(`/api/v1/assistant/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify({ 
           message: currentInput,
           conversation_history: conversation_history,
           ui_context: {
@@ -80,10 +80,10 @@ const DocsChat: React.FC<DocsChatProps> = ({
 
       const data = await response.json();
 
-      const aiMessage: Message = {
+        const aiMessage: Message = {
         id: `ai-${Date.now()}`,
         sender: 'ai',
-        timestamp: new Date(),
+          timestamp: new Date(),
         content: { type: 'text', text: 'An unexpected response was received.' } // Default
       };
 
@@ -114,7 +114,7 @@ const DocsChat: React.FC<DocsChatProps> = ({
     const systemMessage: Message = {
       id: `system-${Date.now()}`,
       sender: 'system',
-      timestamp: new Date(),
+        timestamp: new Date(),
       content: { type: 'text', text: `Action Approved: ${toolName}. (Mock confirmation)` }
     };
     setMessages(prev => [...prev, systemMessage]);
