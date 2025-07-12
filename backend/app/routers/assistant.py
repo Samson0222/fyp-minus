@@ -61,16 +61,30 @@ async def execute_tool_endpoint(
 
     try:
         # For async tools defined with @tool, the callable is stored in the .coroutine attribute.
-        # The .func attribute will be None if only an async version is provided.
         original_func = tool_to_execute.coroutine
-        
         if not original_func:
-            # If .coroutine is somehow not present, raise a clear error.
-            raise ValueError(f"Could not find an async function to call for tool '{request.tool_name}'.")
+            raise ValueError(f"Could not find an async function for tool '{request.tool_name}'.")
 
-        # The tool function's arguments are in tool_input. We pass our server-side
+        # Get the Pydantic schema for the tool's arguments.
+        args_schema = tool_to_execute.args_schema
+        if not args_schema:
+            # If there's no schema, pass the input as is.
+            validated_args_dict = request.tool_input
+        else:
+            # Parse and validate the incoming tool_input dictionary using the schema.
+            # This will convert strings to datetimes, handle validation, etc.
+            try:
+                validated_args = args_schema(**request.tool_input)
+                validated_args_dict = validated_args.dict()
+            except Exception as pydantic_error:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid arguments for tool '{request.tool_name}': {pydantic_error}"
+                )
+        
+        # The tool function's arguments are now validated. We pass our server-side
         # user_context as a keyword argument.
-        tool_kwargs = {**request.tool_input, "user_context": user}
+        tool_kwargs = {**validated_args_dict, "user_context": user}
         
         # Call the original async function directly.
         result = await original_func(**tool_kwargs)

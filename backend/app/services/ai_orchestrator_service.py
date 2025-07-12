@@ -2,6 +2,7 @@ import os
 import logging
 from typing import Dict, Any, List
 from datetime import datetime
+import pytz
 
 import google.generativeai as genai
 from google.oauth2 import service_account
@@ -53,24 +54,25 @@ class AIOrchestratorService:
 
             # --- Agent Initialization ---
             tools = [get_calendar_events, create_calendar_event_draft]
+            
+            # Get current time in Malaysia timezone
+            malaysia_tz = pytz.timezone('Asia/Kuala_Lumpur')
+            current_time_my = datetime.now(malaysia_tz)
+            
             prompt = ChatPromptTemplate.from_messages([
-                ("system", """You are Minus, a powerful AI assistant. Your primary goal is to help users manage their schedule and communications.
+                ("system", f"""You are Minus, a powerful AI assistant. Your primary goal is to help users manage their schedule and communications efficiently.
 
-The current date is: {current_date}
+The current date and time is: {current_time_my.strftime('%Y-%m-%d %H:%M:%S')} (Malaysia Time, GMT+8). Use this as the reference for any relative time queries.
 
-IMPORTANT INSTRUCTION: The user may use words like "task", "to-do", or "reminder". You must interpret all of these as a request to create a calendar event. Use the 'create_calendar_event_draft' tool for this purpose. Do not tell the user you are creating an event instead of a task; simply ask for the details needed to schedule it.
+When a user mentions creating a "task", "to-do", or "reminder", you must interpret it as a request to create a calendar event. Use the 'create_calendar_event_draft' tool. Do not simply state you are creating an event; instead, ask for the necessary details to schedule it. For example, if a user says, "Remind me to call the pharmacy," you should ask, "What time should I schedule that call for?"
 
-Example:
-User: "Remind me to call the pharmacy tomorrow."
-You: "Okay, what time tomorrow should I schedule the call to the pharmacy?"
-
-Always use your tools to help the user. If you create a draft for something, always ask the user for confirmation before proceeding."""),
+Always use your tools to help the user. When drafting an event or response, always ask for the user's confirmation before finalizing it."""),
                 ("placeholder", "{chat_history}"),
                 ("human", "{input}"),
                 ("placeholder", "{agent_scratchpad}"),
             ])
             agent = create_tool_calling_agent(self.llm, tools, prompt)
-            self.agent = agent # Store the agent
+            self.agent = agent
             self.agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
             
             self.mock_mode = False
@@ -88,37 +90,39 @@ Always use your tools to help the user. If you create a draft for something, alw
         return history
 
     async def process_message(self, request: ChatRequest) -> Dict[str, Any]:
-        print("[DEBUG] process_message called with user_context:", request.user_context)
-        if self.mock_mode or not self.agent:
-            return {
-                "type": "text",
-                "response": f"Orchestrator is in mock mode. Received: '{request.input}'"
-            }
+        """Processes the user's message, manages conversation history, and invokes the AI agent."""
+        if self.mock_mode:
+            return {"response": "Orchestrator is in mock mode.", "type": "text"}
         
+        # Prepare the chat history
         chat_history = self._prepare_chat_history(request.chat_history)
-        current_date_str = datetime.now().strftime("%Y-%m-%d")
+        user_input = request.input
+        user_context = request.user_context
+
+        # Get current time in Malaysia timezone for the prompt on each request
+        malaysia_tz = pytz.timezone('Asia/Kuala_Lumpur')
+        current_time_my = datetime.now(malaysia_tz)
         
+        # Dynamically inject the current time into the prompt for each call
         try:
-            # Invoke the agent to get the next action or response, but don't execute tools yet.
-            agent_response = await self.agent.ainvoke({
-                "input": request.input,
+            response = await self.agent.ainvoke({
+                "input": user_input,
                 "chat_history": chat_history,
-                "intermediate_steps": [], # This is required by the agent's prompt
-                "current_date": current_date_str # Pass the current date to the prompt
+                "intermediate_steps": [], # This is required by the agent's prompt structure
+                "user_context": user_context
             })
 
-            # The agent returns AgentFinish when it has a final answer,
-            # or AgentAction when it needs to use a tool.
-            if isinstance(agent_response, AgentFinish):
-                # The agent is done, return the final response.
+            # Handle the agent's response
+            if isinstance(response, AgentFinish):
+                # This is a final text response from the agent
                 return {
                     "type": "text",
-                    "response": agent_response.return_values.get("output", "I'm not sure how to respond.")
+                    "response": response.return_values.get("output", "I'm not sure how to respond.")
                 }
 
             # If it's not AgentFinish, it should be an AgentAction (or a list of them).
             # For our draft workflow, we only handle the first action.
-            actions = agent_response if isinstance(agent_response, list) else [agent_response]
+            actions = response if isinstance(response, list) else [response]
             
             if actions and isinstance(actions[0], AgentAction):
                 tool_call = actions[0]
@@ -130,7 +134,7 @@ Always use your tools to help the user. If you create a draft for something, alw
                 }
 
             # Fallback for any other unexpected response type from the agent.
-            logging.error(f"Unexpected agent response type: {type(agent_response)}")
+            logging.error(f"Unexpected agent response type: {type(response)}")
             return {
                 "type": "error",
                 "response": "Sorry, I received an unexpected response from the AI."

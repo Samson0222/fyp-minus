@@ -16,7 +16,7 @@ export interface Message {
   } | {
     type: 'tool_draft';
     tool_name: string;
-    tool_input: any;
+    tool_input: unknown;
     assistant_message: string;
   };
 }
@@ -26,8 +26,8 @@ export interface Message {
 export interface ChatSidebarUIProps {
   messages: Message[];
   onSendMessage: () => void;
-  onApproveTool: (toolName: string, toolInput: any) => void;
-  onRejectTool: (toolName: string, toolInput: any) => void;
+  onApproveTool: (toolName: string, toolInput: unknown) => void;
+  onRejectTool: (toolName: string, toolInput: unknown) => void;
 
   inputValue: string;
   onInputChange: (value: string) => void;
@@ -44,7 +44,12 @@ export interface ChatSidebarUIProps {
 }
 
 // Helper component for rendering the "Draft, Review, Approve" UI
-const ToolDraftCard: React.FC<{ message: Message, onApprove: Function, onReject: Function }> = ({ message, onApprove, onReject }) => {
+interface ToolDraftCardProps {
+  message: Message;
+  onApprove: (toolName: string, toolInput: unknown) => void;
+  onReject: (toolName: string, toolInput: unknown) => void;
+}
+const ToolDraftCard: React.FC<ToolDraftCardProps> = ({ message, onApprove, onReject }) => {
   if (message.content.type !== 'tool_draft') return null;
   const { tool_name, tool_input, assistant_message } = message.content;
 
@@ -137,19 +142,19 @@ const ChatSidebarUI: React.FC<ChatSidebarUIProps> = ({
   }
 
   return (
-    <div className="h-full bg-dark-secondary border-l border-white/5 w-96 flex flex-col relative transition-all duration-300">
-       <button
+    <div
+      className="bg-dark-secondary border-l border-white/5 flex flex-col relative transition-all duration-300 h-full w-full"
+    >
+      <button
         onClick={onToggleCollapse}
         className="absolute -left-3 top-1/2 transform -translate-y-1/2 bg-dark-secondary border border-white/10 rounded-full p-1 z-10 hover:bg-dark-tertiary transition-colors"
       >
         <ChevronRight size={16} />
       </button>
-
-      <div className="p-4 border-b border-white/5 flex justify-center items-center">
+      <div className="p-4 border-b border-white/5 flex justify-center items-center w-full">
         <h2 className="text-lg font-semibold text-white">{title}</h2>
       </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-violet scrollbar-track-dark-tertiary">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-violet scrollbar-track-dark-tertiary w-full">
         {messages.length === 0 && !isLoading && (
           <div className="flex items-center justify-center h-full">
             <p className="text-white/50 text-center">{emptyStateMessage}</p>
@@ -187,9 +192,8 @@ const ChatSidebarUI: React.FC<ChatSidebarUIProps> = ({
 
         <div ref={messagesEndRef} />
       </div>
-
-      <div className="p-4 border-t border-white/5">
-        <form onSubmit={handleSubmit} className="relative flex items-center">
+      <div className="p-4 border-t border-white/5 w-full">
+        <form onSubmit={handleSubmit} className="relative flex items-center w-full">
           <Textarea
             ref={textareaRef}
             value={inputValue}

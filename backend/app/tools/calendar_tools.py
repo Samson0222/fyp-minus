@@ -14,36 +14,42 @@ class CalendarEventInput(BaseModel):
     attendees: List[str] = Field(default_factory=list, description="A list of attendee email addresses.")
 
 class GetEventsInput(BaseModel):
-    start_date: str = Field(description="The start date for the range in ISO format (e.g., YYYY-MM-DD).")
-    end_date: str = Field(description="The end date for the range in ISO format (e.g., YYYY-MM-DD).")
+    start_time: datetime.datetime = Field(description="The start date and time for the event range in ISO 8601 format.")
+    end_time: datetime.datetime = Field(description="The end date and time for the event range in ISO 8601 format.")
 
 
 @tool("get_calendar_events", args_schema=GetEventsInput)
-async def get_calendar_events(start_date: str, end_date: str, **kwargs) -> List[Dict[str, Any]]:
+async def get_calendar_events(start_time: datetime.datetime, end_time: datetime.datetime, **kwargs) -> List[Dict[str, Any]]:
     """
-    Retrieves Google Calendar events for a specified user within a given date range.
-    Use this tool to answer any questions about what is on a user's calendar,
-    such as "what's on my calendar today?" or "do I have any events next week?".
+    Retrieves Google Calendar events for a specified user within a given datetime range.
+    Use this tool to answer any questions about what is on a user's calendar.
 
-    - When a user asks for events for "today", you must calculate the current date
-      and provide it as both the start_date and end_date.
-    - The user's query may be relative (e.g., "tomorrow", "next Tuesday"). You
-      must convert these relative terms to absolute dates in ISO 8601 format.
-    - All dates must be in ISO 8601 format (YYYY-MM-DD).
+    - You MUST convert any relative time phrases into specific start and end datetimes.
+    - Examples of relative time phrases you must handle:
+      - "today": from the start of the current day to the end of the current day.
+      - "next hour": from the current time to one hour from the current time.
+      - "this afternoon": from 12:00 PM to 5:00 PM on the current day.
+      - "tomorrow at 3pm": A one-hour event starting at 3:00 PM tomorrow.
+      - "this weekend": from Friday at 5:00 PM to Sunday at 11:59 PM.
+    - All datetimes must be in ISO 8601 format (e.g., YYYY-MM-DDTHH:MM:SS).
     """
     user_context = kwargs.get("user_context")
     if not user_context:
         return {"error": "User context is missing, cannot retrieve calendar events."}
 
-    print(f"Tool 'get_calendar_events' called for user '{user_context.user_id}' with range: {start_date} to {end_date}")
+    print(f"Tool 'get_calendar_events' called for user '{user_context.user_id}' with range: {start_time} to {end_time}")
     
+    # Ensure the datetime objects are timezone-aware (UTC) before formatting.
+    # This is required for the Google Calendar API.
+    start_time_aware = start_time.replace(tzinfo=datetime.timezone.utc)
+    end_time_aware = end_time.replace(tzinfo=datetime.timezone.utc)
+
     calendar_service = GoogleCalendarService()
-    # The get_events method on the service is not async, so we call it directly.
-    # In a real-world scenario with I/O, you would run this in a thread pool.
+    
     events = calendar_service.get_events(
         user_id=user_context.user_id,
-        time_min=start_date,
-        time_max=end_date
+        time_min=start_time_aware.isoformat(),
+        time_max=end_time_aware.isoformat()
     )
     
     if events is None:
