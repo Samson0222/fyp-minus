@@ -7,7 +7,8 @@ from pydantic import BaseModel
 from app.core.database import get_database, SupabaseManager
 from app.services.telegram_service import TelegramService
 from app.websockets import ConnectionManager
-from app.dependencies import get_user_id
+from app.dependencies import get_current_user
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/telegram", tags=["telegram"])
@@ -38,10 +39,10 @@ class TelegramSendMessage(BaseModel):
     message: str
 
 # Dependency to get current user (using the same pattern as other routers)
-async def get_current_user():
-    """Stub user extraction - replace with real auth if needed."""
-    # This UUID must match a real user in the Supabase `auth.users` table.
-    return {"user_id": "cbede3b0-2f68-47df-9c26-09a46e588567", "email": "test@example.com"}
+# async def get_current_user():
+#     """Stub user extraction - replace with real auth if needed."""
+#     # This UUID must match a real user in the Supabase `auth.users` table.
+#     return {"user_id": "cbede3b0-2f68-47df-9c26-09a46e588567", "email": "test@example.com"}
 
 def get_telegram_service(db: SupabaseManager = Depends(get_database)) -> TelegramService:
     """Dependency to get Telegram service instance"""
@@ -49,7 +50,7 @@ def get_telegram_service(db: SupabaseManager = Depends(get_database)) -> Telegra
 
 @router.get("/selectable_chats")
 async def get_selectable_chats(
-    user = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     telegram_service: TelegramService = Depends(get_telegram_service)
 ):
     """
@@ -57,9 +58,7 @@ async def get_selectable_chats(
     This returns all discovered chats (both active and inactive).
     """
     try:
-        user_id = user["user_id"]
-        # Correctly call the new service method
-        chats = await telegram_service.get_selectable_chats(user_id)
+        chats = await telegram_service.get_selectable_chats(user.id)
         
         return {
             "success": True,
@@ -74,7 +73,7 @@ async def get_selectable_chats(
 @router.put("/monitored_chats")
 async def update_monitored_chats(
     request: MonitoredChatsUpdateRequest,
-    user = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     telegram_service: TelegramService = Depends(get_telegram_service)
 ):
     """
@@ -83,12 +82,9 @@ async def update_monitored_chats(
     desired `is_active` status.
     """
     try:
-        user_id = user["user_id"]
-        
-        # Convert Pydantic models to dicts for the service layer
         chat_selections = [chat.dict() for chat in request.chats]
         
-        success = await telegram_service.update_monitored_chats(user_id, chat_selections)
+        success = await telegram_service.update_monitored_chats(user.id, chat_selections)
         
         if success:
             return {
@@ -105,37 +101,36 @@ async def update_monitored_chats(
 
 @router.get("/summary", status_code=status.HTTP_200_OK)
 async def get_telegram_summary(
-    user_id: str = Depends(get_user_id),
+    user: User = Depends(get_current_user),
     db: SupabaseManager = Depends(get_database)
 ):
     """Gets a summary of unread and recent chats."""
     telegram_service = TelegramService(db)
-    summary = await telegram_service.get_telegram_summary(user_id)
+    summary = await telegram_service.get_telegram_summary(user.user_id)
     return {"success": True, "summary": summary}
 
 @router.get("/active_chats", status_code=status.HTTP_200_OK)
 async def get_active_chats(
-    user_id: str = Depends(get_user_id),
+    user: User = Depends(get_current_user),
     db: SupabaseManager = Depends(get_database)
 ):
     """Gets all active chats for the search/composer feature."""
     telegram_service = TelegramService(db)
-    chats = await telegram_service.get_active_chats_for_search(user_id)
+    chats = await telegram_service.get_active_chats_for_search(user.id)
     return {"success": True, "chats": chats}
 
 @router.get("/conversation/{chat_id}", status_code=status.HTTP_200_OK)
 async def get_conversation(
     chat_id: int,
     limit: int = 50,
-    user = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     telegram_service: TelegramService = Depends(get_telegram_service)
 ):
     """
     Get message history for a specific chat.
     """
     try:
-        user_id = user["user_id"]
-        messages = await telegram_service.get_conversation_history(user_id, chat_id, limit)
+        messages = await telegram_service.get_conversation_history(user.id, chat_id, limit)
         
         # Mark messages as read when conversation is viewed
         # await telegram_service.mark_chat_as_read(user_id, chat_id) # Removed for new logic
@@ -155,7 +150,7 @@ async def get_conversation(
 async def reply_to_chat(
     chat_id: int,
     request: ReplyRequest,
-    user_id: str = Depends(get_user_id),
+    user: User = Depends(get_current_user),
     db: SupabaseManager = Depends(get_database)
 ):
     """Sends a reply to a specific chat."""
@@ -163,7 +158,7 @@ async def reply_to_chat(
     sent_message_data = await telegram_service.send_message(
         chat_id=chat_id,
         text=request.content,
-        user_id=user_id
+        user_id=user.id
     )
     if sent_message_data:
         return {"success": True, "message": sent_message_data}
@@ -173,12 +168,12 @@ async def reply_to_chat(
 @router.post("/send", status_code=status.HTTP_200_OK)
 async def send_telegram_message(
     payload: TelegramSendMessage,
-    user_id: str = Depends(get_user_id),
+    user: User = Depends(get_current_user),
     db: SupabaseManager = Depends(get_database)
 ):
     """Endpoint to send a message to a Telegram chat."""
     telegram_service = TelegramService(db)
-    sent_message_data = await telegram_service.send_message(payload.chat_id, payload.message, user_id)
+    sent_message_data = await telegram_service.send_message(payload.chat_id, payload.message, user.user_id)
     if sent_message_data:
         return {"success": True, "message": "Message sent successfully.", "data": sent_message_data}
     else:
@@ -187,12 +182,12 @@ async def send_telegram_message(
 @router.post("/conversation/{chat_id}/mark_unread", status_code=status.HTTP_200_OK)
 async def mark_chat_as_unread(
     chat_id: int,
-    user_id: str = Depends(get_user_id),
+    user: User = Depends(get_current_user),
     db: SupabaseManager = Depends(get_database)
 ):
     """Marks all messages in a chat as UNREAD."""
     telegram_service = TelegramService(db)
-    success = await telegram_service.mark_chat_as_unread(user_id, chat_id)
+    success = await telegram_service.mark_chat_as_unread(user.id, chat_id)
     if success:
         return {"success": True, "message": "Chat marked as unread."}
     else:
@@ -201,12 +196,12 @@ async def mark_chat_as_unread(
 @router.post("/conversation/{chat_id}/mark_read", status_code=status.HTTP_200_OK)
 async def mark_chat_as_read(
     chat_id: int,
-    user_id: str = Depends(get_user_id),
+    user: User = Depends(get_current_user),
     db: SupabaseManager = Depends(get_database)
 ):
     """Marks all messages in a chat as read."""
     telegram_service = TelegramService(db)
-    success = await telegram_service.mark_chat_as_read(user_id, chat_id)
+    success = await telegram_service.mark_chat_as_read(user.id, chat_id)
     if success:
         return {"success": True, "message": "Chat marked as read."}
     else:
@@ -215,12 +210,12 @@ async def mark_chat_as_read(
 @router.post("/conversation/{chat_id}/clear_history", status_code=status.HTTP_200_OK)
 async def clear_chat_history_endpoint(
     chat_id: int,
-    user_id: str = Depends(get_user_id),
+    user: User = Depends(get_current_user),
     db: SupabaseManager = Depends(get_database)
 ):
     """Deletes all messages for a specific chat."""
     telegram_service = TelegramService(db)
-    success = await telegram_service.clear_chat_history(user_id, chat_id)
+    success = await telegram_service.clear_chat_history(user.id, chat_id)
     if success:
         return {"success": True, "message": "Chat history cleared."}
     else:
@@ -229,7 +224,7 @@ async def clear_chat_history_endpoint(
 @router.post("/webhook")
 async def telegram_webhook(
     request: Request,
-    user = Depends(get_current_user), # Using the stub user for now
+    user: User = Depends(get_current_user),
     telegram_service: TelegramService = Depends(get_telegram_service)
 ):
     """
@@ -242,7 +237,7 @@ async def telegram_webhook(
         
         # The user_id is hardcoded for now, as the webhook is unauthenticated.
         # This is a key area for improvement in a real production system.
-        user_id = user["user_id"] 
+        user_id = user.id 
         
         await telegram_service.handle_webhook_update(update_data, user_id)
         
@@ -256,7 +251,7 @@ async def telegram_webhook(
 @router.post("/webhook/test")
 async def telegram_webhook_test(
     request: TelegramUpdate, # Use pydantic model for testing
-    user = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     telegram_service: TelegramService = Depends(get_telegram_service)
 ):
     """
@@ -268,7 +263,7 @@ async def telegram_webhook_test(
         
         # The user_id is hardcoded for now, as the webhook is unauthenticated.
         # This is a key area for improvement in a real production system.
-        user_id = user["user_id"] 
+        user_id = user.id 
         
         await telegram_service.handle_webhook_update(update_data, user_id)
         
@@ -279,14 +274,14 @@ async def telegram_webhook_test(
 
 @router.get("/status")
 async def get_telegram_status(
-    user = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     telegram_service: TelegramService = Depends(get_telegram_service)
 ):
     """
     Check Telegram integration status for the user.
     """
     try:
-        user_id = user["user_id"]
+        user_id = user.id
         
         # Check if bot token is configured
         has_token = bool(telegram_service.bot_token)

@@ -19,7 +19,7 @@ class GetEventsInput(BaseModel):
 
 
 @tool("get_calendar_events", args_schema=GetEventsInput)
-async def get_calendar_events(start_date: str, end_date: str, user_context: UserContext) -> List[Dict[str, Any]]:
+async def get_calendar_events(start_date: str, end_date: str, **kwargs) -> List[Dict[str, Any]]:
     """
     Retrieves Google Calendar events for a specified user within a given date range.
     Use this tool to answer any questions about what is on a user's calendar,
@@ -31,6 +31,10 @@ async def get_calendar_events(start_date: str, end_date: str, user_context: User
       must convert these relative terms to absolute dates in ISO 8601 format.
     - All dates must be in ISO 8601 format (YYYY-MM-DD).
     """
+    user_context = kwargs.get("user_context")
+    if not user_context:
+        return {"error": "User context is missing, cannot retrieve calendar events."}
+
     print(f"Tool 'get_calendar_events' called for user '{user_context.user_id}' with range: {start_date} to {end_date}")
     
     calendar_service = GoogleCalendarService()
@@ -49,10 +53,14 @@ async def get_calendar_events(start_date: str, end_date: str, user_context: User
 
 
 @tool("create_calendar_event_draft", args_schema=CalendarEventInput)
-async def create_calendar_event_draft(summary: str, start_time: datetime.datetime, end_time: datetime.datetime, user_context: UserContext, attendees: List[str]) -> Dict[str, Any]:
+async def create_calendar_event_draft(summary: str, start_time: datetime.datetime, end_time: datetime.datetime, attendees: List[str], **kwargs) -> Dict[str, Any]:
     """
     Creates a new calendar event for the specified user.
     """
+    user_context = kwargs.get("user_context")
+    if not user_context:
+        return {"error": "User context is missing, cannot create calendar event."}
+
     print(f"Tool 'create_calendar_event_draft' called for user '{user_context.user_id}' with summary: '{summary}'")
     
     calendar_service = GoogleCalendarService()

@@ -88,6 +88,7 @@ Always use your tools to help the user. If you create a draft for something, alw
         return history
 
     async def process_message(self, request: ChatRequest) -> Dict[str, Any]:
+        print("[DEBUG] process_message called with user_context:", request.user_context)
         if self.mock_mode or not self.agent:
             return {
                 "type": "text",

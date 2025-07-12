@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import ChatSidebarUI, { Message } from './ChatSidebarUI'; // Assuming Message is exported from ChatSidebarUI
-// TODO: Import useAuth to get real user context
-// import { useAuth } from '../../hooks/use-auth';
+import { useAuth } from '../../hooks/use-auth'; // Import the real auth hook
 
 const GeneralPurposeChatWrapper: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -9,12 +8,17 @@ const GeneralPurposeChatWrapper: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  // TODO: Get user from auth context
-  // const { user } = useAuth();
+  const { user } = useAuth(); // Get the authenticated user object
 
   // This function will be called when the user sends a message.
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
+
+    if (!user) {
+        setError("You must be logged in to chat with the assistant.");
+        setIsLoading(false);
+        return;
+    }
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -61,8 +65,8 @@ const GeneralPurposeChatWrapper: React.FC = () => {
         body: JSON.stringify({
           input: inputValue,
           chat_history: chat_history,
-          // TODO: Replace with real user data from useAuth hook
-          user_context: { user_id: 'placeholder_user_id', google_credentials: 'placeholder_token' } 
+          // Use the real user ID and remove the placeholder credentials
+          user_context: { user_id: user.id } 
         }),
       });
 
@@ -129,6 +133,12 @@ const GeneralPurposeChatWrapper: React.FC = () => {
     };
     setMessages(prev => [...prev, executingMessage]);
 
+    if (!user) {
+        setError("You must be logged in to approve a tool.");
+        setIsLoading(false);
+        return;
+    }
+
     try {
       const response = await fetch('/api/v1/assistant/execute_tool', {
         method: 'POST',
@@ -136,9 +146,8 @@ const GeneralPurposeChatWrapper: React.FC = () => {
         body: JSON.stringify({
           tool_name: toolName,
           tool_input: toolInput,
-          // The same user_context must be passed for the tool to use the correct credentials
-          // TODO: Replace with real user data from useAuth hook
-          user_context: { user_id: 'placeholder_user_id', google_credentials: 'placeholder_token' }
+          // Use the real user ID and remove the placeholder credentials
+          user_context: { user_id: user.id }
         }),
       });
 

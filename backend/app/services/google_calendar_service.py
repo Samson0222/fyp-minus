@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -60,6 +60,38 @@ class GoogleCalendarService:
             return service
         except Exception as e:
             logger.error(f"Failed to build Google Calendar service for user {user_id}: {e}")
+            return None
+
+    def get_events(self, user_id: str, time_min: str, time_max: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Retrieves events from the user's primary calendar within a specified time range.
+        """
+        logger.info(f"Attempting to retrieve Google Calendar events for user {user_id}")
+        service = self._get_service(user_id)
+        if not service:
+            logger.error("Cannot retrieve events: Google Calendar service not available.")
+            return None
+
+        try:
+            # Add '.000Z' to make it a valid RFC3339 timestamp if it's not already
+            if 'T' not in time_min:
+                time_min = f"{time_min}T00:00:00.000Z"
+            if 'T' not in time_max:
+                time_max = f"{time_max}T23:59:59.999Z"
+            
+            events_result = service.events().list(
+                calendarId='primary',
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            
+            events = events_result.get('items', [])
+            logger.info(f"Successfully retrieved {len(events)} events for user {user_id}")
+            return events
+        except HttpError as error:
+            logger.error(f"An error occurred retrieving Google events for user {user_id}: {error}")
             return None
 
     def create_event_from_dict(self, user_id: str, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
