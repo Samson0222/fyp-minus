@@ -7,7 +7,6 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build, Resource
 from googleapiclient.errors import HttpError
 
-
 from app.core.config import GOOGLE_SCOPES
 
 # Configure logging
@@ -94,6 +93,22 @@ class GoogleCalendarService:
             logger.error(f"An error occurred retrieving Google events for user {user_id}: {error}")
             return None
 
+    def get_event(self, user_id: str, event_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves a single event by its ID.
+        """
+        logger.info(f"Attempting to retrieve single Google event {event_id} for user {user_id}")
+        service = self._get_service(user_id)
+        if not service:
+            logger.error(f"Cannot get event: Google Calendar service not available for user {user_id}")
+            return None
+        try:
+            event = service.events().get(calendarId='primary', eventId=event_id).execute()
+            return event
+        except HttpError as error:
+            logger.error(f"An error occurred getting Google event {event_id}: {error}")
+            return None
+
     def create_event_from_dict(self, user_id: str, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Creates a new event on Google Calendar from event data dictionary."""
         logger.info(f"Attempting to create Google Calendar event for user {user_id}")
@@ -110,7 +125,7 @@ class GoogleCalendarService:
             logger.error(f"An error occurred creating Google event: {error}")
             return None
 
-    def update_event_from_dict(self, user_id: str, event_id: str, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update_event(self, user_id: str, event_id: str, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Updates an existing event on Google Calendar."""
         logger.info(f"Attempting to update Google Calendar event {event_id} for user {user_id}")
         service = self._get_service(user_id)
@@ -148,4 +163,4 @@ class GoogleCalendarService:
                 logger.warning(f"Google event {google_event_id} was already gone.")
                 return True
             logger.error(f"An error occurred deleting Google event {google_event_id}: {error}")
-            return False 
+            return False
