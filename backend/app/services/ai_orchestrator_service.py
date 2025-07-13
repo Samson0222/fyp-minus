@@ -13,16 +13,20 @@ from pydantic import BaseModel, Field
 
 # Internal Imports
 from app.tools.calendar_tools import get_calendar_events, create_calendar_event_draft, edit_calendar_event
+from app.tools.gmail_tools import list_emails, get_email_details, create_draft_email, send_draft, delete_draft
 from app.models.user_context import UserContext
 from app.models.conversation_state import ConversationState
 from app.models.intent import Intent
+from app.services.gmail_service import GmailService
 
 # Pydantic Models for the new two-stage router
 class _IntentClassification(BaseModel):
     """The classified high-level intent of the user."""
-    intent: Literal['create_event', 'edit_event', 'find_event', 'list_events', 'general_chat'] = Field(
-        description="The user's single primary goal."
-    )
+    intent: Literal[
+        'create_event', 'edit_event', 'find_event', 'list_events',
+        'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
+        'general_chat'
+    ] = Field(description="The user's single primary goal.")
 
 class Message(BaseModel):
     """A single message in a conversation history."""
@@ -62,7 +66,15 @@ class AIOrchestratorService:
             ("system",
              "You are an expert at classifying user intent. Based on the user's message and the conversation history, "
              "identify the user's primary goal. The goal must be one of: "
-             "`create_event`, `edit_event`, `find_event`, `list_events`, or `general_chat`. \n"
+             "`create_event`, `edit_event`, `find_event`, `list_events`, "
+             "`list_emails`, `find_email`, `compose_email`, `reply_to_email`, `send_email_draft`, `refine_email_draft`, `cancel_email_draft`, or `general_chat`. \n"
+             "- A request like 'what's new in my email?' is `list_emails`. \n"
+             "- A request like 'find the email from jane' is `find_email`. \n"
+             "- A request like 'draft an email to john' is `compose_email`. \n"
+             "- A request like 'reply to the last email' is `reply_to_email`. \n"
+             "- A request like 'make it more formal' or 'add a sentence' while a draft is being reviewed implies the `refine_email_draft` intent. \n"
+             "- A user saying 'send it' or clicking 'send' on a draft review card implies the `send_email_draft` intent. \n"
+             "- A user saying 'cancel that' or 'nevermind' while a draft is being reviewed implies the `cancel_email_draft` intent. \n"
              "- A request like 'what's on my calendar?' is `list_events`. \n"
              "- A request like 'find my meeting with bob' is `find_event`. \n"
              "- A request like 'when is my latest dental appointment?' is `find_event`."),
@@ -102,6 +114,41 @@ class AIOrchestratorService:
                 "1. `event_description`: The subject of the event to find and edit (e.g., 'dental appointment'). "
                 "Look in chat history if they say 'it'.\n"
                 "2. `summary`, `start_time`, `end_time`, `description`: Any NEW details to update the event with."
+            ),
+            'list_emails': (
+                "The user wants to see their emails. Extract any search query they provide. "
+                "For example, in 'show me unread emails from uber', the query is 'is:unread from:uber'. "
+                "If no query is given, default to 'is:inbox'."
+            ),
+            'find_email': (
+                "The user wants to find a specific email. Extract the essential keywords from their request. "
+                "For example, for 'the latest email about the project proposal from lyft', the keywords would be 'project proposal lyft'. "
+                "Crucially, DO NOT include conversational words or search operators like 'latest', 'newest', 'find', 'from:', or 'is:'. "
+                "Just extract the core nouns, names, or topics."
+            ),
+            'compose_email': (
+                "The user wants to write a new email. Extract the `email_to`, `email_subject`, and `email_body`."
+            ),
+            'reply_to_email': (
+                "The user wants to reply to an email. First, identify the email to reply to. Look for clues like 'the last one' or a subject. "
+                "If they don't specify, note that `email_query` is 'the last email'. "
+                "Then, extract the core message for the `email_body`. For example, in 'tell him I will attend', the body is 'I will attend'. "
+                "The AI will expand this into a full, polite email later."
+            ),
+            'send_email_draft': (
+                "The user has approved sending a draft, either by clicking a button or by saying something like 'send it' or 'looks good'. "
+                "If the user message is a JSON object, extract the `draft_id`. "
+                "If it's a natural language command, you don't need to extract anything; the system will use the draft ID from its memory."
+            ),
+            'refine_email_draft': (
+                "The user is reviewing a draft and wants to change it. "
+                "Your job is to extract the user's LATEST refinement instruction from their most recent message. "
+                "For example, if the user says 'make it sound more formal', the `email_body` should be 'make it sound more formal'. "
+                "IGNORE previous instructions in the chat history."
+            ),
+            'cancel_email_draft': (
+                "The user wants to cancel and delete the current email draft. They might say 'cancel it', 'stop', or 'nevermind'. "
+                "No parameters are needed."
             )
         }
         
@@ -118,8 +165,12 @@ class AIOrchestratorService:
         chain = prompt | structured_llm
         # We need to manually set the intent on the result as the extractor doesn't know about it.
         extracted_data = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
+        if extracted_data:
         extracted_data.intent = intent_name
         return extracted_data
+        
+        # If the extractor returns nothing, return a base intent object to avoid errors
+        return Intent(intent=intent_name)
 
     def _prune_event_list_for_resolver(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Prunes the event list to only include fields relevant for AI reasoning."""
@@ -330,8 +381,281 @@ class AIOrchestratorService:
             error_message = result.get("error", "Sorry, I couldn't update the event. Please try again.")
             return {"response": error_message, "state": state.dict()}
 
+    async def _handle_list_emails_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles the 'list_emails' intent."""
+        query = intent.query or "is:inbox"
+        
+        email_list = await list_emails.coroutine(query=query, max_results=5, user_context=user_context, testing=testing)
+
+        if not email_list:
+            return {"response": f"I couldn't find any emails for the query '{query}'.", "state": state.dict()}
+            
+        # Let the LLM format the response nicely
+        prompt = (
+            f"Here is a list of emails found for the user's query: '{user_input}'. "
+            f"Please present this to the user in a clear, summarized way.\n\n"
+            f"Emails: {email_list}"
+        )
+        final_response = await self.chat_llm.ainvoke(prompt)
+        return {"response": final_response.content, "state": state.dict()}
+
+    async def _handle_find_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """
+        Handles finding a specific email by first fetching a list of recent emails 
+        and then using an LLM to reason over that list to find the best match.
+        This approach is more robust than relying on a perfect search query from the first LLM.
+        """
+        print("\n--- HANDLING FIND_EMAIL INTENT ---")
+        if not intent.query:
+            print("LOG: Intent has no query. Aborting.")
+            return {"response": "I can help find an email, but I need to know what to search for. For example, 'the email from my manager' or 'the email about the quarterly report'.", "state": state.dict()}
+
+        # Step 1: Fetch a broad list of recent emails (e.g., last 30 days)
+        # The user's original query (e.g., 'from:Samson') is still useful for a first-pass filter.
+        print(f"LOG: Step 1 - Searching for candidate emails with initial query: '{intent.query}'")
+        candidate_emails = await list_emails.coroutine(query=intent.query, max_results=10, user_context=user_context, testing=testing) # Increased max_results
+
+        if not candidate_emails:
+            print("LOG: list_emails tool returned no results.")
+            return {"response": f"I couldn't find any emails matching your search: '{intent.query}'. You could try being less specific to see more results.", "state": state.dict()}
+
+        print(f"LOG: Found {len(candidate_emails)} candidate email(s).")
+
+        # If there's only one result, we can skip the reasoning step.
+        if len(candidate_emails) == 1:
+            best_match_id = candidate_emails[0]['id']
+            print("LOG: Step 2 - Only one candidate found. Skipping LLM resolver.")
+        else:
+            # Step 2: Use a resolver LLM to reason over the list of candidates
+            print(f"LOG: Step 2 - Multiple candidates found. Engaging LLM to resolve the best match.")
+            resolver_prompt = ChatPromptTemplate.from_messages([
+                ("system",
+                 "You are a reasoning engine. Below is a user's request and a list of JSON objects representing their recent emails. "
+                 "Your task is to analyze the request and identify the `id` of the single email from the list that best matches. "
+                 "Pay close attention to relative terms like 'latest', 'newest', 'first', or 'oldest'. "
+                 "To determine the 'latest' or 'newest', you MUST compare the `date` field of each email object. A more recent date is later. "
+                 "Respond ONLY with the `id` of the single best matching email, or 'null' if no single email is a clear match."),
+                ("human", "User Request: {user_input}\n\nEmail List:\n{email_list}")
+            ])
+            
+            # A Pydantic model for the resolver's response
+            class _EmailResolverResponse(BaseModel):
+                matched_email_id: Optional[str] = Field(description="The 'id' of the single email object that best matches the user's request.")
+
+            structured_resolver_llm = self.chat_llm.with_structured_output(_EmailResolverResponse)
+            resolver_chain = resolver_prompt | structured_resolver_llm
+            
+            resolver_result = await resolver_chain.ainvoke({
+                "user_input": user_input,
+                "email_list": str(candidate_emails) # Pass the list of dicts as a string
+            })
+
+            # FIX: Handle the case where the resolver fails and returns a None object.
+            if resolver_result:
+                best_match_id = resolver_result.matched_email_id
+            else:
+                best_match_id = None
+
+            print(f"LOG: LLM Resolver has finished. Best match ID: {best_match_id}")
+        
+        # Step 3: Act on the resolved email ID
+        print(f"LOG: Step 3 - Proceeding with email ID: {best_match_id}")
+        if best_match_id:
+            email_details = await get_email_details.coroutine(message_id=best_match_id, summarize=True, user_context=user_context, testing=testing)
+            
+            if not email_details or "error" in email_details:
+                 print("LOG: Error fetching details for the resolved email.")
+                 return {"response": "I found the right email, but ran into an error trying to read its content.", "state": state.dict()}
+
+            state.last_email_id = email_details.get('id')
+            state.last_thread_id = email_details.get('thread_id')
+            
+            # The summary is already in email_details because of summarize=True
+            summary = email_details.get('summary', 'The summary is not available.')
+            
+            prompt = f"The user asked for: '{user_input}'. I found the following email and summarized it: {summary}. Present this summary to the user and ask if they would like to reply."
+            print("LOG: Generating final summary response for user.")
+            final_response = await self.chat_llm.ainvoke(prompt)
+            return {"response": final_response.content, "state": state.dict()}
+        else:
+            print("LOG: LLM resolver could not determine a best match or returned null.")
+            # Create a user-friendly list of options if the resolver fails
+            options_list = "\n".join([f"- From: {email.get('sender', {}).get('name', 'N/A')}, Subject: {email.get('subject', 'N/A')}" for email in candidate_emails])
+            return {"response": f"I found a few emails matching '{intent.query}', but I'm not sure which one you meant. Here are the top results:\n{options_list}\n\nCould you be more specific?", "state": state.dict()}
+
+    async def _handle_compose_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles the 'compose_email' intent by creating a draft."""
+        if not intent.email_to or not intent.email_subject or not intent.email_body:
+            return {"response": "To compose an email, I need to know who it's for, the subject, and the message. Could you provide those details?", "state": state.dict()}
+            
+        draft_details = await create_draft_email.coroutine(
+            to=intent.email_to,
+            subject=intent.email_subject,
+            body=intent.email_body,
+            user_context=user_context,
+            testing=testing
+        )
+        
+        # This is a special response type the frontend will look for
+        return {
+            "type": "draft_review",
+            "details": draft_details,
+            "state": state.dict()
+        }
+
+    async def _handle_reply_to_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles replying to an email by creating a draft reply."""
+        thread_id = state.last_thread_id
+        email_to_reply_to = None
+
+        if not thread_id:
+            # If no thread is in context, we must find the email first.
+            # Default to finding the 'latest' email if no query is provided by the extractor.
+            find_query = intent.email_query or "in:inbox" 
+            
+            found_emails = await list_emails.coroutine(query=find_query, max_results=1, user_context=user_context, testing=testing)
+            if not found_emails:
+                return {"response": f"I couldn't find an email to reply to based on your request: '{user_input}'.", "state": state.dict()}
+            
+            email_to_reply_to = await get_email_details.coroutine(message_id=found_emails[0]['id'], user_context=user_context, testing=testing)
+            thread_id = email_to_reply_to.get('thread_id')
+            state.last_thread_id = thread_id
+            state.last_email_id = email_to_reply_to.get('id')
+        else:
+            # We have a thread, get the details of the last message to prepare the reply
+            email_to_reply_to = await get_email_details.coroutine(message_id=state.last_email_id, user_context=user_context, testing=testing)
+
+        if not email_to_reply_to or not thread_id:
+            return {"response": "I seem to have lost track of the email we were talking about. Could you specify which one you'd like to reply to?", "state": state.dict()}
+
+        # The 'To' for the reply should be the 'From' of the original email.
+        reply_to_address = email_to_reply_to['sender']['email']
+        
+        # Prepend "Re: " to subject if it's not already there
+        original_subject = email_to_reply_to['subject']
+        reply_subject = f"Re: {original_subject}" if not original_subject.lower().startswith('re:') else original_subject
+        
+        # IMPROVEMENT: Use LLM to expand the user's core message into a polite email body.
+        body_generation_prompt = f"A user wants to reply to an email with the subject '{original_subject}'. Their core instruction is: '{intent.email_body}'. Expand this into a polite, professional email body. For example, if the user says 'I'll be there', you could write 'Thank you for the invitation. I would be happy to attend. Looking forward to it!'. Start directly with the body, do not include a subject line, and sign off with 'Best regards, [Your Name]'."
+        
+        llm = self.chat_llm
+        generated_body = await llm.ainvoke(body_generation_prompt)
+        final_body = generated_body.content if generated_body else intent.email_body
+        
+        draft_details = await create_draft_email.coroutine(
+            to=reply_to_address,
+            subject=reply_subject,
+            body=final_body,
+            thread_id=thread_id,
+            user_context=user_context,
+            testing=testing
+        )
+        
+        # Save the new draft_id to state for potential refinement
+        if draft_details and "draft_id" in draft_details:
+            state.last_draft_id = draft_details["draft_id"]
+            state.last_recipient_email = reply_to_address # Remember who we're replying to
+
+        return {
+            "type": "draft_review",
+            "details": draft_details,
+            "state": state.dict()
+        }
+
+    async def _handle_send_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles sending a previously created draft."""
+        # The user can either click the button (passing draft_id in the intent) or say 'send it' (using draft_id from state).
+        draft_id_to_send = intent.draft_id or state.last_draft_id
+        
+        if not draft_id_to_send:
+            return {"response": "I'm sorry, I don't have a draft to send. Please create a draft first.", "state": state.dict()}
+        
+        send_result = await send_draft.coroutine(draft_id=draft_id_to_send, user_context=user_context, testing=testing)
+        
+        if send_result and send_result.get('id'):
+            # Clear the last email/thread/draft context as the action is complete.
+            state.last_email_id = None
+            state.last_thread_id = None
+            state.last_draft_id = None
+            state.last_recipient_email = None
+            return {"response": "Done. The email has been sent successfully.", "state": state.dict()}
+        else:
+            return {"response": "I encountered an error trying to send the email. Please check your drafts in Gmail.", "state": state.dict()}
+
+    async def _handle_refine_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles refining an existing draft."""
+        draft_id = state.last_draft_id
+        if not draft_id:
+            return {"response": "I'm not sure which draft you want to refine. Please start by creating a reply or new email.", "state": state.dict()}
+
+        # Acknowledging the limitation and providing a path forward:
+        # Step 1: Get the current draft details
+        gmail_service = GmailService(user_id=user_context.user_id, testing=testing)
+        try:
+            original_draft_details = await gmail_service.get_draft_details(draft_id)
+        except Exception as e:
+            return {"response": f"Sorry, I couldn't retrieve the original draft to modify it. Error: {e}", "state": state.dict()}
+
+        # Step 2: Create a prompt for the LLM to refine the body
+        refinement_prompt = (
+            f"A user wants to refine an email draft they are writing. "
+            f"Their instruction is: '{intent.email_body}'.\n\n"
+            f"Here is the current email body:\n---\n{original_draft_details.body_plain}\n---\n\n"
+            f"Please generate a new email body that incorporates the user's instruction. "
+            f"Respond ONLY with the new, complete email body."
+        )
+        
+        refined_body_response = await self.chat_llm.ainvoke(refinement_prompt)
+        refined_body = refined_body_response.content if refined_body_response else original_draft_details.body_plain
+
+        # Step 3: Delete the old draft
+        await delete_draft.coroutine(draft_id=draft_id, user_context=user_context, testing=testing)
+        
+        # Get recipient from state to avoid parsing issues
+        recipient_email = state.last_recipient_email
+        if not recipient_email:
+            return {"response": "I'm sorry, I've lost track of who this email was for. Please start the reply again.", "state": state.dict()}
+
+        # Step 4: Create a new draft with the refined body
+        new_draft_details = await create_draft_email.coroutine(
+            to=recipient_email,
+            subject=original_draft_details.subject,
+            body=refined_body,
+            thread_id=original_draft_details.thread_id,
+            user_context=user_context,
+            testing=testing
+        )
+
+        # Step 5: Update state and return for review
+        if new_draft_details and "draft_id" in new_draft_details:
+            state.last_draft_id = new_draft_details["draft_id"]
+        else:
+            state.last_draft_id = None # Clear if new draft creation failed
+
+        return {
+            "type": "draft_review",
+            "details": new_draft_details,
+            "state": state.dict()
+        }
+
+    async def _handle_cancel_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles cancelling and deleting the current draft."""
+        draft_id_to_delete = state.last_draft_id
+        
+        if not draft_id_to_delete:
+            return {"response": "There is no active draft to cancel.", "state": state.dict()}
+            
+        await delete_draft.coroutine(draft_id=draft_id_to_delete, user_context=user_context, testing=testing)
+        
+        # Clear the draft context
+        state.last_draft_id = None
+        state.last_recipient_email = None
+        
+        return {"response": "Got it. I've cancelled and deleted the draft.", "state": state.dict()}
+
+
     # --- MAIN ENTRY POINT ---
-    async def process_message(self, request: ChatRequest) -> Dict[str, Any]:
+    async def process_message(self, request: ChatRequest, testing: bool = False) -> Dict[str, Any]:
         chat_history = self._prepare_chat_history(request.chat_history)
         print(f"\n--- New Request ---")
         print(f"User Input: {request.input}")
@@ -356,12 +680,19 @@ class AIOrchestratorService:
                 'list_events': self._handle_list_events_intent,
                 'edit_event': self._handle_edit_intent,
                 'create_event': self._handle_create_intent,
+                'list_emails': self._handle_list_emails_intent,
+                'find_email': self._handle_find_email_intent,
+                'compose_email': self._handle_compose_email_intent,
+                'reply_to_email': self._handle_reply_to_email_intent,
+                'send_email_draft': self._handle_send_email_draft_intent,
+                'refine_email_draft': self._handle_refine_email_draft_intent,
+                'cancel_email_draft': self._handle_cancel_email_draft_intent,
             }
 
             handler = handler_map.get(intent.intent)
             
             if handler:
-                response = await handler(intent, request.user_context, request.conversation_state, request.input)
+                response = await handler(intent, request.user_context, request.conversation_state, request.input, testing=testing)
             else: 
                 # Fallback for unhandled intents
                 final_response = await self.chat_llm.ainvoke(request.input)
