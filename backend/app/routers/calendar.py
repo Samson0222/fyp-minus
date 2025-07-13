@@ -187,14 +187,10 @@ async def get_google_calendar_events(
             time_min = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
             time_max = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
         else:
-            # Default to current month
+            # Default to the entire current year
             now = datetime.now(timezone.utc)
-            time_min = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            # Next month's first day
-            if now.month == 12:
-                time_max = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            else:
-                time_max = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            time_min = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            time_max = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         
         # Fetch events from Google Calendar
         events_result = service.events().list(

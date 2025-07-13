@@ -2,12 +2,19 @@ import React, { useState } from 'react';
 import ChatSidebarUI, { Message } from './ChatSidebarUI'; // Assuming Message is exported from ChatSidebarUI
 import { useAuth } from '../../hooks/use-auth'; // Import the real auth hook
 
+// Define the shape of the conversation state object
+interface ConversationState {
+  last_event_id?: string | null;
+  // Add other state fields here as needed, e.g., last_email_id
+}
+
 const GeneralPurposeChatWrapper: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [conversationState, setConversationState] = useState<ConversationState>({});
   const { user } = useAuth(); // Get the authenticated user object
 
   // This function will be called when the user sends a message.
@@ -65,8 +72,8 @@ const GeneralPurposeChatWrapper: React.FC = () => {
         body: JSON.stringify({
           input: inputValue,
           chat_history: chat_history,
-          // Use the real user ID and remove the placeholder credentials
-          user_context: { user_id: user.id } 
+          user_context: { user_id: user.id }, 
+          conversation_state: conversationState // Pass the current state to the backend
         }),
       });
 
@@ -81,6 +88,11 @@ const GeneralPurposeChatWrapper: React.FC = () => {
 
       const data = await response.json();
       
+      // Update the conversation state with the new state from the backend
+      if (data.state) {
+        setConversationState(data.state);
+      }
+
       // The backend now returns a structured response, either text or tool_draft
       const aiMessage: Message = {
         id: `ai-${Date.now()}`,
