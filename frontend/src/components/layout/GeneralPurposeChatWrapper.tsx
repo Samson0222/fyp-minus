@@ -1,31 +1,72 @@
-import React, { useState } from 'react';
-import ChatSidebarUI, { Message } from './ChatSidebarUI'; // Assuming Message is exported from ChatSidebarUI
-import { useAuth } from '../../hooks/use-auth'; // Import the real auth hook
+import React, { useState, Dispatch, SetStateAction } from 'react';
+import ChatSidebarUI, { Message, DraftReviewDetails, ToolDraftDetails } from './ChatSidebarUI';
+import { useAuth } from '../../hooks/use-auth';
 
 // Define the shape of the conversation state object
 interface ConversationState {
   last_event_id?: string | null;
-  // Add other state fields here as needed, e.g., last_email_id
+  last_email_id?: string | null;
+  last_thread_id?: string | null;
+  last_draft_id?: string | null;
+  last_recipient_email?: string | null;
+  last_telegram_chat_id?: number | null;
+  last_message_body?: string | null;
 }
 
-const GeneralPurposeChatWrapper: React.FC = () => {
+export interface TelegramDraft {
+  chat_id: number;
+  chat_name: string;
+  body: string;
+}
+
+interface GeneralPurposeChatWrapperProps {
+  setTelegramDraft: Dispatch<SetStateAction<TelegramDraft | null>>;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+}
+
+// Helper function to build a safe chat history
+const buildChatHistory = (messages: Message[]): { role: string; content: string }[] => {
+  return messages
+    .map(m => {
+      if (m.sender === 'system') return null;
+
+      const role = m.sender === 'ai' ? 'model' : 'user';
+      let contentText: string | null = null;
+
+      switch (m.content.type) {
+        case 'text':
+          contentText = m.content.text;
+          break;
+        case 'tool_draft':
+          contentText = m.content.assistant_message;
+          break;
+        case 'draft_review':
+          contentText = `[The user was reviewing a draft to ${m.content.details.to} with subject "${m.content.details.subject}"]`;
+          break;
+        default:
+          break;
+      }
+
+      if (contentText) {
+        return { role, content: contentText };
+      }
+      return null;
+    })
+    .filter((m): m is { role: string; content: string } => m !== null);
+};
+
+
+const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ setTelegramDraft, isCollapsed, onToggleCollapse }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const [conversationState, setConversationState] = useState<ConversationState>({});
-  const { user } = useAuth(); // Get the authenticated user object
+  const { user } = useAuth();
 
-  // This function will be called when the user sends a message.
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
-
-    if (!user) {
-        setError("You must be logged in to chat with the assistant.");
-        setIsLoading(false);
-        return;
-    }
+    if (!inputValue.trim() || !user) return;
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -34,36 +75,13 @@ const GeneralPurposeChatWrapper: React.FC = () => {
       content: { type: 'text', text: inputValue },
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
     setInputValue('');
     setIsLoading(true);
     setError(null);
 
-    // Prepare conversation history for the backend.
-    // This logic is now more robust: it explicitly handles the message types
-    // that are valid for history and filters out any others (like errors or system messages).
-    const chat_history = messages
-      .filter(m => m.sender !== 'system')
-      .map(m => {
-        const role = m.sender === 'ai' ? 'model' : 'user';
-        let contentText: string | undefined;
-
-        if (m.content.type === 'text') {
-            // Handles both user messages and standard AI text responses.
-            contentText = m.content.text;
-        } else if (m.content.type === 'tool_draft') {
-            // Handles AI messages that propose a tool action.
-            contentText = m.content.assistant_message;
-        }
-        
-        // If contentText was successfully extracted, return a valid history object.
-        // Otherwise, this will result in a null, which is filtered out below.
-        if (contentText) {
-            return { role, content: contentText };
-        }
-        return null;
-      })
-      .filter(Boolean); // This removes any null entries from the array.
+    const chat_history = buildChatHistory(messages);
 
     try {
       const response = await fetch('/api/v1/assistant/chat', {
@@ -73,13 +91,12 @@ const GeneralPurposeChatWrapper: React.FC = () => {
           input: inputValue,
           chat_history: chat_history,
           user_context: { user_id: user.id }, 
-          conversation_state: conversationState // Pass the current state to the backend
+          conversation_state: conversationState,
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        // The detail from a 422 error can be a complex object, stringify it.
         const errorMessage = typeof errorData.detail === 'string' 
           ? errorData.detail 
           : JSON.stringify(errorData.detail, null, 2);
@@ -88,39 +105,60 @@ const GeneralPurposeChatWrapper: React.FC = () => {
 
       const data = await response.json();
       
-      // Update the conversation state with the new state from the backend
       if (data.state) {
         setConversationState(data.state);
       }
-
-      // The backend now returns a structured response, either text or tool_draft
-      const aiMessage: Message = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        timestamp: new Date(),
-        content: {
-            type: data.type, // 'text' or 'tool_draft'
-            text: data.response, // For text type
-            tool_name: data.tool_name, // For tool_draft type
-            tool_input: data.tool_input, // For tool_draft type
-            assistant_message: data.assistant_message // For tool_draft type
-        }
-      };
       
-      // Handle cases where some fields might be undefined based on type
-      if (data.type === 'text') {
-        aiMessage.content = { type: 'text', text: data.response };
-      } else if (data.type === 'tool_draft') {
-        aiMessage.content = { 
-            type: 'tool_draft', 
-            tool_name: data.tool_name,
-            tool_input: data.tool_input,
-            assistant_message: data.assistant_message
+      if (data.type === 'telegram_draft') {
+        setTelegramDraft(data.details);
+        const confirmationMessage: Message = {
+          id: `ai-${Date.now()}`,
+          sender: 'ai',
+          timestamp: new Date(),
+          content: {
+            type: 'text',
+            text: data.response
+          }
         };
+        setMessages((prev) => [...prev, confirmationMessage]);
+
+      } else {
+        let aiMessage: Message | null = null;
+        if (data.type === 'text') {
+          aiMessage = {
+            id: `ai-${Date.now()}`,
+            sender: 'ai',
+            timestamp: new Date(),
+            content: { type: 'text', text: data.response }
+          };
+        } else if (data.type === 'tool_draft') {
+          aiMessage = {
+            id: `ai-${Date.now()}`,
+            sender: 'ai',
+            timestamp: new Date(),
+            content: { 
+              type: 'tool_draft', 
+              tool_name: data.tool_name,
+              tool_input: data.tool_input,
+              assistant_message: data.assistant_message
+            }
+          };
+        } else if (data.type === 'draft_review') {
+          aiMessage = {
+            id: `ai-${Date.now()}`,
+            sender: 'ai',
+            timestamp: new Date(),
+            content: {
+              type: 'draft_review',
+              details: data.details
+            }
+          };
+        }
+        
+        if (aiMessage) {
+            setMessages((prev) => [...prev, aiMessage as Message]);
+        }
       }
-
-
-      setMessages((prev) => [...prev, aiMessage]);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to get a response.';
@@ -130,13 +168,77 @@ const GeneralPurposeChatWrapper: React.FC = () => {
     }
   };
 
-  // Placeholder for approving a tool action
-  const handleApproveTool = async (toolName: string, toolInput: any) => {
+  const handleSendDraft = async (draftId: string) => {
+    if (!user) return;
+    console.log("Approving and sending draft:", draftId);
+    setIsLoading(true);
+    setError(null);
+
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      timestamp: new Date(),
+      content: { type: 'text', text: JSON.stringify({ user_action: 'send_draft', draft_id: draftId }) },
+    };
+
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    
+    const chat_history_for_send = buildChatHistory(messages);
+        
+    try {
+      const response = await fetch('/api/v1/assistant/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: userMessage.content.text,
+          chat_history: chat_history_for_send,
+          user_context: { user_id: user.id },
+          conversation_state: conversationState
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send the draft.');
+      }
+
+      const data = await response.json();
+      if (data.state) {
+        setConversationState(data.state);
+      }
+
+      const aiMessage: Message = {
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: { type: 'text', text: data.response }
+      };
+      setMessages((prev) => [...prev, aiMessage]);
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCancelDraft = (draftDetails: DraftReviewDetails) => {
+    console.log("Cancelling draft:", draftDetails);
+    const systemMessage: Message = {
+        id: `system-${Date.now()}`,
+        sender: 'system',
+        timestamp: new Date(),
+        content: { type: 'text', text: `Draft to ${draftDetails.to} with subject "${draftDetails.subject}" was cancelled.` }
+    };
+    setMessages(prev => [...prev, systemMessage]);
+  };
+
+  const handleApproveTool = async (toolName: string, toolInput: ToolDraftDetails['tool_input']) => {
+    if (!user) return;
     console.log("Approving and executing tool:", toolName, toolInput);
     setIsLoading(true);
     setError(null);
 
-    // Add a system message to inform the user that the action is running
     const executingMessage: Message = {
       id: `system-${Date.now()}`,
       sender: 'system',
@@ -145,12 +247,6 @@ const GeneralPurposeChatWrapper: React.FC = () => {
     };
     setMessages(prev => [...prev, executingMessage]);
 
-    if (!user) {
-        setError("You must be logged in to approve a tool.");
-        setIsLoading(false);
-        return;
-    }
-
     try {
       const response = await fetch('/api/v1/assistant/execute_tool', {
         method: 'POST',
@@ -158,7 +254,6 @@ const GeneralPurposeChatWrapper: React.FC = () => {
         body: JSON.stringify({
           tool_name: toolName,
           tool_input: toolInput,
-          // Use the real user ID and remove the placeholder credentials
           user_context: { user_id: user.id }
         }),
       });
@@ -170,7 +265,6 @@ const GeneralPurposeChatWrapper: React.FC = () => {
 
       const result = await response.json();
 
-      // Display the result of the tool execution as a final system message
       const resultMessage: Message = {
         id: `system-${Date.now()}-result`,
         sender: 'system',
@@ -187,8 +281,7 @@ const GeneralPurposeChatWrapper: React.FC = () => {
     }
   };
 
-  // Placeholder for rejecting a tool action
-  const handleRejectTool = (toolName: string, toolInput: any) => {
+  const handleRejectTool = (toolName: string, toolInput: ToolDraftDetails['tool_input']) => {
     console.log("Rejecting tool:", toolName, toolInput);
     const systemMessage: Message = {
         id: `system-${Date.now()}`,
@@ -209,11 +302,13 @@ const GeneralPurposeChatWrapper: React.FC = () => {
       isLoading={isLoading}
       error={error}
       isCollapsed={isCollapsed}
-      onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
+      onToggleCollapse={onToggleCollapse}
       onApproveTool={handleApproveTool}
       onRejectTool={handleRejectTool}
+      onSendDraft={handleSendDraft}
+      onCancelDraft={handleCancelDraft}
     />
   );
 };
 
-export default GeneralPurposeChatWrapper; 
+export default GeneralPurposeChatWrapper;

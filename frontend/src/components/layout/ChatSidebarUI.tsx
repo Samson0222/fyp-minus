@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from "react";
-import { Send, ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft, AlertTriangle } from "lucide-react";
+import { Send, ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft, AlertTriangle, X } from "lucide-react";
 import MessageBubble from "@/components/ai/MessageBubble";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,8 +18,30 @@ export interface Message {
     tool_name: string;
     tool_input: unknown;
     assistant_message: string;
+  } | {
+    type: 'draft_review';
+    details: {
+      draft_id: string;
+      to: string;
+      subject: string;
+      body: string;
+    };
   };
 }
+
+// Exporting these types so they can be used by the wrapper
+export interface ToolDraftDetails {
+  tool_name: string;
+  tool_input: any;
+  assistant_message: string;
+}
+export interface DraftReviewDetails {
+  draft_id: string;
+  to: string;
+  subject: string;
+  body: string;
+}
+
 
 // New props interface for the "dumb" UI component.
 // It receives all data and handlers from its smart parent wrapper.
@@ -28,6 +50,8 @@ export interface ChatSidebarUIProps {
   onSendMessage: () => void;
   onApproveTool: (toolName: string, toolInput: unknown) => void;
   onRejectTool: (toolName: string, toolInput: unknown) => void;
+  onSendDraft: (draftId: string) => void;
+  onCancelDraft: (details: any) => void;
 
   inputValue: string;
   onInputChange: (value: string) => void;
@@ -79,12 +103,55 @@ const ToolDraftCard: React.FC<ToolDraftCardProps> = ({ message, onApprove, onRej
   );
 };
 
+interface EmailDraftCardProps {
+  message: Message;
+  onSend: (draftId: string) => void;
+  onCancel: (details: any) => void;
+}
+const EmailDraftCard: React.FC<EmailDraftCardProps> = ({ message, onSend, onCancel }) => {
+  if (message.content.type !== 'draft_review') return null;
+  const { details } = message.content;
+
+  return (
+    <Card className="bg-dark-tertiary border-violet/30 my-2">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base text-violet-light flex items-center">
+          Review Email Draft
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm text-white/90 space-y-3">
+        <div className="flex">
+          <strong className="w-16">To:</strong>
+          <span>{details.to}</span>
+        </div>
+        <div className="flex">
+          <strong className="w-16">Subject:</strong>
+          <span>{details.subject}</span>
+        </div>
+        <div className="border-t border-white/10 pt-3 mt-3">
+          <p className="whitespace-pre-wrap">{details.body}</p>
+        </div>
+      </CardContent>
+      <CardFooter className="flex justify-end space-x-2">
+        <Button variant="outline" size="sm" onClick={() => onCancel(details)}>
+          <X className="h-4 w-4 mr-1" /> Cancel
+        </Button>
+        <Button variant="default" size="sm" className="bg-violet hover:bg-violet-light" onClick={() => onSend(details.draft_id)}>
+          <Send className="h-4 w-4 mr-1" /> Send Email
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+};
+
 
 const ChatSidebarUI: React.FC<ChatSidebarUIProps> = ({
   messages,
   onSendMessage,
   onApproveTool,
   onRejectTool,
+  onSendDraft,
+  onCancelDraft,
   inputValue,
   onInputChange,
   isLoading,
@@ -161,13 +228,18 @@ const ChatSidebarUI: React.FC<ChatSidebarUIProps> = ({
           </div>
         )}
 
-        {messages.map((message) =>
-          message.content.type === 'text' ? (
-            <MessageBubble key={message.id} sender={message.sender} text={message.content.text} />
-          ) : (
-            <ToolDraftCard key={message.id} message={message} onApprove={onApproveTool} onReject={onRejectTool} />
-          )
-        )}
+        {messages.map((message) => {
+          switch (message.content.type) {
+            case 'text':
+              return <MessageBubble key={message.id} sender={message.sender} text={message.content.text} />;
+            case 'tool_draft':
+              return <ToolDraftCard key={message.id} message={message} onApprove={onApproveTool} onReject={onRejectTool} />;
+            case 'draft_review':
+              return <EmailDraftCard key={message.id} message={message} onSend={onSendDraft} onCancel={onCancelDraft} />;
+            default:
+              return null;
+          }
+        })}
         
         {isLoading && (
           <div className="flex items-center space-x-2">

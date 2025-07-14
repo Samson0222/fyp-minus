@@ -452,120 +452,9 @@ const Email = () => {
     });
   };
 
-  // Voice command handlers
-  const handleVoiceUnreadFilter = () => {
-    clearAllFilters();
-    setShowUnreadOnly(true);
-    toast({
-      title: "Filter Applied",
-      description: "Showing unread emails only"
-    });
-  };
-
-  const handleVoiceRefresh = () => {
-    manualRefresh();
-    toast({
-      title: "Refreshing",
-      description: "Checking for new emails..."
-    });
-  };
-
-  const handleVoiceCompose = () => {
-    setIsComposeModalOpen(true);
-    toast({
-      title: "Compose Email",
-      description: "Opening email composer..."
-    });
-  };
-
-  const handleVoiceMarkAsUnread = (emailId?: string) => {
-    if (selectedEmail) {
-      handleMarkAsUnread(selectedEmail.id);
-    } else if (emailId) {
-      handleMarkAsUnread(emailId);
-    } else {
-      toast({
-        title: "Mark as Unread",
-        description: "Please select an email first or specify which email to mark as unread",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const handleVoiceSearch = (query: string) => {
-    setSearchQuery(query);
-    toast({
-      title: "Search Applied",
-      description: `Searching for: ${query}`
-    });
-  };
-
-  const handleVoiceClearFilters = () => {
-    clearAllFilters();
-    setSearchQuery("");
-    toast({
-      title: "Filters Cleared",
-      description: "Showing all emails"
-    });
-  };
-
-  const handleVoiceReply = () => {
-    if (selectedEmail) {
-      // In a full implementation, this would open a reply composer
-      toast({
-        title: "Reply Composer",
-        description: `Opening reply to: ${selectedEmail.subject}`,
-        duration: 3000
-      });
-    } else {
-      toast({
-        title: "No Email Selected",
-        description: "Please select an email first to reply",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const handleVoiceForward = (recipient?: string) => {
-    if (selectedEmail) {
-      if (recipient) {
-        // In a full implementation, this would forward the email
-        toast({
-          title: "Forward Email",
-          description: `Forwarding "${selectedEmail.subject}" to ${recipient}`,
-          duration: 3000
-        });
-      } else {
-        toast({
-          title: "Forward Composer",
-          description: `Opening forward composer for: ${selectedEmail.subject}`,
-          duration: 3000
-        });
-      }
-    } else {
-      toast({
-        title: "No Email Selected",
-        description: "Please select an email first to forward",
-        variant: "destructive"
-      });
-    }
-  };
-
-  // Voice command callbacks object
-  const voiceCommandCallbacks = {
-    onUnreadFilter: handleVoiceUnreadFilter,
-    onRefreshEmails: handleVoiceRefresh,
-    onComposeEmail: handleVoiceCompose,
-    onMarkAsUnread: handleVoiceMarkAsUnread,
-    onSearchEmails: handleVoiceSearch,
-    onClearFilters: handleVoiceClearFilters,
-    onReplyEmail: handleVoiceReply,
-    onForwardEmail: handleVoiceForward,
-  };
-
   if (authStatus === 'checking') {
     return (
-      <Layout voiceCommandCallbacks={voiceCommandCallbacks}>
+      <Layout>
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-center flex-1">
             <div className="text-center">
@@ -580,7 +469,7 @@ const Email = () => {
 
   if (authStatus === 'not_authenticated') {
     return (
-      <Layout voiceCommandCallbacks={voiceCommandCallbacks}>
+      <Layout>
         <div className="flex flex-col h-full">
           <UnauthorizedPage serviceName="Gmail" />
         </div>
@@ -589,125 +478,8 @@ const Email = () => {
   }
 
   return (
-    <Layout onComposeEmail={() => setIsComposeModalOpen(true)} voiceCommandCallbacks={voiceCommandCallbacks}>
+    <Layout>
       <div className="flex flex-col h-full">
-        {/* Compact Header */}
-        <div className="flex-shrink-0 p-3 lg:p-4 border-b border-white/10">
-          <div className="flex items-center justify-between gap-4">
-            {/* Left Side: Search Bar */}
-            <div className="relative w-full max-w-sm">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-foreground/50" />
-              <input
-                type="text"
-                placeholder="Search emails..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-10 py-2 bg-dark-secondary border border-white/10 rounded-lg focus:outline-none focus:border-violet/50 text-sm"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-foreground/50 hover:text-foreground transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-
-            {/* Right Side: Update | Refresh | Compose | Filter | Switch */}
-            <div className="flex items-center gap-2">
-              {/* Unread email count */}
-              {unreadCount > 0 && (
-                <>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-sm font-bold bg-violet text-white">
-                    {unreadCount}
-                  </span>
-                  <span className="text-sm">unread emails</span>
-                </>
-              )}
-
-              {/* Update Status */}
-              <div className="flex items-center gap-2 text-xs text-foreground/50 whitespace-nowrap">
-                {backgroundRefreshing && (
-                  <div className="flex items-center gap-1 text-violet-400">
-                    <RefreshCw className="h-3 w-3 animate-spin" />
-                    <span className="hidden sm:inline">Updating...</span>
-                  </div>
-                )}
-                {lastRefresh && !backgroundRefreshing && (
-                  <span className="hidden lg:inline">Updated: {lastRefresh.toLocaleTimeString('en-MY', { 
-                    timeZone: 'Asia/Kuala_Lumpur',
-                    hour: '2-digit', 
-                    minute: '2-digit',
-                    hour12: true
-                  })}</span>
-                )}
-              </div>
-
-              {/* Refresh Button at end */}
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={manualRefresh}
-                disabled={loading || backgroundRefreshing}
-                title="Refresh emails (Ctrl+R)"
-                className="flex items-center gap-2"
-              >
-                <RefreshCw className={`h-4 w-4 ${backgroundRefreshing ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-
-              {/* Compose Button */}
-              <Button
-                onClick={() => setIsComposeModalOpen(true)}
-                className="bg-violet hover:bg-violet-light text-white"
-                size="sm"
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Compose</span>
-                <span className="sm:hidden sr-only">Compose</span>
-              </Button>
-
-              {/* Filter Dropdown */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    className={`${getActiveFilters().length > 0 ? 'bg-violet/20 text-violet border-violet' : ''} min-w-0`}
-                  >
-                    <Filter className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">{getFilterButtonText()}</span>
-                    <span className="sm:hidden">Filter</span>
-                    <ChevronDown className="h-4 w-4 ml-2" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  <DropdownMenuItem onClick={clearAllFilters}>
-                    <Check className={`h-4 w-4 mr-2 ${getActiveFilters().length === 0 ? 'opacity-100' : 'opacity-0'}`} />
-                    All Emails
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setShowUnreadOnly(!showUnreadOnly)}>
-                    <Check className={`h-4 w-4 mr-2 ${showUnreadOnly ? 'opacity-100' : 'opacity-0'}`} />
-                    Unread Only
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setShowSentOnly(!showSentOnly)}>
-                    <Check className={`h-4 w-4 mr-2 ${showSentOnly ? 'opacity-100' : 'opacity-0'}`} />
-                    Sent Emails
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setShowImportantOnly(!showImportantOnly)}>
-                    <Check className={`h-4 w-4 mr-2 ${showImportantOnly ? 'opacity-100' : 'opacity-0'}`} />
-                    Important
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              {/* Removed Switch button as per new design */}
-            </div>
-          </div>
-        </div>
-
-        {/* Content */}
         <div className="flex-1 flex overflow-hidden">
           {/* Email List */}
           <div className="min-w-[320px] max-w-[400px] flex-shrink-0 border-r border-white/10 flex flex-col">

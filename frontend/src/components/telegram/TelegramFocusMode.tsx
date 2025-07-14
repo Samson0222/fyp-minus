@@ -12,6 +12,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { TelegramDraft } from '../layout/GeneralPurposeChatWrapper';
 
 // Interfaces
 interface TelegramMessage {
@@ -52,6 +53,8 @@ interface TelegramFocusModeProps {
   recentChats: ChatSummary[];
   loading: boolean;
   onRefresh: () => void;
+  draft: TelegramDraft | null;
+  clearDraft: () => void;
 }
 
 // Helper Functions & Components
@@ -103,7 +106,9 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
   unreadChats, 
   recentChats, 
   loading, 
-  onRefresh 
+  onRefresh,
+  draft,
+  clearDraft
 }) => {
   // State
   const [activeSearchChats, setActiveSearchChats] = useState<ActiveChat[]>([]);
@@ -119,6 +124,14 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
   
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Effects
+  useEffect(() => {
+    if (draft && selectedChat && draft.chat_id === selectedChat.chat_id) {
+      setReplyText(draft.body);
+      clearDraft(); // Clear the draft from the parent once it's been set in the component
+    }
+  }, [draft, selectedChat, clearDraft]);
 
   const ChatListItem: React.FC<{
     chat: ChatSummary;
@@ -157,9 +170,9 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
           </div>
         </div>
 
-        <div className="mt-2 text-xs text-white/50 truncate">
-          <div className="flex items-center justify-between">
-            <span>
+        <div className="mt-2 text-xs text-white/50">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate min-w-0">
               <span className="font-medium">{chat.latest_sender}:</span>{' '}
               {chat.latest_message || 'No message preview'}
             </span>
@@ -316,6 +329,7 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
     };
     
     setMessages(prev => [...prev, optimisticMessage]);
+    setReplyText(''); // Clear input immediately
 
     try {
       const response = await fetch(`/api/v1/telegram/conversation/${selectedChat.chat_id}/reply`, {
@@ -326,7 +340,6 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
         body: JSON.stringify({ content: replyText }),
       });
 
-      setReplyText('');
       const result = await response.json();
 
       if (result.success) {

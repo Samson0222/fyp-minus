@@ -37,7 +37,7 @@ class GmailService:
         if testing:
             self.service = self._get_mock_service()
         else:
-        self.service = self._get_gmail_service()
+            self.service = self._get_gmail_service()
         
     def _get_mock_service(self):
         """Returns a mock service for testing purposes."""

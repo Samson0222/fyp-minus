@@ -1,6 +1,7 @@
 from langchain_core.tools import tool
 from pydantic.v1 import BaseModel, Field
-import datetime
+from datetime import datetime
+import pytz
 from typing import Dict, Any
 from dateutil import parser as date_parser
 
@@ -34,3 +35,12 @@ async def convert_natural_language_to_datetime(natural_language_time: str) -> Di
         return {"error": f"Could not understand the date/time: '{natural_language_time}'. Please be more specific."}
     except Exception as e:
         return {"error": f"An unexpected error occurred during date parsing: {e}"} 
+
+@tool
+def get_current_time() -> str:
+    """
+    Returns the current date and time in a structured format, localized to Kuala Lumpur.
+    """
+    kl_timezone = pytz.timezone("Asia/Kuala_Lumpur")
+    current_time = datetime.now(kl_timezone)
+    return current_time.strftime("%Y-%m-%d %H:%M:%S %Z") 

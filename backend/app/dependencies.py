@@ -17,8 +17,8 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> UserC
     """
     # DEV MODE BYPASS: This check runs first.
     if os.getenv("DEV_AUTH_BYPASS") == "true":
-        logger.warning("[WARNING] DEV_AUTH_BYPASS is enabled. All requests are authenticated as test_user_001.")
-        user_id = "test_user_001"
+        logger.warning(f"[WARNING] DEV_AUTH_BYPASS is enabled. All requests are authenticated as test user.")
+        user_id = "cbede3b0-2f68-47df-9c26-09a46e588567"
         google_creds_str = None
         
         # Attempt to load Google credentials if they exist for the test user
@@ -38,7 +38,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> UserC
         else:
             logger.warning(f"Google token file not found for dev user {user_id} at {token_path}")
 
-        return UserContext(user_id=user_id, google_credentials=google_creds_str)
+        return UserContext(user_id=user_id, google_credentials=google_creds_str, email="test@example.com")
 
     # PRODUCTION MODE: Real JWT validation
     if authorization is None:

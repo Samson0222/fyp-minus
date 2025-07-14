@@ -5,7 +5,9 @@ class Intent(BaseModel):
     """The classified intent and extracted entities from a user's request."""
     intent: Literal[
         'create_event', 'edit_event', 'find_event', 'list_events', 
-        'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft',
+        'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
+        'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'get_latest_telegram_message',
+        'summarize_all_unread_telegram',
         'general_chat'
     ] = Field(description="The user's primary goal.")
     
@@ -27,3 +29,7 @@ class Intent(BaseModel):
     email_body: Optional[str] = Field(None, description="The body content for a new email or a reply.")
     email_query: Optional[str] = Field(None, description="The query to find a specific email to reply to.")
     draft_id: Optional[str] = Field(None, description="The ID of the draft to be sent.")
+    
+    # Telegram-specific fields
+    chat_query: Optional[str] = Field(None, description="The query to find a specific Telegram chat.")
+    message_body: Optional[str] = Field(None, description="The body content for a new Telegram message.")

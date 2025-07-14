@@ -10,9 +10,8 @@ import { useTelegramNotifications } from "@/hooks/useTelegramNotifications";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Home, Calendar, LayoutGrid, Mail, FileText, Settings, Send, Bot } from "lucide-react";
-import GeneralPurposeChatWrapper from "./GeneralPurposeChatWrapper";
+import GeneralPurposeChatWrapper, { TelegramDraft } from "./GeneralPurposeChatWrapper";
 
-// Voice command callbacks are no longer needed here as the new agent handles this.
 interface LayoutProps {
   children: React.ReactNode;
 }
@@ -48,6 +47,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     refreshSummary,
   } = useTelegramNotifications();
 
+  const [telegramDraft, setTelegramDraft] = useState<TelegramDraft | null>(null);
+
   const handleToggleFocusMode = () => {
     toggleFocusMode();
     if (!isFocusModeActive) {
@@ -64,7 +65,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
   const handleMouseMove = (e: MouseEvent) => {
     if (!isResizing.current) return;
-    // Get the left edge of the chat sidebar
     const layoutRect = document.getElementById('main-layout-row')?.getBoundingClientRect();
     if (!layoutRect) return;
     const newWidth = layoutRect.right - e.clientX;
@@ -130,6 +130,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   recentChats={recentChats}
                   loading={loadingSummary}
                   onRefresh={refreshSummary}
+                  draft={telegramDraft}
+                  clearDraft={() => setTelegramDraft(null)}
                 />
               </div>
             )}
@@ -149,7 +151,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             style={{ width: chatWidth, minWidth: minChatWidth, maxWidth: maxChatWidth }}
             className="h-full flex flex-col transition-all duration-200 bg-dark-secondary border-l border-white/5"
           >
-            <GeneralPurposeChatWrapper />
+            <GeneralPurposeChatWrapper setTelegramDraft={setTelegramDraft} />
           </div>
         )}
       </div>
