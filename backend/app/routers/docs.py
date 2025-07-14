@@ -2,20 +2,21 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 import logging
 
+from app.models.user_context import UserContext
 from app.models.docs import (
     DocumentListResponse, CreateSuggestionRequest, CreateSuggestionResponse,
     SyncDocumentsRequest, SyncDocumentsResponse
 )
 from app.services.docs_service import DocsService
-from app.routers.auth import get_current_user  # Assuming a shared auth dependency
+from app.dependencies import get_current_user 
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
 # Dependency to get a user-specific DocsService instance
-def get_docs_service(current_user: dict = Depends(get_current_user)) -> DocsService:
+def get_docs_service(current_user: UserContext = Depends(get_current_user)) -> DocsService:
     """Dependency to create a DocsService instance with the current user's ID."""
-    user_id = current_user.get("user_id")
+    user_id = current_user.user_id
     if not user_id:
         raise HTTPException(status_code=401, detail="Could not validate user credentials.")
     return DocsService(user_id=user_id)
