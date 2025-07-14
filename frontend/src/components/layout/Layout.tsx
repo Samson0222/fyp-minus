@@ -14,6 +14,9 @@ import GeneralPurposeChatWrapper, { TelegramDraft } from "./GeneralPurposeChatWr
 
 interface LayoutProps {
   children: React.ReactNode;
+  showChatSidebar?: boolean;
+  customChatSidebar?: React.ReactNode;
+  customChatCollapsed?: boolean;
 }
 
 const pageConfig: { [key: string]: { title: string; icon: React.ReactNode } } = {
@@ -25,7 +28,7 @@ const pageConfig: { [key: string]: { title: string; icon: React.ReactNode } } = 
   "/mission-control": { title: "Mission Control", icon: <Bot size={22} /> },
 };
 
-const Layout: React.FC<LayoutProps> = ({ children }) => {
+const Layout: React.FC<LayoutProps> = ({ children, showChatSidebar = true, customChatSidebar, customChatCollapsed = false }) => {
   const isMobile = useIsMobile();
   const location = useLocation();
 
@@ -138,7 +141,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
         </main>
         {/* Vertical Divider for Resizing */}
-        {!isMobile && (
+        {!isMobile && showChatSidebar && (
           <div
             onMouseDown={handleMouseDown}
             style={{ cursor: 'col-resize', width: 6, zIndex: 50 }}
@@ -146,12 +149,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           />
         )}
         {/* Chat Sidebar */}
-        {!isMobile && (
+        {!isMobile && showChatSidebar && (
           <div
-            style={{ width: chatWidth, minWidth: minChatWidth, maxWidth: maxChatWidth }}
+            style={{ 
+              width: customChatSidebar && customChatCollapsed ? 48 : chatWidth, 
+              minWidth: customChatSidebar && customChatCollapsed ? 48 : minChatWidth, 
+              maxWidth: customChatSidebar && customChatCollapsed ? 48 : maxChatWidth 
+            }}
             className="h-full flex flex-col transition-all duration-200 bg-dark-secondary border-l border-white/5"
           >
-            <GeneralPurposeChatWrapper setTelegramDraft={setTelegramDraft} />
+            {customChatSidebar || <GeneralPurposeChatWrapper setTelegramDraft={setTelegramDraft} isCollapsed={false} onToggleCollapse={() => {}} />}
           </div>
         )}
       </div>

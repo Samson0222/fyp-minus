@@ -15,6 +15,10 @@ from pydantic import BaseModel, Field
 from app.tools.calendar_tools import get_calendar_events, create_calendar_event_draft, edit_calendar_event
 from app.tools.gmail_tools import list_emails, get_email_details, create_draft_email, send_draft, delete_draft
 from app.tools.telegram_tools import find_telegram_chat, get_conversation_history, send_telegram_message, get_unread_summary
+from app.tools.google_docs_tools import (
+    list_documents, get_document_details, create_document, get_document_content,
+    create_document_suggestion, apply_document_suggestion, reject_document_suggestion
+)
 from app.tools.utils_tools import get_current_time
 from app.models.user_context import UserContext
 from app.models.conversation_state import ConversationState
@@ -29,6 +33,7 @@ class _IntentClassification(BaseModel):
         'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
         'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'get_latest_telegram_message',
         'summarize_all_unread_telegram',
+        'list_documents', 'open_document', 'close_document', 'summarize_document', 'edit_document', 'apply_suggestion', 'reject_suggestion',
         'general_chat'
     ] = Field(description="The user's single primary goal.")
 
@@ -75,6 +80,13 @@ class AIOrchestratorService:
             get_conversation_history,
             send_telegram_message,
             get_unread_summary,
+            list_documents,
+            get_document_details,
+            create_document,
+            get_document_content,
+            create_document_suggestion,
+            apply_document_suggestion,
+            reject_document_suggestion,
         ]
 
     def _prepare_chat_history(self, conversation_history: List['Message']) -> List[BaseMessage]:
@@ -105,7 +117,14 @@ class AIOrchestratorService:
              "- A user saying 'yes, send it' or 'go ahead' after a telegram draft is shown implies the `send_telegram_draft` intent.\n"
              "- A request like 'what's the latest message in the dev chat?' is `get_latest_telegram_message`.\n"
              "- A request like 'what did I miss on Telegram?' or 'summarize my unread telegrams' is `summarize_all_unread_telegram`.\n"
-             "- A request like 'reply to the project group' is `reply_to_telegram`."),
+             "- A request like 'reply to the project group' is `reply_to_telegram`.\n"
+             "- A request like 'show me my documents' or 'list my docs' is `list_documents`.\n"
+             "- A request like 'open the marketing strategy document' is `open_document`.\n"
+             "- A request like 'go back to the dashboard' or 'close this document' is `close_document`.\n"
+             "- A request like 'summarize this document' or 'what is this doc about?' is `summarize_document`.\n"
+             "- A request like 'change this text to sound more formal' or 'add a new section' is `edit_document`.\n"
+             "- A user saying 'approve' or 'apply this change' after a document suggestion is shown implies the `apply_suggestion` intent.\n"
+             "- A user saying 'reject' or 'don't make this change' after a document suggestion is shown implies the `reject_suggestion` intent."),
             ("placeholder", "{chat_history}"),
             ("human", "{input}")
         ])
@@ -207,6 +226,38 @@ class AIOrchestratorService:
             ),
             'summarize_all_unread_telegram': (
                 "The user wants a summary of all their unread Telegram messages. This action takes no parameters."
+            ),
+            'list_documents': (
+                "The user wants to see their Google Docs documents. Extract any search query they provide. "
+                "For example, in 'show me documents about marketing', the query is 'marketing'. "
+                "If no query is given, default to '*' for all documents."
+            ),
+            'open_document': (
+                "The user wants to open a specific document. Extract the document name or description into the `document_query` field. "
+                "For example, in 'open the marketing strategy document', the `document_query` is 'marketing strategy'."
+            ),
+            'close_document': (
+                "The user wants to close the current document and return to the dashboard. This is a navigation command that takes no parameters."
+            ),
+            'summarize_document': (
+                "The user wants a summary of the current document or a specific document. "
+                "If they specify a document name, extract it into the `document_query` field. "
+                "If they're referring to the current document in context, leave `document_query` empty."
+            ),
+            'edit_document': (
+                "The user wants to edit a document. Extract the modification details: "
+                "`target_text`: The specific text to find and modify (if applicable). "
+                "`modification`: A description of what changes to make. "
+                "`new_content`: Any new content to add (if applicable). "
+                "`position`: Where to place new content ('before', 'after', or 'replace')."
+            ),
+            'apply_suggestion': (
+                "The user has approved applying a document suggestion. "
+                "Extract the `suggestion_id` if provided, or the system will use the suggestion from context."
+            ),
+            'reject_suggestion': (
+                "The user has rejected a document suggestion. "
+                "Extract the `suggestion_id` if provided, or the system will use the suggestion from context."
             )
         }
         
@@ -910,6 +961,216 @@ class AIOrchestratorService:
         
         return {"response": "Got it. I've cancelled and deleted the draft.", "state": state.dict()}
 
+    # --- GOOGLE DOCS INTENT HANDLERS ---
+
+    async def _handle_list_documents_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles listing the user's Google Docs documents."""
+        query = getattr(intent, 'query', '*')
+        
+        documents_result = await list_documents.coroutine(
+            query=query,
+            limit=20,
+            trashed=False,
+            user_context=user_context
+        )
+        
+        if documents_result.get("error"):
+            return {"response": f"I couldn't retrieve your documents: {documents_result['error']}", "state": state.dict()}
+        
+        documents = documents_result.get("documents", [])
+        if not documents:
+            response = "You don't have any documents yet. Would you like me to help you create one?"
+        else:
+            doc_list = "\n".join([f"• {doc['title']}" for doc in documents[:10]])
+            response = f"Here are your documents:\n\n{doc_list}"
+            if len(documents) > 10:
+                response += f"\n\n...and {len(documents) - 10} more documents."
+        
+        return {"response": response, "state": state.dict()}
+
+    async def _handle_open_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles opening a specific document."""
+        document_query = getattr(intent, 'document_query', None)
+        
+        if not document_query:
+            return {"response": "Please specify which document you'd like to open.", "state": state.dict()}
+        
+        # Find the document
+        document_result = await get_document_details.coroutine(
+            query=document_query,
+            user_context=user_context
+        )
+        
+        if document_result.get("error"):
+            return {"response": f"I couldn't find that document: {document_result['error']}", "state": state.dict()}
+        
+        if document_result.get("multiple_matches"):
+            docs = document_result.get("documents", [])
+            doc_list = "\n".join([f"• {doc['title']}" for doc in docs])
+            return {"response": f"I found multiple documents matching '{document_query}':\n\n{doc_list}\n\nPlease be more specific.", "state": state.dict()}
+        
+        document = document_result.get("document")
+        if not document:
+            return {"response": f"I couldn't find a document matching '{document_query}'. Please check the name and try again.", "state": state.dict()}
+        
+        # Save the document context and trigger navigation
+        state.last_document_id = document["document_id"]
+        state.last_document_title = document["title"]
+        
+        return {
+            "type": "navigation",
+            "target_url": f"/docs/{document['document_id']}?title={document['title']}",
+            "response": f"Opening '{document['title']}'...",
+            "state": state.dict()
+        }
+
+    async def _handle_close_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles closing the current document and returning to dashboard."""
+        # Clear document context
+        state.last_document_id = None
+        state.last_document_title = None
+        state.last_suggestion_id = None
+        
+        return {
+            "type": "navigation",
+            "target_url": "/docs",
+            "response": "Returning to the documents dashboard...",
+            "state": state.dict()
+        }
+
+    async def _handle_summarize_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles summarizing a document."""
+        document_query = getattr(intent, 'document_query', None)
+        document_id = None
+        
+        if document_query:
+            # Find the specific document
+            document_result = await get_document_details.coroutine(
+                query=document_query,
+                user_context=user_context
+            )
+            
+            if document_result.get("error"):
+                return {"response": f"I couldn't find that document: {document_result['error']}", "state": state.dict()}
+            
+            document = document_result.get("document")
+            if not document:
+                return {"response": f"I couldn't find a document matching '{document_query}'.", "state": state.dict()}
+            
+            document_id = document["document_id"]
+        else:
+            # Use the current document from context
+            document_id = state.last_document_id
+            if not document_id:
+                return {"response": "Please specify which document you'd like me to summarize, or open a document first.", "state": state.dict()}
+        
+        # Get the document content and summarize it
+        content_result = await get_document_content.coroutine(
+            document_id=document_id,
+            summarize=True,
+            user_context=user_context
+        )
+        
+        if content_result.get("error"):
+            return {"response": f"I couldn't read the document: {content_result['error']}", "state": state.dict()}
+        
+        content = content_result.get("content", "")
+        if not content:
+            return {"response": "This document appears to be empty.", "state": state.dict()}
+        
+        return {"response": f"Here's a summary of the document:\n\n{content}", "state": state.dict()}
+
+    async def _handle_edit_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles editing a document by creating a suggestion."""
+        document_id = state.last_document_id
+        
+        if not document_id:
+            return {"response": "Please open a document first before making edits.", "state": state.dict()}
+        
+        # Extract edit parameters
+        target_text = getattr(intent, 'target_text', None)
+        modification = getattr(intent, 'modification', None)
+        new_content = getattr(intent, 'new_content', None)
+        position = getattr(intent, 'position', 'replace')
+        
+        if not modification:
+            return {"response": "Please specify what changes you'd like me to make to the document.", "state": state.dict()}
+        
+        # Create the suggestion
+        suggestion_result = await create_document_suggestion.coroutine(
+            document_id=document_id,
+            modification=modification,
+            target_text=target_text,
+            new_content=new_content,
+            position=position,
+            user_context=user_context
+        )
+        
+        if suggestion_result.get("error"):
+            return {"response": f"I couldn't create the suggestion: {suggestion_result['error']}", "state": state.dict()}
+        
+        # Save the suggestion ID for potential approval/rejection
+        state.last_suggestion_id = suggestion_result.get("suggestion_id")
+        
+        return {
+            "type": "tool_draft",
+            "tool_name": "create_document_suggestion",
+            "tool_input": suggestion_result,
+            "assistant_message": f"I've prepared a suggestion for your document: {suggestion_result.get('message', modification)}. Would you like me to apply this change?",
+            "state": state.dict()
+        }
+
+    async def _handle_apply_suggestion_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles applying a document suggestion."""
+        suggestion_id = getattr(intent, 'suggestion_id', None) or state.last_suggestion_id
+        document_id = state.last_document_id
+        
+        if not suggestion_id:
+            return {"response": "I don't have a suggestion to apply. Please make an edit first.", "state": state.dict()}
+        
+        if not document_id:
+            return {"response": "I need to know which document to apply the suggestion to.", "state": state.dict()}
+        
+        # Apply the suggestion
+        apply_result = await apply_document_suggestion.coroutine(
+            suggestion_id=suggestion_id,
+            document_id=document_id,
+            user_context=user_context
+        )
+        
+        if apply_result.get("error"):
+            return {"response": f"I couldn't apply the suggestion: {apply_result['error']}", "state": state.dict()}
+        
+        # Clear the suggestion from state
+        state.last_suggestion_id = None
+        
+        return {"response": apply_result.get("message", "The suggestion has been applied to your document."), "state": state.dict()}
+
+    async def _handle_reject_suggestion_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles rejecting a document suggestion."""
+        suggestion_id = getattr(intent, 'suggestion_id', None) or state.last_suggestion_id
+        document_id = state.last_document_id
+        
+        if not suggestion_id:
+            return {"response": "I don't have a suggestion to reject. The suggestion may have already been processed.", "state": state.dict()}
+        
+        if not document_id:
+            return {"response": "I need to know which document the suggestion belongs to.", "state": state.dict()}
+        
+        # Reject the suggestion
+        reject_result = await reject_document_suggestion.coroutine(
+            suggestion_id=suggestion_id,
+            document_id=document_id,
+            user_context=user_context
+        )
+        
+        if reject_result.get("error"):
+            return {"response": f"I couldn't reject the suggestion: {reject_result['error']}", "state": state.dict()}
+        
+        # Clear the suggestion from state
+        state.last_suggestion_id = None
+        
+        return {"response": reject_result.get("message", "The suggestion has been rejected and removed."), "state": state.dict()}
 
     # --- MAIN ENTRY POINT ---
     async def process_message(self, request: ChatRequest, testing: bool = False) -> Dict[str, Any]:
@@ -952,6 +1213,13 @@ class AIOrchestratorService:
                 'send_telegram_draft': self._handle_send_telegram_draft_intent,
                 'get_latest_telegram_message': self._handle_get_latest_telegram_message_intent,
                 'summarize_all_unread_telegram': self._handle_summarize_all_unread_telegram_intent,
+                'list_documents': self._handle_list_documents_intent,
+                'open_document': self._handle_open_document_intent,
+                'close_document': self._handle_close_document_intent,
+                'summarize_document': self._handle_summarize_document_intent,
+                'edit_document': self._handle_edit_document_intent,
+                'apply_suggestion': self._handle_apply_suggestion_intent,
+                'reject_suggestion': self._handle_reject_suggestion_intent,
             }
 
             handler = handler_map.get(intent.intent)

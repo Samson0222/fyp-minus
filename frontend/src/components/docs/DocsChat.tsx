@@ -108,28 +108,132 @@ const DocsChat: React.FC<DocsChatProps> = ({
     }
   };
 
-  const handleApproveTool = (toolName: string, toolInput: any) => {
-    // In a real implementation, we would send this back to the orchestrator to execute.
-    // For now, just show a confirmation.
-    const systemMessage: Message = {
-      id: `system-${Date.now()}`,
-      sender: 'system',
-        timestamp: new Date(),
-      content: { type: 'text', text: `Action Approved: ${toolName}. (Mock confirmation)` }
+  const handleApproveTool = async (toolName: string, toolInput: any) => {
+    if (!documentId) {
+      setError("No document is open.");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    // Add user approval message
+    const userApprovalMessage: Message = {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      timestamp: new Date(),
+      content: { type: 'text', text: 'approve' }
     };
-    setMessages(prev => [...prev, systemMessage]);
-    toast({ title: 'Action Approved', description: `The action '${toolName}' was approved.` });
+    setMessages(prev => [...prev, userApprovalMessage]);
+
+    const conversation_history = messages.map(m => ({
+      role: m.sender,
+      content: m.content.type === 'text' ? m.content.text : JSON.stringify(m.content)
+    }));
+
+    try {
+      const response = await fetch('/api/v1/assistant/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: 'approve',
+          conversation_history: conversation_history,
+          ui_context: {
+            page: 'docs',
+            document_id: documentId,
+            document_title: documentTitle
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'An unknown server error occurred');
+      }
+
+      const data = await response.json();
+
+      const aiMessage: Message = {
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: { type: 'text', text: data.response || 'Suggestion has been applied.' }
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+      toast({ title: 'Action Approved', description: `The suggestion has been applied to your document.` });
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to apply the suggestion.';
+      setError(errorMessage);
+      toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleRejectTool = (toolName: string, toolInput: any) => {
-    const systemMessage: Message = {
-      id: `system-${Date.now()}`,
-      sender: 'system',
+  const handleRejectTool = async (toolName: string, toolInput: any) => {
+    if (!documentId) {
+      setError("No document is open.");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    // Add user rejection message
+    const userRejectionMessage: Message = {
+      id: `user-${Date.now()}`,
+      sender: 'user',
       timestamp: new Date(),
-      content: { type: 'text', text: `Action Rejected: ${toolName}.` }
+      content: { type: 'text', text: 'reject' }
     };
-    setMessages(prev => [...prev, systemMessage]);
-    toast({ title: 'Action Rejected', variant: 'destructive' });
+    setMessages(prev => [...prev, userRejectionMessage]);
+
+    const conversation_history = messages.map(m => ({
+      role: m.sender,
+      content: m.content.type === 'text' ? m.content.text : JSON.stringify(m.content)
+    }));
+
+    try {
+      const response = await fetch('/api/v1/assistant/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: 'reject',
+          conversation_history: conversation_history,
+          ui_context: {
+            page: 'docs',
+            document_id: documentId,
+            document_title: documentTitle
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'An unknown server error occurred');
+      }
+
+      const data = await response.json();
+
+      const aiMessage: Message = {
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: { type: 'text', text: data.response || 'Suggestion has been rejected.' }
+      };
+
+      setMessages(prev => [...prev, aiMessage]);
+      toast({ title: 'Action Rejected', description: 'The suggestion has been rejected.' });
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to reject the suggestion.';
+      setError(errorMessage);
+      toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

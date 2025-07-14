@@ -1,4 +1,5 @@
 import React, { useState, Dispatch, SetStateAction } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ChatSidebarUI, { Message, DraftReviewDetails, ToolDraftDetails } from './ChatSidebarUI';
 import { useAuth } from '../../hooks/use-auth';
 
@@ -11,6 +12,10 @@ interface ConversationState {
   last_recipient_email?: string | null;
   last_telegram_chat_id?: number | null;
   last_message_body?: string | null;
+  // Google Docs fields
+  last_document_id?: string | null;
+  last_document_title?: string | null;
+  last_suggestion_id?: string | null;
 }
 
 export interface TelegramDraft {
@@ -21,8 +26,8 @@ export interface TelegramDraft {
 
 interface GeneralPurposeChatWrapperProps {
   setTelegramDraft: Dispatch<SetStateAction<TelegramDraft | null>>;
-  isCollapsed: boolean;
-  onToggleCollapse: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 // Helper function to build a safe chat history
@@ -57,13 +62,14 @@ const buildChatHistory = (messages: Message[]): { role: string; content: string 
 };
 
 
-const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ setTelegramDraft, isCollapsed, onToggleCollapse }) => {
+const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ setTelegramDraft, isCollapsed = false, onToggleCollapse }) => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationState, setConversationState] = useState<ConversationState>({});
-  const { user } = useAuth();
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !user) return;
@@ -92,6 +98,10 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
           chat_history: chat_history,
           user_context: { user_id: user.id }, 
           conversation_state: conversationState,
+          ui_context: {
+            page: 'docs_dashboard',
+            path: window.location.pathname
+          }
         }),
       });
 
@@ -153,6 +163,17 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
             details: data.details
             }
         };
+      } else if (data.type === 'navigation') {
+          // Handle navigation commands from AI
+          if (data.target_url) {
+            navigate(data.target_url);
+          }
+          aiMessage = {
+            id: `ai-${Date.now()}`,
+            sender: 'ai',
+            timestamp: new Date(),
+            content: { type: 'text', text: data.response || 'Navigating...' }
+          };
       }
 
         if (aiMessage) {

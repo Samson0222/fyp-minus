@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/use-toast";
 import { FileText, RefreshCw, Plus, Search, Calendar, Tag, AlertTriangle, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import UnauthorizedPage from "@/components/layout/UnauthorizedPage";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,6 +51,8 @@ const DocsDashboard: React.FC = () => {
   const [filteredDocuments, setFilteredDocuments] = useState<DocumentMetadata[]>([]);
   const [docToDelete, setDocToDelete] = useState<DocumentMetadata | null>(null);
   const [viewMode, setViewMode] = useState<'active' | 'trashed'>('active');
+  
+
 
   // 1. Check authentication status first
   useEffect(() => {
@@ -225,6 +228,8 @@ const DocsDashboard: React.FC = () => {
     }
   };
 
+
+
   if (isAuthLoading) {
     return (
       <Layout>
@@ -248,7 +253,7 @@ const DocsDashboard: React.FC = () => {
 
   return (
     <Layout>
-      <div className="flex flex-col h-full bg-gradient-main">
+      <div className="h-full bg-gradient-main">
         {/* Header */}
         <div className="flex-shrink-0 px-6 py-4 border-b border-white/10">
           <div className="flex items-center justify-between">

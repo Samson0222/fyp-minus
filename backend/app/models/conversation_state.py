@@ -12,5 +12,7 @@ class ConversationState(BaseModel):
     last_recipient_email: Optional[str] = Field(None, description="The email address of the recipient of the last draft.")
     last_telegram_chat_id: Optional[int] = Field(None, description="The ID of the last Telegram chat that was interacted with.")
     last_message_body: Optional[str] = Field(None, description="The body of the last message drafted for Telegram.")
-    # You can add more later, e.g.:
-    # last_doc_id: Optional[str] = None
+    # Google Docs fields
+    last_document_id: Optional[str] = Field(None, description="The ID of the last Google Docs document that was interacted with.")
+    last_document_title: Optional[str] = Field(None, description="The title of the last Google Docs document that was interacted with.")
+    last_suggestion_id: Optional[str] = Field(None, description="The ID of the last document suggestion that was created.")

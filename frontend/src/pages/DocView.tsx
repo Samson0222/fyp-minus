@@ -145,11 +145,16 @@ const DocView: React.FC = () => {
     );
   }
 
+  const customDocsChat = (
+    <DocsChat 
+      isCollapsed={isSidebarCollapsed}
+      onToggleCollapse={handleToggleSidebar}
+    />
+  );
+
   return (
-    <Layout showChatSidebar={false}>
-      <div className="flex h-full bg-gradient-main">
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col">
+    <Layout showChatSidebar={true} customChatSidebar={customDocsChat} customChatCollapsed={isSidebarCollapsed}>
+      <div className="flex flex-col h-full bg-gradient-main">
           {/* Header */}
           <div className="flex-shrink-0 bg-dark-secondary/30 border-b border-white/10 px-6 py-4">
             <div className="flex items-center justify-between">
@@ -286,17 +291,6 @@ const DocView: React.FC = () => {
             )}
           </div>
         </div>
-
-        {/* DocsChat Sidebar */}
-        <div className={`fixed right-0 top-0 h-full bg-dark-primary border-l border-white/10 transition-all duration-300 z-40 ${
-          isSidebarCollapsed ? 'w-16' : 'w-80'
-        }`}>
-          <DocsChat 
-            isCollapsed={isSidebarCollapsed}
-            onToggleCollapse={handleToggleSidebar}
-          />
-        </div>
-      </div>
     </Layout>
   );
 };
