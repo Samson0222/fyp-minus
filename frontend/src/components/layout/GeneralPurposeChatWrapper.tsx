@@ -108,14 +108,14 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
       if (data.state) {
         setConversationState(data.state);
       }
-      
+
       if (data.type === 'telegram_draft') {
         setTelegramDraft(data.details);
         const confirmationMessage: Message = {
-          id: `ai-${Date.now()}`,
-          sender: 'ai',
-          timestamp: new Date(),
-          content: {
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: {
             type: 'text',
             text: data.response
           }
@@ -124,37 +124,37 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
 
       } else {
         let aiMessage: Message | null = null;
-        if (data.type === 'text') {
+      if (data.type === 'text') {
           aiMessage = {
             id: `ai-${Date.now()}`,
             sender: 'ai',
             timestamp: new Date(),
             content: { type: 'text', text: data.response }
           };
-        } else if (data.type === 'tool_draft') {
+      } else if (data.type === 'tool_draft') {
           aiMessage = {
             id: `ai-${Date.now()}`,
             sender: 'ai',
             timestamp: new Date(),
             content: { 
-              type: 'tool_draft', 
-              tool_name: data.tool_name,
-              tool_input: data.tool_input,
-              assistant_message: data.assistant_message
+            type: 'tool_draft', 
+            tool_name: data.tool_name,
+            tool_input: data.tool_input,
+            assistant_message: data.assistant_message
             }
-          };
-        } else if (data.type === 'draft_review') {
+        };
+      } else if (data.type === 'draft_review') {
           aiMessage = {
             id: `ai-${Date.now()}`,
             sender: 'ai',
             timestamp: new Date(),
             content: {
-              type: 'draft_review',
-              details: data.details
+            type: 'draft_review',
+            details: data.details
             }
-          };
-        }
-        
+        };
+      }
+
         if (aiMessage) {
             setMessages((prev) => [...prev, aiMessage as Message]);
         }
@@ -311,4 +311,4 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
   );
 };
 
-export default GeneralPurposeChatWrapper;
+export default GeneralPurposeChatWrapper; 

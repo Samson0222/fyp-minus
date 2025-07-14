@@ -211,7 +211,7 @@ class AIOrchestratorService:
         }
         
         prompt_template = prompts.get(intent_name)
-        if not prompt_template: # Should not happen if classified correctly
+        if not prompt_template:
             return Intent(intent=intent_name)
 
         prompt = ChatPromptTemplate.from_messages([
@@ -221,14 +221,137 @@ class AIOrchestratorService:
         ])
         structured_llm = self.router_llm.with_structured_output(Intent)
         chain = prompt | structured_llm
-        # We need to manually set the intent on the result as the extractor doesn't know about it.
+        
         extracted_data = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
+        
         if extracted_data:
             extracted_data.intent = intent_name
-        return extracted_data
+            return extracted_data
         
         # If the extractor returns nothing, return a base intent object to avoid errors
+        logging.warning(f"Detail extractor failed for intent '{intent_name}'. Returning a base intent.")
         return Intent(intent=intent_name)
+
+    async def _handle_edit_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """
+        Handles editing an event. If the event is not in the conversation state,
+        it uses the find_event logic to resolve ambiguity first.
+        """
+        event_id_to_edit = state.last_event_id
+
+        # If we don't know which event to edit, or if the user provided a new description, we must find it first.
+        if not event_id_to_edit or intent.event_description:
+            print(f"No event ID in state or new description provided. Searching for event matching: '{intent.event_description}'")
+            # Use the more robust find logic to resolve ambiguity
+            find_result = await self._handle_find_event_intent(intent, user_context, state, user_input, testing)
+            
+            # If the find operation needs to ask a question or results in an error, pass that response through immediately.
+            if "I'm sorry, I'm still not sure" in find_result.get("response", "") or "error" in find_result:
+                 return find_result
+
+            # If an event was found, its ID is now in the state. Proceed with this new ID.
+            event_id_to_edit = state.last_event_id
+        
+        if not event_id_to_edit:
+            # This case handles when find_event succeeds but doesn't set an ID, which shouldn't happen but is a good safeguard.
+            return {"response": "I'm not sure which event you want to edit. Please be more specific.", "state": state.dict()}
+
+        # Now that we have a definitive event_id, check if there are any actual changes to be made.
+        if not any([intent.summary, intent.description, intent.start_time, intent.end_time]):
+            # The user might have just confirmed which event to edit. Ask for the actual change.
+            return {
+                "response": f"Great. What would you like to change about that event?",
+                "state": state.dict()
+            }
+
+        result = await edit_calendar_event.coroutine(
+            event_id=event_id_to_edit,
+            summary=intent.summary,
+            description=intent.description,
+            start_time=intent.start_time,
+            end_time=intent.end_time,
+            user_context=user_context
+        )
+        
+        if isinstance(result, dict) and "error" in result:
+            return {"response": result["error"], "state": state.dict()}
+        
+        if result.get("status") == "event_updated":
+            state.last_event_id = result.get("details", {}).get("event_id")
+            return {"response": "Done. I've updated the event.", "state": state.dict()}
+        else:
+            error_message = result.get("error", "Sorry, I couldn't update the event. Please try again.")
+            return {"response": error_message, "state": state.dict()}
+
+    async def _handle_find_event_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """
+        Finds a specific event by first getting a broad list of potential candidates 
+        and then using a second AI call to reason over that list to find the best match.
+        """
+        if not intent.event_description:
+            return {"response": "I can help with that, but I need to know what event you're looking for. For example, 'my meeting with Bob' or 'my dental appointment'.", "state": state.dict()}
+
+        # Step 1: Get a broad list of candidate events
+        start_time_str = intent.search_start_date or 'one month ago'
+        end_time_str = intent.search_end_date or 'end_of_the_year'
+        start_dt, end_dt = self._get_expanded_date_range(start_time_str, end_time_str)
+
+        if not start_dt or not end_dt:
+            return {"response": "Sorry, I had trouble understanding the date range for your search.", "state": state.dict()}
+
+        candidate_events = await get_calendar_events.coroutine(
+            start_time=start_dt, end_time=end_dt, user_context=user_context
+        )
+
+        if isinstance(candidate_events, dict) and "error" in candidate_events:
+            return {"response": candidate_events["error"], "state": state.dict()}
+        if not candidate_events:
+            return {"response": f"I couldn't find any events at all matching '{intent.event_description}' in the timeframe from {start_time_str} to {end_time_str}.", "state": state.dict()}
+
+        # Filter candidates based on the event description from the intent
+        matching_events = [e for e in candidate_events if intent.event_description.lower() in e.get('summary', '').lower()]
+
+        if not matching_events:
+            return {"response": f"I found some events in that time range, but none of them seem to be about '{intent.event_description}'.", "state": state.dict()}
+
+        # If only one match, we're done.
+        if len(matching_events) == 1:
+            best_match = matching_events[0]
+            state.last_event_id = best_match.get('id')
+            response_prompt_text = f"I found this event: {best_match.get('summary')} on {best_match.get('start', {}).get('dateTime')}. Is this the correct one?"
+            final_response = await self.chat_llm.ainvoke(response_prompt_text)
+            return {"response": final_response.content, "state": state.dict()}
+            
+        # Step 2: If multiple matches, use a resolver LLM to reason over the list of candidates
+        pruned_candidates = self._prune_event_list_for_resolver(matching_events)
+        
+        resolver_prompt = ChatPromptTemplate.from_messages([
+            ("system", 
+             "You are a reasoning engine. Your task is to analyze the user's query and the list of calendar events to find the single best match. "
+             "Consider event summaries, descriptions, and relative terms like 'latest', 'first', 'today', or specific dates. "
+             "Respond ONLY with the single best matching event object from the list, or null if no single event is a clear match."),
+            ("human", "User's Clarification: '{user_input}'\n\nList of Potential Events:\n{event_list}")
+        ])
+        structured_resolver_llm = self.chat_llm.with_structured_output(_EventResolverResponse)
+        resolver_chain = resolver_prompt | structured_resolver_llm
+        
+        resolver_result = await resolver_chain.ainvoke({
+            "user_input": user_input, # Pass the user's latest clarification (e.g., 'the one on the 14th')
+            "event_list": str(pruned_candidates)
+        })
+
+        best_match = resolver_result.matched_event
+
+        # Step 3: Act on the resolved event
+        if best_match:
+            state.last_event_id = best_match.get('id')
+            response_prompt_text = f"Great, I've identified the event: {best_match.get('summary')} on {best_match.get('start', {}).get('dateTime')}. Now, what would you like to do with it?"
+            final_response = await self.chat_llm.ainvoke(response_prompt_text)
+            return {"response": final_response.content, "state": state.dict()}
+        else:
+            # If the resolver fails, ask for clarification again with the list of options.
+            event_summaries = [f"'{e['summary']}' on {e['start'].get('dateTime', e['start'].get('date'))}" for e in matching_events]
+            return {"response": "I'm sorry, I'm still not sure which one you mean. Could you be more specific? Here are the options I found:\n- " + "\n- ".join(event_summaries), "state": state.dict()}
 
     def _prune_event_list_for_resolver(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Prunes the event list to only include fields relevant for AI reasoning."""
@@ -291,64 +414,6 @@ class AIOrchestratorService:
         except Exception as e:
             logging.error(f"Date calculation failed for '{start_str}' to '{final_end_str}': {e}")
             return None, None
-
-    async def _handle_find_event_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str) -> Dict[str, Any]:
-        """
-        Finds a specific event by first getting a broad list of potential candidates 
-        and then using a second AI call to reason over that list to find the best match.
-        """
-        if not intent.event_description:
-            return {"response": "I can help with that, but I need to know what event you're looking for. For example, 'my meeting with Bob' or 'my dental appointment'.", "state": state.dict()}
-
-        # Step 1: Get a broad list of candidate events
-        start_time_str = intent.search_start_date or 'one month ago'
-        end_time_str = intent.search_end_date or 'end_of_the_year'
-        start_dt, end_dt = self._get_expanded_date_range(start_time_str, end_time_str)
-
-        if not start_dt or not end_dt:
-            return {"response": "Sorry, I had trouble understanding the date range for your search.", "state": state.dict()}
-
-        candidate_events = await get_calendar_events.coroutine(
-            start_time=start_dt, end_time=end_dt, user_context=user_context
-        )
-
-        if isinstance(candidate_events, dict) and "error" in candidate_events:
-            return {"response": candidate_events["error"], "state": state.dict()}
-        if not candidate_events:
-            return {"response": f"I couldn't find any events at all in the timeframe from {start_time_str} to {end_time_str}.", "state": state.dict()}
-
-        # Prune the list to make it easier for the AI to reason over
-        pruned_candidates = self._prune_event_list_for_resolver(candidate_events)
-        print(f"DEBUG: Pruned candidate events for resolver: {pruned_candidates}")
-
-        # Step 2: Use a resolver LLM to reason over the list of candidates
-        resolver_prompt = ChatPromptTemplate.from_messages([
-            ("system", 
-             "You are a reasoning engine. Below is a user's query and a list of JSON objects representing their calendar events. "
-             "Your task is to analyze the query and identify the single event from the list that best matches the user's request. "
-             "Consider the event summary, description, and any relative terms in the query like 'latest', 'first', or 'next'. "
-             "Respond ONLY with the single best matching event object, or null if no single event is a clear match."),
-            ("human", "User Query: {user_input}\n\nEvent List:\n{event_list}")
-        ])
-        structured_resolver_llm = self.chat_llm.with_structured_output(_EventResolverResponse)
-        resolver_chain = resolver_prompt | structured_resolver_llm
-        
-        resolver_result = await resolver_chain.ainvoke({
-            "user_input": user_input,
-            "event_list": str(pruned_candidates)
-        })
-
-        best_match = resolver_result.matched_event
-
-        # Step 3: Act on the resolved event
-        if best_match:
-            state.last_event_id = best_match.get('id')
-            response_prompt_text = f"I found this event: {best_match}. Please summarize it for the user in a helpful way, directly answering their original question: '{user_input}'"
-            final_response = await self.chat_llm.ainvoke(response_prompt_text)
-            return {"response": final_response.content, "state": state.dict()}
-        else:
-            return {"response": f"I found a few events, but couldn't determine which one best matched your request: '{user_input}'. Could you be more specific?", "state": state.dict()}
-
 
     async def _handle_find_telegram_chat_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles finding a telegram chat and returning its details."""
@@ -531,7 +596,7 @@ class AIOrchestratorService:
 
         return {"response": summary.content, "state": state.dict()}
 
-    async def _handle_list_events_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str) -> Dict[str, Any]:
+    async def _handle_list_events_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         start_time_str = intent.search_start_date or 'today'
         end_time_str = intent.search_end_date or start_time_str
         start_dt, end_dt = self._get_expanded_date_range(start_time_str, end_time_str)
@@ -553,7 +618,7 @@ class AIOrchestratorService:
         final_response = await self.chat_llm.ainvoke(response_prompt)
         return {"response": final_response.content, "state": state.dict()}
 
-    async def _handle_create_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str) -> Dict[str, Any]:
+    async def _handle_create_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles the intent to create a new calendar event."""
         result = await create_calendar_event_draft.coroutine(
             summary=intent.summary,
@@ -571,53 +636,6 @@ class AIOrchestratorService:
             return {"response": result.get("confirmation_message", "I've created the event."), "state": state.dict()}
         else:
             error_message = result.get("error", "Sorry, I couldn't create the event. Please try again.")
-            return {"response": error_message, "state": state.dict()}
-
-    async def _handle_edit_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str) -> Dict[str, Any]:
-        event_id_to_edit = state.last_event_id
-
-        if not event_id_to_edit and intent.event_description:
-            print(f"No event ID in state. Searching for event matching: '{intent.event_description}'")
-            today = datetime.now(pytz.timezone('Asia/Kuala_Lumpur'))
-            start_of_month = today.replace(day=1, hour=0, minute=0, second=0)
-            end_of_month = (start_of_month + timedelta(days=32)).replace(day=1, hour=0, minute=0, second=0) - timedelta(seconds=1)
-
-            potential_events = await get_calendar_events.coroutine(
-                start_time=start_of_month.isoformat(), end_time=end_of_month.isoformat(), user_context=user_context
-            )
-            
-            if isinstance(potential_events, dict) and "error" in potential_events:
-                return {"response": potential_events["error"], "state": state.dict()}
-
-            if potential_events:
-                matching_events = [e for e in potential_events if intent.event_description.lower() in e.get('summary', '').lower()]
-                if len(matching_events) == 1:
-                    event_id_to_edit = matching_events[0]['id']
-                    state.last_event_id = event_id_to_edit
-                elif len(matching_events) > 1:
-                    event_summaries = [f"'{e['summary']}' on {e['start'].get('dateTime', e['start'].get('date'))}" for e in matching_events]
-                    return {"response": "I found a few events that could match: \n- " + "\n- ".join(event_summaries), "state": state.dict()}
-        
-        if not event_id_to_edit:
-            return {"response": "I'm not sure which event you want to edit. Please specify which event.", "state": state.dict()}
-
-        result = await edit_calendar_event.coroutine(
-            event_id=event_id_to_edit,
-            summary=intent.summary,
-            description=intent.description,
-            start_time=intent.start_time,
-            end_time=intent.end_time,
-            user_context=user_context
-        )
-        
-        if isinstance(result, dict) and "error" in result:
-            return {"response": result["error"], "state": state.dict()}
-        
-        if result.get("status") == "event_updated":
-            state.last_event_id = result.get("details", {}).get("event_id")
-            return {"response": "Done. I've updated the event.", "state": state.dict()}
-        else:
-            error_message = result.get("error", "Sorry, I couldn't update the event. Please try again.")
             return {"response": error_message, "state": state.dict()}
 
     async def _handle_list_emails_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
@@ -967,4 +985,4 @@ class AIOrchestratorService:
 ai_orchestrator = AIOrchestratorService()
 
 def get_orchestrator_service():
-    return ai_orchestrator
+    return ai_orchestrator 
