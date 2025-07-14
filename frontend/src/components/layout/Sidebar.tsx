@@ -12,8 +12,8 @@ const Sidebar = () => {
     { icon: <Calendar size={20} />, name: "Schedule", path: "/calendar" },
     { icon: <Mail size={20} />, name: "Emails", path: "/email" },
     { icon: <FileText size={20} />, name: "Docs", path: "/docs" },
-    { icon: <Activity size={20} />, name: "Mission Control", path: "/mission-control" },
-    { icon: <Mic size={20} />, name: "Playground", path: "/playground" },
+    // { icon: <Activity size={20} />, name: "Mission Control", path: "/mission-control" },
+    // { icon: <Mic size={20} />, name: "Playground", path: "/playground" },
     { icon: <Settings size={20} />, name: "Settings", path: "/settings" },
   ];
 
@@ -77,7 +77,7 @@ const Sidebar = () => {
         </ul>
       </nav>
       
-      {/* Bottom Section with Profile and Logout */}
+      {/* Bottom Section with Profile and Logout
       <div className={`${isCollapsed ? 'p-1' : 'p-4'} border-t border-white/5 space-y-2`}>
         <Link
           to="/profile"
@@ -100,7 +100,7 @@ const Sidebar = () => {
           <LogOut size={20} />
           {!isCollapsed && <span>Logout</span>}
         </button>
-      </div>
+      </div> */}
     </aside>
   );
 };

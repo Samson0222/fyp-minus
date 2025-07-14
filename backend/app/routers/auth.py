@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse
 from typing import Optional
 import os
 import logging
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
 
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -62,8 +62,19 @@ async def google_login(request: Request, user: UserContext = Depends(get_current
         # For now, we'll include user_id in the state parameter
         state_with_user = f"{state}:{user.user_id}"
         
+        # The authorization_url already has a 'state' parameter. We need to replace it
+        # to avoid sending two state parameters.
+        parsed_url = urlparse(authorization_url)
+        query_params = parse_qs(parsed_url.query)
+        query_params['state'] = [state_with_user]
+        new_query = urlencode(query_params, doseq=True)
+        
+        new_authorization_url = urlunparse(
+            (parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.params, new_query, parsed_url.fragment)
+        )
+
         # Redirect user to Google OAuth consent screen
-        return RedirectResponse(url=f"{authorization_url}&state={state_with_user}")
+        return RedirectResponse(url=new_authorization_url)
         
     except Exception as e:
         logger.error(f"Google auth initiation error: {e}")
@@ -86,7 +97,7 @@ async def google_auth_callback(
             oauth_state, user_id = state.rsplit(':', 1)
         else:
             oauth_state = state
-            user_id = "test_user_001"  # Fallback for safety
+            user_id = "cbede3b0-2f68-47df-9c26-09a46e588567"  # Fallback for safety
 
         # Exchange authorization code for credentials
         base_url = str(request.base_url).rstrip('/')

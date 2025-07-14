@@ -21,7 +21,7 @@ export const useAuth = () => {
     // --- DEV MODE BYPASS ---
     if (isDevBypass) {
       console.warn("Auth is in Dev Bypass Mode. All requests will use a mock user.");
-      setUser({ id: "test_user_001", email: "test@example.com" } as User);
+      setUser({ id: "cbede3b0-2f68-47df-9c26-09a46e588567", email: "test@example.com" } as User);
       setGoogleAuthenticated(true); // Assume Google is connected in dev mode
       setIsLoading(false);
       return;

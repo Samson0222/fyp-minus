@@ -30,7 +30,7 @@ class CalendarService:
         try:
             action = command_data.get("action")
             params = command_data.get("params", {})
-            user_id = command_data.get("user_id", "test_user_001")  # Default for testing
+            user_id = command_data.get("user_id", "cbede3b0-2f68-47df-9c26-09a46e588567")  # Default for testing
             
             if action == "check_today":
                 return await self.get_today_schedule_voice(user_id)

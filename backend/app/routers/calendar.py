@@ -12,7 +12,7 @@ from app.core.database import get_database
 # Dependency to get current user (simplified demo)
 async def get_current_user(authorization: Optional[str] = None):
     """Stub user extraction – replace with real auth if needed."""
-    return {"user_id": "test_user_001", "email": "test@example.com"}
+    return {"user_id": "cbede3b0-2f68-47df-9c26-09a46e588567", "email": "test@example.com"}
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/calendar", tags=["calendar"])

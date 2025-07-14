@@ -93,8 +93,8 @@ We are moving beyond a simple LLM call to a true agentic workflow where the AI c
   - This prevents spoofing and ensures the backend always has the correct, up-to-date credentials.
 
 - **DEV_AUTH_BYPASS Mode:**
-  - In development, set `DEV_AUTH_BYPASS=true` in the backend `.env` file. This allows the backend to skip JWT validation and use a hardcoded test user (e.g., `test_user_001`).
-  - The backend should load Google OAuth tokens for this user directly from the local `tokens/` directory (e.g., `tokens/token_google_test_user_001.json`).
+  - In development, set `DEV_AUTH_BYPASS=true` in the backend `.env` file. This allows the backend to skip JWT validation and use a hardcoded test user (e.g., `cbede3b0-2f68-47df-9c26-09a46e588567`).
+  - The backend should load Google OAuth tokens for this user directly from the local `tokens/` directory (e.g., `tokens/token_google_cbede3b0-2f68-47df-9c26-09a46e588567.json`).
   - The frontend may have its own dev bypass flag (e.g., `VITE_DEV_AUTH_BYPASS`), but the backend's flag is authoritative for all authentication logic.
 
 - **UserContext Model Consistency:**

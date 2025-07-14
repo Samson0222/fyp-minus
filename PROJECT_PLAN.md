@@ -96,7 +96,7 @@ During development, the `get_current_user` dependency in `backend/app/main.py` i
 -   **Stub Implementation**: The function returns a hard-coded user object.
 -   **User ID Requirement**: The `user_id` in the stubbed object **must be a valid UUID** (e.g., `"00000000-0000-0000-0000-000000000001"`).
 -   **Reason**: This is necessary to satisfy the foreign key constraints in the database, where tables like `tasks` or `monitored_chats` link back to a central `user_profiles` table using a UUID. This same `user_id` is used to name the user's Google credential file (`tokens/token_google_{user_id}.json`), creating a direct link between the authenticated Google session and the user's data in the database. Using a non-UUID string like `"test_user_001"` will cause database insertion errors.
-uuid=cbede3b0-2f68-47df-9c26-09a46e588567
+user_id=uuid=cbede3b0-2f68-47df-9c26-09a46e588567
 -   **Production Goal**: This stub will be replaced by a proper JWT-based authentication mechanism that extracts the real user UUID from the token.
 
 #### **Implementation Flow for New Pages**

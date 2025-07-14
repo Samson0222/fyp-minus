@@ -115,7 +115,7 @@ const Calendar: React.FC = () => {
 
   // Establish WebSocket connection
   useEffect(() => {
-    const userId = "test_user_001"; 
+    const userId = "cbede3b0-2f68-47df-9c26-09a46e588567"; 
 
     if (calendarState.authStatus.authenticated) {
       const ws = new WebSocket(`ws://localhost:8000/ws/calendar/${userId}`);

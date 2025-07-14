@@ -22,7 +22,7 @@ async def get_current_user(authorization: Optional[str] = None):
     try:
         # In production, this would properly validate the JWT token
         # For now, using a consistent test user with proper error handling
-        user_id = "test_user_001"
+        user_id = "cbede3b0-2f68-47df-9c26-09a46e588567"
         logger.info(f"Authenticated user: {user_id}")
         return {"user_id": user_id, "email": "test@example.com"}
     except Exception as e:
