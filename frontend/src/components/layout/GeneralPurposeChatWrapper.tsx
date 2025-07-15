@@ -71,6 +71,11 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
   const [error, setError] = useState<string | null>(null);
   const [conversationState, setConversationState] = useState<ConversationState>({});
 
+  const handleClearChat = () => {
+    setMessages([]);
+    setConversationState({}); // Also reset conversation state if needed
+  };
+
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !user) return;
 
@@ -199,7 +204,7 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
       id: `user-${Date.now()}`,
       sender: 'user',
       timestamp: new Date(),
-      content: { type: 'text', text: JSON.stringify({ user_action: 'send_draft', draft_id: draftId }) },
+      content: { type: 'text', text: `[User approved sending draft with ID: ${draftId}]` },
     };
 
     const newMessages = [...messages, userMessage];
@@ -212,7 +217,7 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          input: userMessage.content.text,
+          input: JSON.stringify({ user_action: 'send_draft', draft_id: draftId }),
           chat_history: chat_history_for_send,
           user_context: { user_id: user.id },
           conversation_state: conversationState
@@ -328,6 +333,7 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
       onRejectTool={handleRejectTool}
       onSendDraft={handleSendDraft}
       onCancelDraft={handleCancelDraft}
+      onClearChat={handleClearChat}
     />
   );
 };

@@ -1,9 +1,15 @@
 import React, { useRef, useEffect } from "react";
-import { Send, ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft, AlertTriangle, X } from "lucide-react";
+import { Send, ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft, AlertTriangle, X, Trash2 } from "lucide-react";
 import MessageBubble from "@/components/ai/MessageBubble";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // Expanded Message type to support structured tool drafts from the AI agent.
 export interface Message {
@@ -35,6 +41,14 @@ export interface ToolDraftDetails {
   tool_input: unknown;
   assistant_message: string;
 }
+
+// Type for document suggestion tool input
+interface DocumentSuggestionInput {
+  preview_type: 'document_edit';
+  original_text: string;
+  suggested_text: string;
+}
+
 export interface DraftReviewDetails {
   draft_id: string;
   to: string;
@@ -51,7 +65,8 @@ export interface ChatSidebarUIProps {
   onApproveTool: (toolName: string, toolInput: unknown) => void;
   onRejectTool: (toolName: string, toolInput: unknown) => void;
   onSendDraft: (draftId: string) => void;
-  onCancelDraft: (details: any) => void;
+  onCancelDraft: (details: DraftReviewDetails) => void;
+  onClearChat?: () => void;
 
   inputValue: string;
   onInputChange: (value: string) => void;
@@ -70,21 +85,23 @@ export interface ChatSidebarUIProps {
 // Helper component for rendering document edit suggestions
 interface DocumentSuggestionCardProps {
   message: Message;
-  onApprove: (toolName: string, toolInput: unknown) => void;
-  onReject: (toolName: string, toolInput: unknown) => void;
+  onApprove: (toolName: string, toolInput: DocumentSuggestionInput | unknown) => void;
+  onReject: (toolName: string, toolInput: DocumentSuggestionInput | unknown) => void;
 }
 const DocumentSuggestionCard: React.FC<DocumentSuggestionCardProps> = ({ message, onApprove, onReject }) => {
   if (message.content.type !== 'tool_draft') return null;
   const { tool_name, tool_input, assistant_message } = message.content;
-  
+
   // Type guard for document suggestion
-  const isDocumentSuggestion = (input: unknown): input is { 
-    preview_type: string; 
-    original_text: string; 
-    suggested_text: string; 
-  } => {
-    return typeof input === 'object' && input !== null && 
-           'preview_type' in input && (input as any).preview_type === 'document_edit';
+  const isDocumentSuggestion = (input: unknown): input is DocumentSuggestionInput => {
+    return (
+      typeof input === 'object' &&
+      input !== null &&
+      'preview_type' in input &&
+      (input as { preview_type: unknown }).preview_type === 'document_edit' &&
+      'original_text' in input &&
+      'suggested_text' in input
+    );
   };
 
   if (isDocumentSuggestion(tool_input)) {
@@ -158,7 +175,7 @@ const DocumentSuggestionCard: React.FC<DocumentSuggestionCardProps> = ({ message
 interface EmailDraftCardProps {
   message: Message;
   onSend: (draftId: string) => void;
-  onCancel: (details: any) => void;
+  onCancel: (details: DraftReviewDetails) => void;
 }
 const EmailDraftCard: React.FC<EmailDraftCardProps> = ({ message, onSend, onCancel }) => {
   if (message.content.type !== 'draft_review') return null;
@@ -212,7 +229,8 @@ const ChatSidebarUI: React.FC<ChatSidebarUIProps> = ({
   error,
   title = "AI Assistant",
   placeholder = "Type your message...",
-  emptyStateMessage = "No messages yet. Start the conversation!"
+  emptyStateMessage = "No messages yet. Start the conversation!",
+  onClearChat,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -270,8 +288,29 @@ const ChatSidebarUI: React.FC<ChatSidebarUIProps> = ({
       >
         <ChevronRight size={16} />
       </button>
-      <div className="p-4 border-b border-white/5 flex justify-center items-center w-full">
+      <div className="p-4 border-b border-white/5 flex justify-center items-center w-full relative">
         <h2 className="text-lg font-semibold text-white">{title}</h2>
+        {onClearChat && (
+          <div className="absolute right-4 top-1/2 -translate-y-1/2">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={onClearChat}
+                    className="text-white/60 hover:text-white hover:bg-white/10"
+                  >
+                    <Trash2 size={18} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Clear Chat History</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-violet scrollbar-track-dark-tertiary w-full">
         {messages.length === 0 && !isLoading && (
