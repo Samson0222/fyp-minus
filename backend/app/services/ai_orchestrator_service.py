@@ -24,6 +24,8 @@ from app.models.user_context import UserContext
 from app.models.conversation_state import ConversationState
 from app.models.intent import Intent
 from app.services.gmail_service import GmailService
+from app.services.telegram_service import TelegramService
+from app.core.database import get_database
 
 # Pydantic Models for the new two-stage router
 class _IntentClassification(BaseModel):
@@ -31,7 +33,7 @@ class _IntentClassification(BaseModel):
     intent: Literal[
         'create_event', 'edit_event', 'find_event', 'list_events',
         'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
-        'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'get_latest_telegram_message',
+        'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'refine_telegram_draft', 'get_latest_telegram_message',
         'summarize_all_unread_telegram',
         'list_documents', 'open_document', 'close_document', 'summarize_document', 'create_document', 'edit_document', 'apply_suggestion', 'reject_suggestion',
         'general_chat'
@@ -111,10 +113,11 @@ class AIOrchestratorService:
              "The ONLY allowed categories are: "
              "`create_event`, `edit_event`, `find_event`, `list_events`, "
              "`list_emails`, `find_email`, `compose_email`, `reply_to_email`, `send_email_draft`, `refine_email_draft`, `cancel_email_draft`, "
-             "`find_telegram_chat`, `reply_to_telegram`, `summarize_telegram_chat`, `send_telegram_draft`, `get_latest_telegram_message`, `summarize_all_unread_telegram`, "
+             "`find_telegram_chat`, `reply_to_telegram`, `summarize_telegram_chat`, `send_telegram_draft`, `refine_telegram_draft`, `get_latest_telegram_message`, `summarize_all_unread_telegram`, "
              "`list_documents`, `open_document`, `close_document`, `summarize_document`, `edit_document`, `apply_suggestion`, `reject_suggestion`, `general_chat`\n\n"
              "IMPORTANT: You must ONLY return one of these exact intent names. Do NOT return tool names like 'create_document_suggestion' or 'apply_document_suggestion'.\n\n"
              "Classification rules:\n"
+             "- If the immediate previous turn was about reading a message (email or telegram) and the user's input is a short instruction like 'tell him I'll be there' or 'reply that I agree', classify the intent as `reply_to_email` or `reply_to_telegram` respectively.\n"
              "- A request like 'what's new in my email?' is `list_emails`\n"
              "- A request like 'find the email from jane' is `find_email`\n"
              "- A request like 'draft an email to john' is `compose_email`\n"
@@ -128,6 +131,7 @@ class AIOrchestratorService:
              "- A request like 'summarize my chat with the design team' is `summarize_telegram_chat`\n"
              "- A request like 'find my conversation with Samson' is `find_telegram_chat`\n"
              "- A user saying 'yes, send it' or 'go ahead' after a telegram draft is shown is `send_telegram_draft`\n"
+             "- A user wanting to change a drafted telegram message is `refine_telegram_draft`\n"
              "- A request like 'what's the latest message in the dev chat?' is `get_latest_telegram_message`\n"
              "- A request like 'what did I miss on Telegram?' or 'summarize my unread telegrams' is `summarize_all_unread_telegram`\n"
              "- A request like 'reply to the project group' is `reply_to_telegram`\n"
@@ -148,16 +152,14 @@ class AIOrchestratorService:
             chain = prompt | structured_llm
             result = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
             
-            # Add a safeguard in case the LLM returns a None response
-            if not result:
-                logging.warning("Intent classification returned None. Defaulting to 'general_chat'.")
+            if not result or not hasattr(result, 'intent'):
+                logging.warning("Intent classification returned an invalid result. Defaulting to 'general_chat'.")
                 return 'general_chat'
-            
-            # Validate that the returned intent is in the allowed list
+                
             allowed_intents = [
                 'create_event', 'edit_event', 'find_event', 'list_events',
                 'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
-                'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'get_latest_telegram_message', 'summarize_all_unread_telegram',
+                'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'refine_telegram_draft', 'get_latest_telegram_message', 'summarize_all_unread_telegram',
                 'list_documents', 'open_document', 'close_document', 'summarize_document', 'create_document', 'edit_document', 'apply_suggestion', 'reject_suggestion',
                 'general_chat'
             ]
@@ -165,15 +167,13 @@ class AIOrchestratorService:
             if result.intent not in allowed_intents:
                 logging.warning(f"LLM returned invalid intent '{result.intent}'. Defaulting to 'general_chat'.")
                 return 'general_chat'
-                
+            
             return result.intent
             
         except Exception as e:
             logging.error(f"Error in intent classification: {e}")
-            # Fallback to simple keyword matching
             user_input_lower = user_input.lower()
             
-            # Document-related fallbacks
             if any(word in user_input_lower for word in ['edit', 'change', 'modify', 'update', 'rewrite']):
                 return 'edit_document'
             elif any(word in user_input_lower for word in ['create', 'new document', 'make document', 'new doc']):
@@ -188,16 +188,11 @@ class AIOrchestratorService:
                 return 'open_document'
             elif any(word in user_input_lower for word in ['list', 'documents', 'docs']):
                 return 'list_documents'
-            
-            # Email-related fallbacks
             elif any(word in user_input_lower for word in ['email', 'inbox', 'mail']):
                 return 'list_emails'
-            
-            # Calendar-related fallbacks
             elif any(word in user_input_lower for word in ['calendar', 'event', 'meeting', 'appointment']):
                 return 'list_events'
             
-            # Default fallback
             return 'general_chat'
 
     async def _extract_details(self, intent_name: str, user_input: str, chat_history: List[BaseMessage]) -> Intent:
@@ -259,6 +254,11 @@ class AIOrchestratorService:
                 "Your job is to extract the user's LATEST refinement instruction from their most recent message. "
                 "For example, if the user says 'make it sound more formal', the `email_body` should be 'make it sound more formal'. "
                 "IGNORE previous instructions in the chat history."
+            ),
+            'refine_telegram_draft': (
+                "The user is reviewing a Telegram message draft and wants to change it. "
+                "Your job is to extract the user's LATEST refinement instruction. "
+                "For example, if they say 'change it to say I will be 5 minutes late', the `message_body` is 'I will be 5 minutes late'."
             ),
             'cancel_email_draft': (
                 "The user wants to cancel and delete the current email draft. They might say 'cancel it', 'stop', or 'nevermind'. "
@@ -332,7 +332,6 @@ class AIOrchestratorService:
         
         prompt_template = prompts.get(intent_name)
         if not prompt_template:
-            # For intents without specific prompts, return a basic intent
             logging.warning(f"No prompt template found for intent '{intent_name}'. Creating basic intent.")
             return Intent(intent=intent_name)
 
@@ -343,23 +342,20 @@ class AIOrchestratorService:
                 ("human", "{input}")
             ])
             
-            # Use the Intent model for structured output
             structured_llm = self.router_llm.with_structured_output(Intent)
             chain = prompt | structured_llm
             
             extracted_data = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
             
             if extracted_data:
-                # Ensure the intent field is set correctly
                 extracted_data.intent = intent_name
                 return extracted_data
             else:
                 logging.warning(f"Structured output returned None for intent '{intent_name}'. Creating basic intent.")
                 return Intent(intent=intent_name)
-                
+        
         except Exception as e:
             logging.error(f"Error in detail extraction for intent '{intent_name}': {e}")
-            # Return a basic intent object to avoid errors
             return Intent(intent=intent_name)
 
     async def _handle_edit_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
@@ -594,119 +590,126 @@ class AIOrchestratorService:
 
     async def _handle_reply_to_telegram_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """
-        Finds a chat and prepares a message draft for it.
-        It does NOT send the message. It returns a draft for the user to review.
+        Handles sending a reply to a Telegram chat.
+        It prioritizes chat_id from the state. If not present, it uses the intent's query.
+        If the user is correcting a previous suggestion, it handles that too.
         """
-        if not intent.message_body:
-            return {"response": "What message would you like to send?", "state": state.dict()}
-
         chat_id = state.last_telegram_chat_id
-        chat_name = "the current chat"
-
-        if not chat_id:
+        chat_name = "the last chat"
+        
+        # Core logic to determine the target chat
+        if not chat_id or (intent.chat_query and "no" in user_input.lower()):
+            # If state is missing, or user is correcting the bot ("No, send to...")
+            # we need to find the chat based on the new query.
             if not intent.chat_query:
-                return {"response": "I'm not sure which chat to reply to. Please specify one.", "state": state.dict()}
-            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context.dict())
+                return {
+                    "response": "I'm not sure which chat to send this message to. Please specify the recipient (e.g., 'send it to the project group').",
+                    "state": state.dict()
+                }
+
+            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context)
             if chat_details.get("error"):
                 return {"response": chat_details["error"], "state": state.dict()}
-            if not chat_details.get("success"):
-                return {"response": "I couldn't find the specified chat to send a message to.", "state": state.dict()}
+            
             chat_id = chat_details.get("chat_id")
             chat_name = chat_details.get("chat_name")
-            state.last_telegram_chat_id = chat_id
-        
-        # Use the LLM to expand the user's core message into a more natural one.
-        body_generation_prompt = f"A user wants to send a message to the Telegram chat '{chat_name}'. Their core instruction is: '{intent.message_body}'. Expand this into a natural, friendly message body. For example, if the user says 'I am on my way', you could write 'Just letting you know, I'm on my way now!'. Respond ONLY with the generated message body."
-        
-        generated_body = await self.chat_llm.ainvoke(body_generation_prompt)
-        final_body = generated_body.content if generated_body else intent.message_body
+            
+            if not chat_id:
+                return {"response": f"I couldn't find a chat matching '{intent.chat_query}'. Please try a different name.", "state": state.dict()}
 
-        # Save the draft body to state so we can send it later
-        state.last_message_body = final_body
-        
+        if not intent.message_body:
+            return {"response": "I see you want to send a message. What should it say?", "state": state.dict()}
+            
+        # At this point, we have a chat_id and a message. Create a draft for confirmation.
+        state.last_telegram_chat_id = chat_id
+        state.last_message_body = intent.message_body
+
         return {
             "type": "telegram_draft",
+            "response": f"Here's the draft of the message: \"{intent.message_body}\". I will send it to '{chat_name}' if it sounds good to you.",
             "details": {
                 "chat_id": chat_id,
                 "chat_name": chat_name,
-                "body": final_body
+                "body": intent.message_body
             },
-            "response": f"I've drafted the following reply to '{chat_name}':\n\n> {final_body}\n\nShould I send it?",
             "state": state.dict()
         }
 
     async def _handle_send_telegram_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
-        """Sends the telegram message that was previously drafted and stored in the state."""
+        """
+        Sends the telegram message that was previously drafted and stored in the state.
+        """
         chat_id = state.last_telegram_chat_id
         message_body = state.last_message_body
 
         if not chat_id or not message_body:
-            return {"response": "I'm sorry, I seem to have forgotten what message we were sending. Please draft it again.", "state": state.dict()}
+            return {"response": "I'm not sure what to send. Please tell me who to message and what to say first.", "state": state.dict()}
 
-        send_result = await send_telegram_message.coroutine(chat_id=chat_id, message=message_body, user_context=user_context.dict())
+        send_result = await send_telegram_message.coroutine(chat_id=chat_id, message=message_body, user_context=user_context)
 
-        # Clear state after sending
-        state.last_telegram_chat_id = None
-        state.last_message_body = None
-
-        if send_result.get("success"):
+        if send_result and send_result.get("success"):
+            # Clear the state after sending
+            state.last_telegram_chat_id = None
+            state.last_message_body = None
             return {"response": "Done. The message has been sent.", "state": state.dict()}
         else:
             return {"response": send_result.get("error", "I failed to send the message."), "state": state.dict()}
 
     async def _handle_get_latest_telegram_message_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
-        """Finds a chat and returns its last message. Handles a special 'LATEST' keyword."""
-        
-        if not intent.chat_query:
-            return {"response": "I need to know which chat you're asking about. Please be more specific or ask for the latest overall.", "state": state.dict()}
-
-        # Handle the special case where the user wants the latest message across all chats
-        if intent.chat_query == 'LATEST':
-            summary_data = await get_unread_summary.coroutine(user_context=user_context.dict())
-            if not summary_data or "info" in summary_data[0] or "error" in summary_data[0]:
-                return {"response": "You have no new messages across any of your chats.", "state": state.dict()}
-
-            # Find the message with the most recent timestamp across all chats
-            latest_message_details = None
-            most_recent_timestamp = None
-
-            for chat in summary_data:
-                # This assumes the tool returns full message objects, not just strings
-                # We need to adapt if the tool's output changes
-                # For now, we'll assume a simple structure for the sake of the example
-                # In a real scenario, the tool would need to return timestamps
-                pass # Logic to find the true latest message would go here.
+        """
+        Gets the latest message from a specific chat or the latest unread message overall.
+        If a specific chat is mentioned, it finds it and gets the history.
+        If not, it gets a summary of all unread messages.
+        """
+        if intent.chat_query and intent.chat_query != 'LATEST':
+            # User is asking for the latest message in a specific chat
+            chat_info = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context)
+            if "error" in chat_info:
+                return {"response": chat_info["error"], "state": state.dict()}
             
-            # For now, let's just return the latest from the first chat as a proxy
-            first_chat_with_unread = summary_data[0]
-            chat_name = first_chat_with_unread['chat_name']
-            latest_msg_content = first_chat_with_unread['messages'][-1]
-            return {"response": f"Your latest message is in '{chat_name}':\n\n> {latest_msg_content}", "state": state.dict()}
+            chat_id = chat_info.get("chat_id")
+            if not chat_id:
+                return {"response": f"I couldn't find the chat '{intent.chat_query}'.", "state": state.dict()}
 
-        # --- Standard logic for finding a specific chat ---
-        chat_id = state.last_telegram_chat_id
-        chat_name = "the current chat"
-        if not chat_id or intent.chat_query: # If a new query is provided, re-search
-            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context.dict())
-            if chat_details.get("error"):
-                return {"response": chat_details["error"], "state": state.dict()}
-            if not chat_details.get("success"):
-                return {"response": "I couldn't find the specified chat.", "state": state.dict()}
-            chat_id = chat_details.get("chat_id")
-            chat_name = chat_details.get("chat_name")
-            state.last_telegram_chat_id = chat_id
+            history = await get_conversation_history.coroutine(chat_id=chat_id, user_context=user_context)
+            if isinstance(history, list) and history and "error" not in history[0]:
+                state.last_telegram_chat_id = chat_id # Save context
+                latest_message = history[-1]
+                response_text = f"The latest message in '{chat_info.get('chat_name')}' is: {latest_message}"
+                return {"response": response_text, "state": state.dict()}
+            else:
+                return {"response": f"I found the chat, but couldn't retrieve its history.", "state": state.dict()}
+        else:
+            # User is asking for the latest message across all chats
+            summary_result = await get_unread_summary.coroutine(user_context=user_context)
 
-        history = await get_conversation_history.coroutine(chat_id=chat_id, user_context=user_context.dict())
-        if not history or "error" in history[0] or not isinstance(history, list) or len(history) == 0:
-            return {"response": f"I couldn't find any message history for '{chat_name}'.", "state": state.dict()}
+            if not summary_result or (isinstance(summary_result, list) and "info" in summary_result[0]):
+                return {"response": "You have no new messages on Telegram.", "state": state.dict()}
+            if isinstance(summary_result, list) and "error" in summary_result[0]:
+                return {"response": summary_result[0]["error"], "state": state.dict()}
 
-        latest_message = history[-1]
-        response = f"The latest message in '{chat_name}' is:\n\n> {latest_message}"
-        
-        return {"response": response, "state": state.dict()}
+            # We care about the most recent message from the summary
+            # Assuming the service and tools return lists of chats with their messages
+            if isinstance(summary_result, list) and summary_result:
+                # Let's find the absolute latest message across all unread chats
+                latest_chat = summary_result[-1] # Often the most recent activity is last
+                latest_message_text = latest_chat['messages'][-1]
+                chat_name = latest_chat['chat_name']
+                chat_id = latest_chat['chat_id']
+
+                # Save the context of this latest chat
+                state.last_telegram_chat_id = chat_id
+                
+                response_text = f"Your latest message is in '{chat_name}': {latest_message_text}"
+                return {"response": response_text, "state": state.dict()}
+            else:
+                # This case handles empty summaries or unexpected formats
+                return {"response": "I found some unread messages but couldn't determine the latest one.", "state": state.dict()}
 
     async def _handle_summarize_all_unread_telegram_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
-        """Fetches all unread messages and asks the LLM to summarize them."""
+        """
+        Fetches and presents a summary of all unread messages from all chats.
+        """
         print("\n--- 🧠 INTENT: _handle_summarize_all_unread_telegram_intent ---")
         
         unread_data = await get_unread_summary.coroutine(user_context=user_context.dict())
@@ -1385,6 +1388,40 @@ class AIOrchestratorService:
         else:
             return {"response": f"An unexpected error occurred during document creation.", "state": state.dict()}
 
+    async def _handle_refine_telegram_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """
+        Handles refining a previously drafted Telegram message.
+        """
+        chat_id = state.last_telegram_chat_id
+        if not chat_id:
+            return {"response": "I'm sorry, I don't know which message you're trying to refine. Please start by replying to a chat first.", "state": state.dict()}
+
+        if not intent.message_body:
+            return {"response": "What should the new message be?", "state": state.dict()}
+
+        # We need the chat name for the response, so we'll have to find it.
+        # This is slightly inefficient but required for a good user experience.
+        db = get_database()
+        telegram_service = TelegramService(db)
+        active_chats = await telegram_service.get_active_chats_for_search(user_context.user_id)
+        chat_name = "this chat"
+        matched_chat = next((chat for chat in active_chats if chat['chat_id'] == chat_id), None)
+        if matched_chat:
+            chat_name = matched_chat['chat_name']
+
+        # Update the state and return a new draft
+        state.last_message_body = intent.message_body
+        return {
+            "type": "telegram_draft",
+            "response": f"Okay, new draft for '{chat_name}': \"{intent.message_body}\". Does this look right?",
+            "details": {
+                "chat_id": chat_id,
+                "chat_name": chat_name,
+                "body": intent.message_body
+            },
+            "state": state.dict()
+        }
+
     # --- MAIN ENTRY POINT ---
     async def process_message(self, request: ChatRequest, testing: bool = False) -> Dict[str, Any]:
         chat_history = self._prepare_chat_history(request.chat_history)
@@ -1446,6 +1483,7 @@ class AIOrchestratorService:
                 'summarize_telegram_chat': self._handle_summarize_telegram_chat_intent,
                 'reply_to_telegram': self._handle_reply_to_telegram_intent,
                 'send_telegram_draft': self._handle_send_telegram_draft_intent,
+                'refine_telegram_draft': self._handle_refine_telegram_draft_intent,
                 'get_latest_telegram_message': self._handle_get_latest_telegram_message_intent,
                 'summarize_all_unread_telegram': self._handle_summarize_all_unread_telegram_intent,
                 'list_documents': self._handle_list_documents_intent,

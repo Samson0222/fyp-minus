@@ -127,11 +127,32 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
 
   // Effects
   useEffect(() => {
-    if (draft && selectedChat && draft.chat_id === selectedChat.chat_id) {
-      setReplyText(draft.body);
-      clearDraft(); // Clear the draft from the parent once it's been set in the component
+    if (draft) {
+      // Find the full chat object from the unread or recent lists
+      const chatToSelect = [...unreadChats, ...recentChats].find(c => c.chat_id === draft.chat_id);
+      
+      if (chatToSelect) {
+        // If the drafted chat is not the currently selected one, select it.
+        if (!selectedChat || selectedChat.chat_id !== draft.chat_id) {
+          handleChatSelect(chatToSelect);
+        }
+        // Set the reply text from the draft.
+        setReplyText(draft.body);
+      } else {
+        // If the chat is not in the lists, we can't open it, but we can still set the text
+        // if the user somehow gets a draft for a chat that's not in the side panels.
+        setReplyText(draft.body);
+        toast({
+          title: "Draft Ready",
+          description: `A draft for a chat not in your current lists is ready. You can use it if you open that chat.`,
+          duration: 4000
+        });
+      }
+      
+      // Clear the draft from the parent once it's been handled.
+      clearDraft();
     }
-  }, [draft, selectedChat, clearDraft]);
+  }, [draft, unreadChats, recentChats, selectedChat, clearDraft]);
 
   const ChatListItem: React.FC<{
     chat: ChatSummary;

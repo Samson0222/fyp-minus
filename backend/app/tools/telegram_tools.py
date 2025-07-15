@@ -6,6 +6,7 @@ from pydantic.v1 import BaseModel, Field
 from app.services.telegram_service import TelegramService
 from app.core.llm_factory import get_llm_service
 from app.core.database import get_database
+from app.models.user_context import UserContext
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ class FindChatInput(BaseModel):
     chat_query: str = Field(description="The user's description of the chat they are looking for. For example, 'my chat with John Doe' or 'the project update group'.")
 
 @tool('find_telegram_chat', args_schema=FindChatInput, return_direct=False)
-async def find_telegram_chat(chat_query: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
+async def find_telegram_chat(chat_query: str, user_context: UserContext) -> Dict[str, Any]:
     """
     Finds a specific Telegram chat based on a user's natural language query.
     It searches through the user's active, monitored chats and uses an AI resolver
@@ -21,7 +22,7 @@ async def find_telegram_chat(chat_query: str, user_context: Dict[str, Any]) -> D
     """
     print("\n--- 🔍 TOOL: find_telegram_chat ---")
     print(f"   - Received query: '{chat_query}'")
-    user_id = user_context.get("user_id")
+    user_id = user_context.user_id
     if not user_id:
         return {"error": "User context is missing, cannot perform search."}
 
@@ -97,13 +98,13 @@ class GetHistoryInput(BaseModel):
     chat_id: int = Field(description="The unique integer ID of the Telegram chat.")
 
 @tool('get_conversation_history', args_schema=GetHistoryInput, return_direct=False)
-async def get_conversation_history(chat_id: int, user_context: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def get_conversation_history(chat_id: int, user_context: UserContext) -> List[Dict[str, Any]]:
     """
     Fetches the recent message history for a specific Telegram chat ID.
     """
     print("\n--- 📜 TOOL: get_conversation_history ---")
     print(f"   - Received Chat ID: {chat_id}")
-    user_id = user_context.get("user_id")
+    user_id = user_context.user_id
     if not user_id:
         return [{"error": "User context is missing."}]
 
@@ -132,13 +133,13 @@ class SendMessageInput(BaseModel):
     message: str = Field(description="The content of the message to be sent.")
 
 @tool('send_telegram_message', args_schema=SendMessageInput, return_direct=False)
-async def send_telegram_message(chat_id: int, message: str, user_context: Dict[str, Any]) -> Dict[str, Any]:
+async def send_telegram_message(chat_id: int, message: str, user_context: UserContext) -> Dict[str, Any]:
     """
     Sends a message to a specific Telegram chat ID on behalf of the user.
     """
     print("\n--- 💬 TOOL: send_telegram_message ---")
     print(f"   - Received Chat ID: {chat_id}, Message: '{message}'")
-    user_id = user_context.get("user_id")
+    user_id = user_context.user_id
     if not user_id:
         return {"error": "User context is missing."}
 
@@ -158,14 +159,14 @@ async def send_telegram_message(chat_id: int, message: str, user_context: Dict[s
         return {"error": "An exception occurred while sending the message."}
 
 @tool
-async def get_unread_summary(user_context: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def get_unread_summary(user_context: UserContext) -> List[Dict[str, Any]]:
     """
     Fetches a summary of all unread messages across all monitored Telegram chats.
     It returns a list of dictionaries, where each dictionary contains the chat name
     and a list of its unread messages.
     """
     print("\n--- 📖 TOOL: get_unread_summary ---")
-    user_id = user_context.get("user_id")
+    user_id = user_context.user_id
     if not user_id:
         return [{"error": "User context is missing."}]
 
@@ -192,6 +193,7 @@ async def get_unread_summary(user_context: Dict[str, Any]) -> List[Dict[str, Any
             
             if unread_messages:
                 all_unread_details.append({
+                    "chat_id": chat_id,
                     "chat_name": chat_name,
                     "messages": [
                         f"{msg['sender_name']}: {msg['content']}" for msg in unread_messages

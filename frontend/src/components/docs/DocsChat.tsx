@@ -38,18 +38,24 @@ const DocsChat: React.FC<DocsChatProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [conversationState, setConversationState] = useState<ConversationState>({});
 
+  const getWelcomeMessage = () => ({
+    id: 'welcome',
+    sender: "ai" as const,
+    timestamp: new Date(),
+    content: {
+      type: 'text' as const,
+      text: `I'm ready to help you with "${documentTitle}"!`,
+    }
+  });
+
   useEffect(() => {
-    const welcomeMessage: Message = {
-      id: 'welcome',
-      sender: "ai",
-      timestamp: new Date(),
-      content: {
-        type: 'text',
-        text: `I'm ready to help you with "${documentTitle}"!`,
-      }
-    };
-    setMessages([welcomeMessage]);
+    setMessages([getWelcomeMessage()]);
   }, [documentTitle]);
+
+  const handleClearChat = () => {
+    setMessages([getWelcomeMessage()]);
+    setConversationState({});
+  };
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !documentId) {
@@ -302,6 +308,7 @@ const DocsChat: React.FC<DocsChatProps> = ({
       onRejectTool={handleRejectTool}
       onSendDraft={() => {}} // Placeholder for now
       onCancelDraft={() => {}} // Placeholder for now
+      onClearChat={handleClearChat}
       title="Docs Assistant"
       placeholder="Type your message here..."
       emptyStateMessage="I'm ready to help you with this document!"

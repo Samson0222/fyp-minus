@@ -84,9 +84,9 @@ class DocsService:
                     status_code=401,
                     detail="Credentials are invalid. Please re-authenticate.",
                 )
-
+        
         return creds
-
+        
     def _find_text_range(self, content_list: List[Dict[str, Any]], target_text: str) -> Optional[Dict[str, int]]:
         """Find the start and end index of target text in the document content."""
         full_text = ""
@@ -300,7 +300,7 @@ class DocsService:
                 suggested_text = suggested_text.strip()
                 
             except Exception as e:
-                return CreateSuggestionResponse(
+                 return CreateSuggestionResponse(
                     success=False, 
                     message="AI service failed to generate a suggestion.",
                     error=f"LLM error: {str(e)}"
