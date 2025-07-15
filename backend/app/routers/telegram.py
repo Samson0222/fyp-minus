@@ -286,6 +286,7 @@ async def get_telegram_status(
         
         # Check if bot token is configured
         has_token = bool(telegram_service.bot_token)
+        print(f"has_token: {has_token}")
         
         # Get number of monitored chats
         monitored_chats = await telegram_service.get_user_chats(user_id)

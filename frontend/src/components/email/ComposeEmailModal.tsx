@@ -50,6 +50,7 @@ const ComposeEmailModal: React.FC<ComposeEmailModalProps> = ({
         title: "Recipient required",
         description: "Please enter at least one recipient email.",
         variant: "destructive",
+        duration: 3000,
       });
       return;
     }
@@ -77,6 +78,7 @@ const ComposeEmailModal: React.FC<ComposeEmailModalProps> = ({
       toast({
         title: "Email sent!",
         description: "Your message has been delivered successfully.",
+        duration: 3000,
       });
 
       // Refresh parent list
@@ -91,6 +93,7 @@ const ComposeEmailModal: React.FC<ComposeEmailModalProps> = ({
         title: "Error sending email",
         description: err.message || "Something went wrong.",
         variant: "destructive",
+        duration: 3000,
       });
     } finally {
       setSending(false);

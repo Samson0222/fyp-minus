@@ -54,7 +54,8 @@ const DocView: React.FC = () => {
     toast({
       title: 'Document Load Error',
       description: 'Failed to load the Google Doc. Please check your permissions and try again.',
-      variant: 'destructive'
+      variant: 'destructive',
+      duration: 3000
     });
   };
 

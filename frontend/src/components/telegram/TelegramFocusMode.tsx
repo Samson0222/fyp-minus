@@ -215,7 +215,7 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
         setActiveSearchChats(data.chats || []);
       }
     } catch (error) {
-      toast({ title: "Error", description: "Failed to load active chats for search.", variant: 'destructive' });
+      toast({ title: "Error", description: "Failed to load active chats for search.", variant: 'destructive', duration: 3000 });
     }
   };
 
@@ -225,7 +225,7 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
         // toast({ title: "Success", description: "Chat marked as read." }); // Removed
         onRefresh(); // Refresh lists
     } catch (error) {
-        toast({ title: "Error", description: "Failed to mark chat as read.", variant: 'destructive' });
+        toast({ title: "Error", description: "Failed to mark chat as read.", variant: 'destructive', duration: 3000 });
     }
   };
 
@@ -239,7 +239,7 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
         }
         onRefresh(); // Refresh lists
     } catch (error) {
-        toast({ title: "Error", description: "Failed to mark chat as unread.", variant: 'destructive' });
+        toast({ title: "Error", description: "Failed to mark chat as unread.", variant: 'destructive', duration: 3000 });
     }
   };
 
@@ -258,6 +258,7 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
             title: "Cannot Open Chat",
             description: "This chat is likely a direct message that cannot be opened directly via a web link.",
             variant: 'destructive',
+            duration: 3000
         });
     }
   };
@@ -270,7 +271,7 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
         setMessages([]); // Clear messages in the view
       }
     } catch (error) {
-      toast({ title: "Error", description: "Failed to clear history.", variant: 'destructive' });
+      toast({ title: "Error", description: "Failed to clear history.", variant: 'destructive', duration: 3000 });
     }
   }
 
@@ -303,10 +304,10 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
         setMessages(data.messages);
         // onRefresh(); // No longer need to refresh here
       } else {
-        toast({ title: "Error", description: "Failed to load conversation.", variant: 'destructive' });
+        toast({ title: "Error", description: "Failed to load conversation.", variant: 'destructive', duration: 3000 });
       }
     } catch (error) {
-      toast({ title: "Error", description: "Failed to load conversation.", variant: 'destructive' });
+      toast({ title: "Error", description: "Failed to load conversation.", variant: 'destructive', duration: 3000 });
     } finally {
         setLoadingConversation(false);
     }
@@ -353,11 +354,11 @@ const TelegramFocusMode: React.FC<TelegramFocusModeProps> = ({
       } else {
         // Optimistic update failed
         setMessages(prev => prev.map(msg => msg.id === optimisticId ? { ...msg, error: true } : msg));
-        toast({ title: "Error", description: "Failed to send message.", variant: 'destructive' });
+        toast({ title: "Error", description: "Failed to send message.", variant: 'destructive', duration: 3000 });
       }
     } catch (error) {
       setMessages(prev => prev.map(msg => msg.id === optimisticId ? { ...msg, error: true } : msg));
-      toast({ title: "Error", description: "Failed to send message.", variant: 'destructive' });
+      toast({ title: "Error", description: "Failed to send message.", variant: 'destructive', duration: 3000 });
     } finally {
       setSending(false);
     }

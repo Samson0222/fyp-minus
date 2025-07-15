@@ -177,24 +177,25 @@ const Calendar: React.FC = () => {
     } catch (error) {
       console.error('Failed to load calendar data:', error);
       setCalendarState(prev => ({ ...prev, loading: false }));
-      toast({ title: "Error", description: "Failed to load calendar data.", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to load calendar data.", variant: "destructive", duration: 3000 });
     }
   };
 
   const refreshCalendarData = async () => {
     setCalendarState(prev => ({ ...prev, loading: true }));
-    toast({ title: "Syncing...", description: "Refreshing from Google Calendar." });
+    toast({ title: "Syncing...", description: "Refreshing from Google Calendar.", duration: 3000 });
 
     try {
       await loadCalendarData();
       toast({
         title: "Sync Successful",
-        description: "Calendar refreshed from Google Calendar."
+        description: "Calendar refreshed from Google Calendar.",
+        duration: 3000
       });
     } catch (error) {
       console.error('Failed to refresh calendar data:', error);
       setCalendarState(prev => ({ ...prev, loading: false }));
-      toast({ title: "Sync Error", description: "Could not refresh from Google Calendar.", variant: "destructive" });
+      toast({ title: "Sync Error", description: "Could not refresh from Google Calendar.", variant: "destructive", duration: 3000 });
     }
   };
 
@@ -330,6 +331,7 @@ const Calendar: React.FC = () => {
       toast({
         title: "Event Created",
         description: "Event successfully added to your Google Calendar.",
+        duration: 3000
       });
       
     setIsModalOpen(false);
@@ -347,7 +349,8 @@ const Calendar: React.FC = () => {
       toast({
         title: "Error",
         description: "Failed to create event. Please try again.",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 3000
       });
     }
   };
@@ -364,6 +367,7 @@ const Calendar: React.FC = () => {
       toast({
         title: "Event Deleted",
         description: "The event has been removed from your calendar.",
+        duration: 3000
       });
       
       setIsViewOpen(false);
@@ -373,7 +377,8 @@ const Calendar: React.FC = () => {
       toast({
         title: "Error",
         description: "Failed to delete event. Please try again.",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 3000
       });
     }
     setIsDeleteConfirmOpen(false);

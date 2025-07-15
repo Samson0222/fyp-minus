@@ -126,7 +126,7 @@ const DocsChat: React.FC<DocsChatProps> = ({
         };
       } else if (data.type === 'document_closed') {
         aiMessage.content = { type: 'text', text: data.response };
-        toast({ title: 'Document Closed', description: 'Returning to dashboard...' });
+        toast({ title: 'Document Closed', description: 'Returning to dashboard...', duration: 3000 });
         navigate('/docs');
       }
       
@@ -134,7 +134,7 @@ const DocsChat: React.FC<DocsChatProps> = ({
     } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to get a response.';
         setError(errorMessage);
-        toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
+        toast({ title: 'Error', description: errorMessage, variant: 'destructive', duration: 3000 });
     } finally {
       setIsLoading(false);
     }
@@ -203,12 +203,12 @@ const DocsChat: React.FC<DocsChatProps> = ({
     };
 
       setMessages(prev => [...prev, aiMessage]);
-      toast({ title: 'Action Approved', description: `The suggestion has been applied to your document.` });
+      toast({ title: 'Action Approved', description: `The suggestion has been applied to your document.`, duration: 3000 });
 
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to apply the suggestion.';
       setError(errorMessage);
-      toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
+      toast({ title: 'Error', description: errorMessage, variant: 'destructive', duration: 3000 });
     } finally {
       setIsLoading(false);
     }
@@ -277,12 +277,12 @@ const DocsChat: React.FC<DocsChatProps> = ({
       };
 
       setMessages(prev => [...prev, aiMessage]);
-      toast({ title: 'Action Rejected', description: 'The suggestion has been rejected.' });
+      toast({ title: 'Action Rejected', description: 'The suggestion has been rejected.', duration: 3000 });
 
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to reject the suggestion.';
       setError(errorMessage);
-      toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
+      toast({ title: 'Error', description: errorMessage, variant: 'destructive', duration: 3000 });
     } finally {
       setIsLoading(false);
     }

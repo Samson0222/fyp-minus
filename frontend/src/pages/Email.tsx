@@ -155,7 +155,8 @@ const Email = () => {
         toast({
           title: "Gmail Authentication Required",
           description: "Please set up Gmail authentication to access your emails.",
-          variant: "destructive"
+          variant: "destructive",
+          duration: 3000
         });
       }
     } catch (error) {
@@ -177,7 +178,8 @@ const Email = () => {
         
         toast({
           title: "Signed Out",
-          description: "Click 'Setup Gmail Access' to sign in with a different account."
+          description: "Click 'Setup Gmail Access' to sign in with a different account.",
+          duration: 3000
         });
       }
     } catch (error) {
@@ -185,7 +187,8 @@ const Email = () => {
       toast({
         title: "Error",
         description: "Failed to switch account",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 3000
       });
     }
   };
@@ -237,7 +240,7 @@ const Email = () => {
           title: "📧 New Email" + (newEmailsFound > 1 ? "s" : ""),
           description: `${newEmailsFound} new email${newEmailsFound > 1 ? 's' : ''} received!`,
           variant: "default",
-          duration: 4000
+          duration: 3000
         });
       }
       
@@ -248,7 +251,8 @@ const Email = () => {
         toast({
           title: "No Results Found",
           description: `No ${filterDescription} found${searchDescription}. Try different search terms or filters.`,
-          variant: "default"
+          variant: "default",
+          duration: 3000
         });
       }
     } catch (error) {
@@ -257,7 +261,8 @@ const Email = () => {
         toast({
           title: "Error Loading Emails",
           description: "Failed to load emails. Please try again.",
-          variant: "destructive"
+          variant: "destructive",
+          duration: 3000
         });
       }
     } finally {
@@ -278,7 +283,8 @@ const Email = () => {
     toast({
       title: "Refreshed",
       description: "Inbox updated with latest emails.",
-      variant: "default"
+      variant: "default",
+      duration: 3000
     });
   };
 
@@ -330,7 +336,8 @@ const Email = () => {
 
         toast({
           title: "Marked as Unread",
-          description: "Email has been marked as unread."
+          description: "Email has been marked as unread.",
+          duration: 3000
         });
       } else {
         throw new Error('Failed to mark as unread');
@@ -340,7 +347,8 @@ const Email = () => {
       toast({
         title: "Error",
         description: "Failed to mark email as unread.",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 3000
       });
     }
   };
@@ -448,7 +456,8 @@ const Email = () => {
     refreshEmails(); // Use background refresh for faster experience
     toast({
       title: "Email Sent",
-      description: "Your email has been sent successfully!"
+      description: "Your email has been sent successfully!",
+      duration: 3000
     });
   };
 
