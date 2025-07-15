@@ -2,6 +2,7 @@ import os
 import json
 import re
 import logging
+import uuid
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -22,8 +23,12 @@ from app.core.llm_base import AbstractLLMService
 # Google Docs API scopes
 SCOPES = [
     'https://www.googleapis.com/auth/drive.readonly',
-    'https://www.googleapis.com/auth/documents'
+    'https://www.googleapis.com/auth/documents',
+    'https://www.googleapis.com/auth/drive.file'
 ]
+
+# In-memory storage for suggestions (in production, use a database)
+SUGGESTION_STORAGE = {}
 
 class DocsService:
     """Google Docs API service for document operations"""
@@ -37,7 +42,7 @@ class DocsService:
         # Initialize the LLM service using the factory
         self.llm_service: Optional[AbstractLLMService] = get_llm_service()
         if not self.llm_service:
-            logging.error("DocsService: LLM could not be initialized. AI features will be disabled.")
+            print("DocsService: LLM could not be initialized. AI features will be disabled.")
             # We don't raise an exception here to allow non-AI doc features to work.
 
     def _get_credentials(self) -> Credentials:
@@ -55,7 +60,7 @@ class DocsService:
         try:
             creds = Credentials.from_authorized_user_file(token_path, SCOPES)
         except Exception as e:
-            logging.error(f"Failed to load credentials for user {self.user_id}: {e}")
+            print(f"Failed to load credentials for user {self.user_id}: {e}")
             raise HTTPException(
                 status_code=401,
                 detail="Could not load credentials. Please try re-authenticating.",
@@ -63,28 +68,75 @@ class DocsService:
 
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                logging.info(f"Refreshing expired Google token for user_id: {self.user_id}")
                 try:
                     creds.refresh(Request())
+                    # Save the refreshed token
                     with open(token_path, 'w') as token:
                         token.write(creds.to_json())
                 except Exception as e:
-                    logging.error(f"Failed to refresh token for user {self.user_id}: {e}")
-                    if os.path.exists(token_path):
-                        os.remove(token_path)
+                    print(f"Failed to refresh credentials for user {self.user_id}: {e}")
                     raise HTTPException(
                         status_code=401,
-                        detail="Failed to refresh authentication token. Please re-authenticate.",
+                        detail="Could not refresh credentials. Please try re-authenticating.",
                     )
             else:
-                logging.warning(f"Invalid credentials and no refresh token for user_id: {self.user_id}")
                 raise HTTPException(
                     status_code=401,
-                    detail="Invalid credentials. Please re-authenticate.",
+                    detail="Credentials are invalid. Please re-authenticate.",
                 )
-        
+
         return creds
+
+    def _find_text_range(self, content_list: List[Dict[str, Any]], target_text: str) -> Optional[Dict[str, int]]:
+        """Find the start and end index of target text in the document content."""
+        full_text = ""
+        index_map = []
         
+        for element in content_list:
+            if 'paragraph' in element:
+                for pe in element.get('paragraph', {}).get('elements', []):
+                    if 'textRun' in pe:
+                        text_content = pe.get('textRun', {}).get('content', '')
+                        start_index = pe.get('startIndex', 0)
+                        end_index = pe.get('endIndex', start_index + len(text_content))
+                        
+                        full_text += text_content
+                        index_map.append((start_index, end_index, text_content))
+        
+        # Find the target text in the full text
+        target_start = full_text.find(target_text)
+        if target_start == -1:
+            return None
+        
+        target_end = target_start + len(target_text)
+        
+        # Map back to document indices
+        current_pos = 0
+        doc_start_index = None
+        doc_end_index = None
+        
+        for start_idx, end_idx, text_content in index_map:
+            content_start = current_pos
+            content_end = current_pos + len(text_content)
+            
+            if doc_start_index is None and target_start >= content_start and target_start < content_end:
+                offset = target_start - content_start
+                doc_start_index = start_idx + offset
+            
+            if doc_end_index is None and target_end > content_start and target_end <= content_end:
+                offset = target_end - content_start
+                doc_end_index = start_idx + offset
+            
+            current_pos = content_end
+            
+            if doc_start_index is not None and doc_end_index is not None:
+                break
+        
+        if doc_start_index is not None and doc_end_index is not None:
+            return {"startIndex": doc_start_index, "endIndex": doc_end_index}
+        
+        return None
+
     async def _parse_command_with_llm(self, command: str) -> Dict[str, Any]:
         """Parse natural language command using LLM to extract intent and parameters"""
         if not self.llm_service:
@@ -118,7 +170,7 @@ class DocsService:
                 return {"action": "unknown", "error": result["error"]}
             return result
         except Exception as e:
-            logging.error(f"LLM command parsing error: {e}")
+            print(f"LLM command parsing error: {e}")
             return {"action": "unknown", "error": str(e)}
 
     async def _get_document_content(self, document_id: str) -> Optional[Dict[str, Any]]:
@@ -127,51 +179,35 @@ class DocsService:
             document = self.service.documents().get(documentId=document_id).execute()
             return document
         except Exception as e:
-            logging.error(f"Error getting document content: {e}")
+            print(f"Error getting document content: {e}")
             return None
 
-    def _find_text_range(self, document_content: List[Dict[str, Any]], target_text: str) -> Optional[Dict[str, int]]:
-        """Finds the start and end index of a text string in the document content."""
-        full_text = ""
-        for element in document_content:
+    def _extract_text_from_document(self, document: Dict[str, Any]) -> str:
+        """Extract plain text from a Google Doc"""
+        content = ""
+        for element in document.get('body', {}).get('content', []):
             if 'paragraph' in element:
                 for pe in element.get('paragraph', {}).get('elements', []):
                     if 'textRun' in pe:
-                        full_text += pe.get('textRun', {}).get('content', '')
+                        content += pe.get('textRun', {}).get('content', '')
+        return content
 
-        # Simple string search on the concatenated text
-        start_char_index = full_text.find(target_text)
-        if start_char_index == -1:
-            return None
+    def _store_suggestion(self, suggestion_id: str, document_id: str, user_id: str, 
+                         target_text: str, suggested_text: str, start_index: int, end_index: int) -> None:
+        """Store suggestion data for later application"""
+        SUGGESTION_STORAGE[suggestion_id] = {
+            "document_id": document_id,
+            "user_id": user_id,
+            "target_text": target_text,
+            "suggested_text": suggested_text,
+            "start_index": start_index,
+            "end_index": end_index,
+            "created_at": datetime.utcnow().isoformat(),
+            "status": "pending"
+        }
 
-        end_char_index = start_char_index + len(target_text)
-
-        # Now, map character indices back to API indices
-        start_api_index, end_api_index = -1, -1
-        current_char_pos = 0
-
-        for element in document_content:
-            if 'paragraph' in element:
-                for pe in element.get('paragraph', {}).get('elements', []):
-                    if 'textRun' in pe:
-                        text_run_content = pe.get('textRun', {}).get('content', '')
-                        text_run_len = len(text_run_content)
-                        
-                        if start_api_index == -1 and start_char_index < current_char_pos + text_run_len:
-                            offset = start_char_index - current_char_pos
-                            start_api_index = pe.get('startIndex', 0) + offset
-
-                        if end_api_index == -1 and end_char_index <= current_char_pos + text_run_len:
-                            offset = end_char_index - current_char_pos
-                            end_api_index = pe.get('startIndex', 0) + offset
-                            return {"startIndex": start_api_index, "endIndex": end_api_index}
-                            
-                        current_char_pos += text_run_len
-        
-        return None
-
-    async def _create_suggestion_in_document(self, document_id: str, start_index: int, end_index: int, suggested_text: str) -> Optional[str]:
-        """Create a suggestion in the Google Doc by deleting old text and inserting new text."""
+    async def _apply_suggestion_to_document(self, document_id: str, start_index: int, end_index: int, suggested_text: str) -> Optional[str]:
+        """Apply a suggestion to the Google Doc by replacing text."""
         try:
             requests = [
                 {
@@ -200,15 +236,15 @@ class DocsService:
             return "success"
             
         except HttpError as e:
-            logging.error(f"Error creating suggestion: {e}")
-            logging.error(f"Response content: {e.content}")
+            print(f"Error applying suggestion to document: {e}")
+            print(f"Response content: {e.content}")
             return None
         except Exception as e:
-            logging.error(f"An unexpected error occurred: {e}")
+            print(f"An unexpected error occurred: {e}")
             return None
 
     async def create_suggestion(self, document_id: str, request: CreateSuggestionRequest) -> CreateSuggestionResponse:
-        """Process a natural language command and create a suggestion in the document"""
+        """Process a natural language command and create a suggestion (without applying it)"""
         try:
             parsed_command = await self._parse_command_with_llm(request.command)
             
@@ -250,47 +286,133 @@ class DocsService:
             if not self.llm_service:
                  return CreateSuggestionResponse(success=False, message="AI service is not available.", error="LLM not initialized.")
 
-            llm_result = await self.llm_service.process_command(prompt)
-            suggested_text = llm_result.get("response", "").strip()
-
-            if not suggested_text or "error" in llm_result:
-                 return CreateSuggestionResponse(
-                    success=False, message="AI service failed to generate a suggestion.",
-                    error=llm_result.get("error", "Empty response from LLM")
+            try:
+                # Use generate_text instead of process_command for plain text generation
+                suggested_text = await self.llm_service.generate_text(prompt)
+                
+                if not suggested_text or suggested_text.startswith("Error"):
+                    return CreateSuggestionResponse(
+                        success=False, 
+                        message="AI service failed to generate a suggestion.",
+                        error="LLM returned empty or error response"
+                    )
+                
+                suggested_text = suggested_text.strip()
+                
+            except Exception as e:
+                return CreateSuggestionResponse(
+                    success=False, 
+                    message="AI service failed to generate a suggestion.",
+                    error=f"LLM error: {str(e)}"
                 )
 
-            suggestion_result = await self._create_suggestion_in_document(
-                document_id,
-                text_range['startIndex'],
-                text_range['endIndex'],
-                suggested_text
+            # Generate unique suggestion ID
+            suggestion_id = str(uuid.uuid4())
+            
+            # Store the suggestion instead of applying it immediately
+            self._store_suggestion(
+                suggestion_id=suggestion_id,
+                document_id=document_id,
+                user_id=self.user_id,
+                target_text=target_text,
+                suggested_text=suggested_text,
+                start_index=text_range['startIndex'],
+                end_index=text_range['endIndex']
             )
             
-            if suggestion_result:
-                return CreateSuggestionResponse(
-                    success=True,
-                    message=f"Successfully created suggestion for '{target_text}'.",
-                    suggestion_id=str(suggestion_result) 
-                )
-            else:
-                return CreateSuggestionResponse(
-                    success=False,
-                    message="Failed to create suggestion in Google Docs.",
-                    error="The API call to create the suggestion failed."
-                )
+            return CreateSuggestionResponse(
+                success=True,
+                message=f"Successfully created suggestion for '{target_text}'.",
+                suggestion_id=suggestion_id,
+                target_text=target_text,
+                suggested_text=suggested_text
+            )
 
         except Exception as e:
-            logging.error(f"Error in create_suggestion workflow: {e}")
+            print(f"Error in create_suggestion workflow: {e}")
             return CreateSuggestionResponse(
                 success=False,
                 message="An unexpected error occurred.",
                 error=str(e)
             )
 
-    async def list_documents(self, limit: int = 20, trashed: bool = False) -> DocumentListResponse:
-        """List user's Google Docs from Google Drive, optionally including trashed files."""
+    async def apply_suggestion(self, suggestion_id: str) -> bool:
+        """Apply a stored suggestion to the document"""
         try:
-            query = f"mimeType='application/vnd.google-apps.document' and trashed={str(trashed).lower()}"
+            suggestion = SUGGESTION_STORAGE.get(suggestion_id)
+            if not suggestion:
+                print(f"Suggestion {suggestion_id} not found")
+                return False
+            
+            if suggestion["user_id"] != self.user_id:
+                print(f"Suggestion {suggestion_id} does not belong to user {self.user_id}")
+                return False
+            
+            if suggestion["status"] != "pending":
+                print(f"Suggestion {suggestion_id} is not pending (status: {suggestion['status']})")
+                return False
+            
+            # Apply the suggestion to the document
+            result = await self._apply_suggestion_to_document(
+                document_id=suggestion["document_id"],
+                start_index=suggestion["start_index"],
+                end_index=suggestion["end_index"],
+                suggested_text=suggestion["suggested_text"]
+            )
+            
+            if result == "success":
+                # Mark suggestion as applied
+                suggestion["status"] = "applied"
+                suggestion["applied_at"] = datetime.utcnow().isoformat()
+                return True
+            else:
+                return False
+                
+        except Exception as e:
+            print(f"Error applying suggestion {suggestion_id}: {e}")
+            return False
+
+    async def reject_suggestion(self, suggestion_id: str) -> bool:
+        """Reject a stored suggestion"""
+        try:
+            suggestion = SUGGESTION_STORAGE.get(suggestion_id)
+            if not suggestion:
+                print(f"Suggestion {suggestion_id} not found")
+                return False
+            
+            if suggestion["user_id"] != self.user_id:
+                print(f"Suggestion {suggestion_id} does not belong to user {self.user_id}")
+                return False
+            
+            if suggestion["status"] != "pending":
+                print(f"Suggestion {suggestion_id} is not pending (status: {suggestion['status']})")
+                return False
+            
+            # Mark suggestion as rejected
+            suggestion["status"] = "rejected"
+            suggestion["rejected_at"] = datetime.utcnow().isoformat()
+            return True
+                
+        except Exception as e:
+            print(f"Error rejecting suggestion {suggestion_id}: {e}")
+            return False
+
+    async def list_documents(self, limit: int = 20, trashed: bool = False, search_query: Optional[str] = None) -> DocumentListResponse:
+        """List user's Google Docs from Google Drive, optionally including trashed files and filtering by a search query."""
+        try:
+            query_parts = [
+                "mimeType='application/vnd.google-apps.document'",
+                f"trashed={str(trashed).lower()}"
+            ]
+
+            # Add the search query to filter by document name if provided
+            if search_query and search_query != '*':
+                # Sanitize query to prevent injection issues, although Drive API is generally safe
+                sanitized_query = search_query.replace("'", "\\'")
+                query_parts.append(f"name contains '{sanitized_query}'")
+
+            query = " and ".join(query_parts)
+            print(f"DocsService: Executing Drive query for user {self.user_id}: {query}")
             
             results = self.drive_service.files().list(
                 q=query,
@@ -308,10 +430,91 @@ class DocsService:
                     last_modified_gdrive=datetime.fromisoformat(item['modifiedTime'].replace('Z', '+00:00')),
                 ) for item in items
             ]
+            print(f"DocsService: Found {len(documents)} documents matching query.")
             return DocumentListResponse(documents=documents, total_count=len(documents))
         except Exception as e:
-            logging.error(f"Error listing documents: {e}")
+            print(f"Error listing documents: {e}", exc_info=True)
             return DocumentListResponse(documents=[], total_count=0, error=str(e))
+
+    async def get_document_content(self, document_id: str) -> DocumentContent:
+        """
+        Retrieves the content of a Google Doc.
+        This is a new method added to support the 'get_document_content' tool.
+        """
+        try:
+            document = self.service.documents().get(documentId=document_id).execute()
+            
+            content_text = ""
+            for element in document.get('body', {}).get('content', []):
+                if 'paragraph' in element:
+                    for pe in element.get('paragraph', {}).get('elements', []):
+                        if 'textRun' in pe:
+                            content_text += pe.get('textRun', {}).get('content', '')
+
+            return DocumentContent(
+                success=True,
+                document_id=document_id,
+                title=document.get('title', 'Untitled'),
+                content=content_text,
+                revision_id=document.get('revisionId'),
+                last_updated=datetime.utcnow() # Placeholder
+            )
+        except HttpError as e:
+            logging.error(f"HTTP error fetching document content for {document_id}: {e}")
+            return DocumentContent(success=False, document_id=document_id, message=f"Document not found or access denied. (HTTP {e.resp.status})")
+        except Exception as e:
+            logging.error(f"Unexpected error fetching document content for {document_id}: {e}", exc_info=True)
+            return DocumentContent(success=False, document_id=document_id, message="An unexpected error occurred while fetching the document.")
+
+    async def create_document(self, title: str) -> Dict[str, Any]:
+        """
+        Creates a new Google Docs document with the specified title.
+        
+        Args:
+            title: The title for the new document
+            
+        Returns:
+            Dictionary containing success status, document_id, and other details
+        """
+        try:
+            # Create the document using Google Docs API
+            document_data = {
+                'title': title
+            }
+            
+            logging.info(f"Creating new document '{title}' for user {self.user_id}")
+            document = self.service.documents().create(body=document_data).execute()
+            
+            document_id = document.get('documentId')
+            document_title = document.get('title')
+            
+            if document_id:
+                logging.info(f"Successfully created document '{document_title}' with ID {document_id} for user {self.user_id}")
+                return {
+                    "success": True,
+                    "document_id": document_id,
+                    "title": document_title,
+                    "message": f"Successfully created document '{document_title}'"
+                }
+            else:
+                logging.error(f"Document creation failed - no document ID returned for user {self.user_id}")
+                return {
+                    "success": False,
+                    "error": "Document creation failed - no document ID returned"
+                }
+                
+        except HttpError as e:
+            logging.error(f"HTTP error creating document for user {self.user_id}: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to create document: HTTP {e.resp.status} - {e._get_reason()}"
+            }
+        except Exception as e:
+            logging.error(f"Unexpected error creating document for user {self.user_id}: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": f"Unexpected error creating document: {str(e)}"
+            }
 
     async def trash_document(self, document_id: str) -> bool:
         """Moves a document to the trash in Google Drive."""
@@ -320,15 +523,15 @@ class DocsService:
                 fileId=document_id,
                 body={'trashed': True}
             ).execute()
-            logging.info(f"Successfully moved document {document_id} to trash for user {self.user_id}")
+            print(f"Successfully moved document {document_id} to trash for user {self.user_id}")
             return True
         except Exception as e:
-            logging.error(f"Error moving document {document_id} to trash: {e}")
+            print(f"Error moving document {document_id} to trash: {e}")
             return False
 
     async def sync_documents(self, request: SyncDocumentsRequest) -> SyncDocumentsResponse:
         """Syncs document metadata (placeholder for now)"""
-        logging.info(f"Syncing documents for user {self.user_id} with tags: {request.tags}")
+        print(f"Syncing documents for user {self.user_id}...")
         
         # In a real implementation, this would fetch all docs and sync with a Supabase table.
         # For now, it's a placeholder that returns a success message.
@@ -362,5 +565,5 @@ class DocsService:
                 return {"error": f"Unknown Google Docs action: {action}"}
                 
         except Exception as e:
-            logging.error(f"Error processing voice command: {e}")
+            print(f"Error processing voice command: {e}")
             return {"error": f"Command processing failed: {str(e)}"}

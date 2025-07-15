@@ -33,7 +33,7 @@ from app.routers.gmail import router as gmail_router
 from app.services.voice_email_processor import voice_email_processor
 
 # Voice integration
-from app.routers.voice import router as voice_router, get_llm_service_dependency
+# from app.routers.voice import router as voice_router, get_llm_service_dependency
 from app.core.llm_factory import get_llm_service
 from app.core.llm_base import AbstractLLMService
 
@@ -184,8 +184,8 @@ def get_llm_service_instance() -> AbstractLLMService:
         )
     return llm_service
 
-# Override the placeholder dependency in the voice router with the real one
-app.dependency_overrides[get_llm_service_dependency] = get_llm_service_instance
+# # Override the placeholder dependency in the voice router with the real one
+# app.dependency_overrides[get_llm_service_dependency] = get_llm_service_instance
 
 @app.on_event("startup")
 async def startup_event():

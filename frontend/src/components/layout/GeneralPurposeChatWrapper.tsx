@@ -173,7 +173,7 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
             sender: 'ai',
             timestamp: new Date(),
             content: { type: 'text', text: data.response || 'Navigating...' }
-          };
+        };
       }
 
         if (aiMessage) {

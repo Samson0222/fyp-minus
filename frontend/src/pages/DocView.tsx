@@ -26,8 +26,6 @@ const DocView: React.FC = () => {
 
   // State for UI and document management
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [documentMetadata, setDocumentMetadata] = useState<DocumentMetadata | null>(null);
-  const [loadingMetadata, setLoadingMetadata] = useState(true);
   const [iframeError, setIframeError] = useState(false);
   const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'unauthenticated'>('checking');
 
@@ -47,32 +45,6 @@ const DocView: React.FC = () => {
     } catch (error) {
       console.error('Error checking auth status:', error);
       setAuthStatus('unauthenticated');
-    }
-  };
-
-  // Fetch document metadata
-  const fetchDocumentMetadata = async () => {
-    if (!documentId) return;
-
-    try {
-      setLoadingMetadata(true);
-      const response = await fetch(`/api/v1/docs/${documentId}/metadata`);
-      
-      if (response.ok) {
-        const data: DocumentMetadata = await response.json();
-        setDocumentMetadata(data);
-      } else {
-        console.error('Failed to fetch document metadata');
-      }
-    } catch (error) {
-      console.error('Error fetching document metadata:', error);
-      toast({
-        title: 'Metadata Error',
-        description: 'Failed to load document information.',
-        variant: 'destructive'
-      });
-    } finally {
-      setLoadingMetadata(false);
     }
   };
 
@@ -103,26 +75,9 @@ const DocView: React.FC = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
   };
 
-  // Format date for display
-  const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return 'Unknown';
-    }
-  };
-
   // Load data on component mount
   useEffect(() => {
     checkAuthStatus();
-    fetchDocumentMetadata();
   }, [documentId]);
 
   // Validation
@@ -171,36 +126,8 @@ const DocView: React.FC = () => {
                 
                 <div className="border-l border-white/20 pl-4">
                   <h1 className="text-xl font-semibold text-white truncate max-w-md">
-                    {documentMetadata?.title || documentTitle}
+                    {documentTitle}
                   </h1>
-                  
-                  {loadingMetadata ? (
-                    <div className="flex items-center text-white/60 text-sm mt-1">
-                      <Loader2 size={12} className="animate-spin mr-1" />
-                      Loading details...
-                    </div>
-                  ) : documentMetadata ? (
-                    <div className="flex items-center gap-4 text-white/60 text-sm mt-1">
-                      <span>Last modified: {formatDate(documentMetadata.last_modified_gdrive)}</span>
-                      {documentMetadata.minus_tags && documentMetadata.minus_tags.length > 0 && (
-                        <div className="flex items-center gap-1">
-                          <span>Tags:</span>
-                          {documentMetadata.minus_tags.slice(0, 2).map((tag, index) => (
-                            <Badge 
-                              key={index}
-                              variant="secondary"
-                              className="bg-violet/20 text-violet text-xs"
-                            >
-                              {tag}
-                            </Badge>
-                          ))}
-                          {documentMetadata.minus_tags.length > 2 && (
-                            <span className="text-white/40">+{documentMetadata.minus_tags.length - 2}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
                 </div>
               </div>
 
@@ -284,13 +211,13 @@ const DocView: React.FC = () => {
               <iframe
                 src={googleDocsUrl}
                 className="w-full h-full border-0"
-                title={`Google Doc: ${documentMetadata?.title || documentTitle}`}
+                title={`Google Doc: ${documentTitle}`}
                 onError={handleIframeError}
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
               />
             )}
-          </div>
         </div>
+      </div>
     </Layout>
   );
 };

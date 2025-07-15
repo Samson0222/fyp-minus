@@ -33,7 +33,7 @@ class _IntentClassification(BaseModel):
         'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
         'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'get_latest_telegram_message',
         'summarize_all_unread_telegram',
-        'list_documents', 'open_document', 'close_document', 'summarize_document', 'edit_document', 'apply_suggestion', 'reject_suggestion',
+        'list_documents', 'open_document', 'close_document', 'summarize_document', 'create_document', 'edit_document', 'apply_suggestion', 'reject_suggestion',
         'general_chat'
     ] = Field(description="The user's single primary goal.")
 
@@ -42,11 +42,19 @@ class Message(BaseModel):
     role: str
     content: str
 
+class UIContext(BaseModel):
+    """The context of the UI, e.g., which page the user is on."""
+    page: str
+    document_id: Optional[str] = None
+    document_title: Optional[str] = None
+    path: Optional[str] = None
+
 class ChatRequest(BaseModel):
     input: str = Field(..., description="The user's input message.")
     chat_history: List[Message] = Field(default=[], description="The conversation history.")
     user_context: UserContext = Field(description="The user context.")
     conversation_state: ConversationState = Field(default_factory=ConversationState, description="The state of the current conversation.")
+    ui_context: Optional[UIContext] = Field(None, description="The context of the UI from which the request originates.")
 
 class _EventResolverResponse(BaseModel):
     """The result of a reasoning task to find the best matching event."""
@@ -98,46 +106,99 @@ class AIOrchestratorService:
         prompt = ChatPromptTemplate.from_messages([
             ("system",
              "You are an expert at classifying user intent. Based on the user's message and the conversation history, "
-             "identify the user's primary goal. The goal must be one of: "
+             "classify the user's primary goal into one of the following categories. "
+             "You must respond with a JSON object containing a single key 'intent' whose value is EXACTLY one of the allowed categories.\n\n"
+             "The ONLY allowed categories are: "
              "`create_event`, `edit_event`, `find_event`, `list_events`, "
              "`list_emails`, `find_email`, `compose_email`, `reply_to_email`, `send_email_draft`, `refine_email_draft`, `cancel_email_draft`, "
-             "`find_telegram_chat`, `reply_to_telegram`, `summarize_telegram_chat`, `send_telegram_draft`, `get_latest_telegram_message`, `summarize_all_unread_telegram`, or `general_chat`. \n"
-             "- A request like 'what's new in my email?' is `list_emails`. \n"
-             "- A request like 'find the email from jane' is `find_email`. \n"
-             "- A request like 'draft an email to john' is `compose_email`. \n"
-             "- A request like 'reply to the last email' is `reply_to_email`. \n"
-             "- A request like 'make it more formal' or 'add a sentence' while a draft is being reviewed implies the `refine_email_draft` intent. \n"
-             "- A user saying 'send it' or clicking 'send' on a draft review card implies the `send_email_draft` intent. \n"
-             "- A user saying 'cancel that' or 'nevermind' while a draft is being reviewed implies the `cancel_email_draft` intent. \n"
-             "- A request like 'what's on my calendar?' is `list_events`. \n"
-             "- A request like 'find my meeting with bob' is `find_event`. \n"
-             "- A request like 'when is my latest dental appointment?' is `find_event`.\n"
-             "- A request like 'summarize my chat with the design team' is `summarize_telegram_chat`.\n"
-             "- A request like 'find my conversation with Samson' is `find_telegram_chat`.\n"
-             "- A user saying 'yes, send it' or 'go ahead' after a telegram draft is shown implies the `send_telegram_draft` intent.\n"
-             "- A request like 'what's the latest message in the dev chat?' is `get_latest_telegram_message`.\n"
-             "- A request like 'what did I miss on Telegram?' or 'summarize my unread telegrams' is `summarize_all_unread_telegram`.\n"
-             "- A request like 'reply to the project group' is `reply_to_telegram`.\n"
-             "- A request like 'show me my documents' or 'list my docs' is `list_documents`.\n"
-             "- A request like 'open the marketing strategy document' is `open_document`.\n"
-             "- A request like 'go back to the dashboard' or 'close this document' is `close_document`.\n"
-             "- A request like 'summarize this document' or 'what is this doc about?' is `summarize_document`.\n"
-             "- A request like 'change this text to sound more formal' or 'add a new section' is `edit_document`.\n"
-             "- A user saying 'approve' or 'apply this change' after a document suggestion is shown implies the `apply_suggestion` intent.\n"
-             "- A user saying 'reject' or 'don't make this change' after a document suggestion is shown implies the `reject_suggestion` intent."),
+             "`find_telegram_chat`, `reply_to_telegram`, `summarize_telegram_chat`, `send_telegram_draft`, `get_latest_telegram_message`, `summarize_all_unread_telegram`, "
+             "`list_documents`, `open_document`, `close_document`, `summarize_document`, `edit_document`, `apply_suggestion`, `reject_suggestion`, `general_chat`\n\n"
+             "IMPORTANT: You must ONLY return one of these exact intent names. Do NOT return tool names like 'create_document_suggestion' or 'apply_document_suggestion'.\n\n"
+             "Classification rules:\n"
+             "- A request like 'what's new in my email?' is `list_emails`\n"
+             "- A request like 'find the email from jane' is `find_email`\n"
+             "- A request like 'draft an email to john' is `compose_email`\n"
+             "- A request like 'reply to the last email' is `reply_to_email`\n"
+             "- A request like 'make it more formal' or 'add a sentence' while a draft is being reviewed is `refine_email_draft`\n"
+             "- A user saying 'send it' or clicking 'send' on a draft review card is `send_email_draft`\n"
+             "- A user saying 'cancel that' or 'nevermind' while a draft is being reviewed is `cancel_email_draft`\n"
+             "- A request like 'what's on my calendar?' is `list_events`\n"
+             "- A request like 'find my meeting with bob' is `find_event`\n"
+             "- A request like 'when is my latest dental appointment?' is `find_event`\n"
+             "- A request like 'summarize my chat with the design team' is `summarize_telegram_chat`\n"
+             "- A request like 'find my conversation with Samson' is `find_telegram_chat`\n"
+             "- A user saying 'yes, send it' or 'go ahead' after a telegram draft is shown is `send_telegram_draft`\n"
+             "- A request like 'what's the latest message in the dev chat?' is `get_latest_telegram_message`\n"
+             "- A request like 'what did I miss on Telegram?' or 'summarize my unread telegrams' is `summarize_all_unread_telegram`\n"
+             "- A request like 'reply to the project group' is `reply_to_telegram`\n"
+             "- A request like 'show me my documents' or 'list my docs' is `list_documents`\n"
+             "- A request like 'open the marketing strategy document' is `open_document`\n"
+             "- A request like 'go back to the dashboard' or 'close this document' is `close_document`\n"
+             "- A request like 'summarize this document' or 'what is this doc about?' is `summarize_document`\n"
+             "- A request like 'create a new document', 'help me create a document', or 'make a new doc' is `create_document`\n"
+             "- A request like 'change this text to sound more formal', 'edit the first paragraph', or 'add a new section' is `edit_document`\n"
+             "- A user saying 'approve', 'apply', 'yes', or 'apply this change' after a document suggestion is shown is `apply_suggestion`\n"
+             "- A user saying 'reject', 'no', 'cancel', or 'don't make this change' after a document suggestion is shown is `reject_suggestion`"),
             ("placeholder", "{chat_history}"),
             ("human", "{input}")
         ])
-        structured_llm = self.router_llm.with_structured_output(_IntentClassification)
-        chain = prompt | structured_llm
-        result = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
         
-        # Add a safeguard in case the LLM returns a None response
-        if not result:
-            logging.warning("Intent classification returned None. Defaulting to 'general_chat'.")
-            return 'general_chat'
+        try:
+            structured_llm = self.router_llm.with_structured_output(_IntentClassification)
+            chain = prompt | structured_llm
+            result = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
             
-        return result.intent
+            # Add a safeguard in case the LLM returns a None response
+            if not result:
+                logging.warning("Intent classification returned None. Defaulting to 'general_chat'.")
+                return 'general_chat'
+            
+            # Validate that the returned intent is in the allowed list
+            allowed_intents = [
+                'create_event', 'edit_event', 'find_event', 'list_events',
+                'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
+                'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'get_latest_telegram_message', 'summarize_all_unread_telegram',
+                'list_documents', 'open_document', 'close_document', 'summarize_document', 'create_document', 'edit_document', 'apply_suggestion', 'reject_suggestion',
+                'general_chat'
+            ]
+            
+            if result.intent not in allowed_intents:
+                logging.warning(f"LLM returned invalid intent '{result.intent}'. Defaulting to 'general_chat'.")
+                return 'general_chat'
+                
+            return result.intent
+            
+        except Exception as e:
+            logging.error(f"Error in intent classification: {e}")
+            # Fallback to simple keyword matching
+            user_input_lower = user_input.lower()
+            
+            # Document-related fallbacks
+            if any(word in user_input_lower for word in ['edit', 'change', 'modify', 'update', 'rewrite']):
+                return 'edit_document'
+            elif any(word in user_input_lower for word in ['create', 'new document', 'make document', 'new doc']):
+                return 'create_document'
+            elif any(word in user_input_lower for word in ['approve', 'apply', 'yes', 'accept']):
+                return 'apply_suggestion'
+            elif any(word in user_input_lower for word in ['reject', 'no', 'cancel', 'decline']):
+                return 'reject_suggestion'
+            elif any(word in user_input_lower for word in ['summarize', 'summary', 'what is this']):
+                return 'summarize_document'
+            elif any(word in user_input_lower for word in ['open', 'show', 'view']):
+                return 'open_document'
+            elif any(word in user_input_lower for word in ['list', 'documents', 'docs']):
+                return 'list_documents'
+            
+            # Email-related fallbacks
+            elif any(word in user_input_lower for word in ['email', 'inbox', 'mail']):
+                return 'list_emails'
+            
+            # Calendar-related fallbacks
+            elif any(word in user_input_lower for word in ['calendar', 'event', 'meeting', 'appointment']):
+                return 'list_events'
+            
+            # Default fallback
+            return 'general_chat'
 
     async def _extract_details(self, intent_name: str, user_input: str, chat_history: List[BaseMessage]) -> Intent:
         """Stage 2: Extract detailed information based on the classified intent."""
@@ -244,44 +305,62 @@ class AIOrchestratorService:
                 "If they specify a document name, extract it into the `document_query` field. "
                 "If they're referring to the current document in context, leave `document_query` empty."
             ),
+            'create_document': (
+                "The user wants to create a new document. Extract the document title from their request. "
+                "For example, in 'create a document called Meeting Notes', the `title` would be 'Meeting Notes'. "
+                "If no specific title is provided, you can suggest a generic title like 'New Document' or leave it empty."
+            ),
             'edit_document': (
                 "The user wants to edit a document. Extract the modification details: "
-                "`target_text`: The specific text to find and modify (if applicable). "
+                "`target_text`: ONLY extract if the user provides specific text to find (e.g., 'change the word hello to hi'). "
+                "For references like 'first paragraph', 'second paragraph', etc., leave this EMPTY - the system will handle it. "
                 "`modification`: A description of what changes to make. "
                 "`new_content`: Any new content to add (if applicable). "
                 "`position`: Where to place new content ('before', 'after', or 'replace')."
             ),
             'apply_suggestion': (
                 "The user has approved applying a document suggestion. "
-                "Extract the `suggestion_id` if provided, or the system will use the suggestion from context."
+                "Extract the `suggestion_id` if provided, or leave it empty if the system should use the suggestion from context. "
+                "The user may say 'approve', 'apply', 'yes', or similar approval words."
             ),
             'reject_suggestion': (
                 "The user has rejected a document suggestion. "
-                "Extract the `suggestion_id` if provided, or the system will use the suggestion from context."
+                "Extract the `suggestion_id` if provided, or leave it empty if the system should use the suggestion from context. "
+                "The user may say 'reject', 'no', 'cancel', or similar rejection words."
             )
         }
         
         prompt_template = prompts.get(intent_name)
         if not prompt_template:
+            # For intents without specific prompts, return a basic intent
+            logging.warning(f"No prompt template found for intent '{intent_name}'. Creating basic intent.")
             return Intent(intent=intent_name)
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", prompt_template),
-            ("placeholder", "{chat_history}"),
-            ("human", "{input}")
-        ])
-        structured_llm = self.router_llm.with_structured_output(Intent)
-        chain = prompt | structured_llm
-        
-        extracted_data = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
-        
-        if extracted_data:
-            extracted_data.intent = intent_name
-            return extracted_data
-        
-        # If the extractor returns nothing, return a base intent object to avoid errors
-        logging.warning(f"Detail extractor failed for intent '{intent_name}'. Returning a base intent.")
-        return Intent(intent=intent_name)
+        try:
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", prompt_template),
+                ("placeholder", "{chat_history}"),
+                ("human", "{input}")
+            ])
+            
+            # Use the Intent model for structured output
+            structured_llm = self.router_llm.with_structured_output(Intent)
+            chain = prompt | structured_llm
+            
+            extracted_data = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
+            
+            if extracted_data:
+                # Ensure the intent field is set correctly
+                extracted_data.intent = intent_name
+                return extracted_data
+            else:
+                logging.warning(f"Structured output returned None for intent '{intent_name}'. Creating basic intent.")
+                return Intent(intent=intent_name)
+                
+        except Exception as e:
+            logging.error(f"Error in detail extraction for intent '{intent_name}': {e}")
+            # Return a basic intent object to avoid errors
+            return Intent(intent=intent_name)
 
     async def _handle_edit_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """
@@ -965,10 +1044,13 @@ class AIOrchestratorService:
 
     async def _handle_list_documents_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles listing the user's Google Docs documents."""
-        query = getattr(intent, 'query', '*')
+        # The detail extractor populates the 'document_query' field in the Intent model
+        query = getattr(intent, 'document_query', '*')
         
+        print(f"Orchestrator: Handling 'list_documents' with extracted query: '{query}'")
+
         documents_result = await list_documents.coroutine(
-            query=query,
+            query=query,  # Pass the extracted query to the 'query' parameter of the tool
             limit=20,
             trashed=False,
             user_context=user_context
@@ -979,13 +1061,17 @@ class AIOrchestratorService:
         
         documents = documents_result.get("documents", [])
         if not documents:
-            response = "You don't have any documents yet. Would you like me to help you create one?"
+            if query != '*':
+                response = f"I couldn't find any documents matching '{query}'."
+            else:
+                response = "You don't have any documents yet."
         else:
             doc_list = "\n".join([f"• {doc['title']}" for doc in documents[:10]])
-            response = f"Here are your documents:\n\n{doc_list}"
+            response = f"Here are your documents for '{query}':\n\n{doc_list}"
             if len(documents) > 10:
-                response += f"\n\n...and {len(documents) - 10} more documents."
+                response += f"\n\n...and {len(documents) - 10} more."
         
+        print("Orchestrator: Successfully listed documents.")
         return {"response": response, "state": state.dict()}
 
     async def _handle_open_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
@@ -1026,17 +1112,26 @@ class AIOrchestratorService:
 
     async def _handle_close_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles closing the current document and returning to dashboard."""
-        # Clear document context
-        state.last_document_id = None
-        state.last_document_title = None
-        state.last_suggestion_id = None
         
-        return {
-            "type": "navigation",
-            "target_url": "/docs",
-            "response": "Returning to the documents dashboard...",
-            "state": state.dict()
-        }
+        # Check if a document is currently open
+        if state.last_document_id:
+            # Clear document context
+            state.last_document_id = None
+            state.last_document_title = None
+            state.last_suggestion_id = None
+            
+            # Return a special response type for the frontend to handle navigation
+            return {
+                "type": "document_closed",
+                "response": "The document has been closed.",
+                "state": state.dict()
+            }
+        else:
+            # No document is open
+            return {
+                "response": "There is no document currently open to close.",
+                "state": state.dict()
+            }
 
     async def _handle_summarize_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles summarizing a document."""
@@ -1080,6 +1175,69 @@ class AIOrchestratorService:
         
         return {"response": f"Here's a summary of the document:\n\n{content}", "state": state.dict()}
 
+    async def _extract_target_text_from_document(self, user_input: str, document_id: str, user_context: UserContext) -> Optional[str]:
+        """
+        Intelligently extract target text from actual document content.
+        Handles phrases like 'first paragraph', 'second paragraph', etc.
+        """
+        try:
+            # Get the actual document content
+            content_result = await get_document_content.coroutine(
+                document_id=document_id,
+                summarize=False,  # Important: get actual content, not summary
+                user_context=user_context
+            )
+            
+            if content_result.get("error") or not content_result.get("content"):
+                logging.error(f"Failed to get document content for target text extraction: {content_result.get('error')}")
+                return None
+            
+            document_content = content_result.get("content", "")
+            
+            # Split content into paragraphs - handle different paragraph separators
+            # Google Docs might use different line break patterns
+            paragraphs = []
+            
+            # Try double newlines first
+            if '\n\n' in document_content:
+                paragraphs = [p.strip() for p in document_content.split('\n\n') if p.strip()]
+            else:
+                # Fallback to single newlines, but filter out very short lines
+                potential_paragraphs = [p.strip() for p in document_content.split('\n') if p.strip()]
+                paragraphs = [p for p in potential_paragraphs if len(p) > 10]  # Filter out headers, single words, etc.
+            
+            if not paragraphs:
+                logging.warning("Document appears to be empty or has no paragraphs")
+                return None
+            
+            user_lower = user_input.lower()
+            
+            # Handle specific paragraph references
+            if "first paragraph" in user_lower and len(paragraphs) > 0:
+                return paragraphs[0]
+            elif "second paragraph" in user_lower and len(paragraphs) > 1:
+                return paragraphs[1]
+            elif "third paragraph" in user_lower and len(paragraphs) > 2:
+                return paragraphs[2]
+            elif "last paragraph" in user_lower and len(paragraphs) > 0:
+                return paragraphs[-1]
+            
+            # Handle numbered paragraph references
+            import re
+            paragraph_match = re.search(r'(\d+)(?:st|nd|rd|th)?\s+paragraph', user_lower)
+            if paragraph_match:
+                paragraph_num = int(paragraph_match.group(1))
+                if 1 <= paragraph_num <= len(paragraphs):
+                    return paragraphs[paragraph_num - 1]
+            
+            # If no specific paragraph reference found, return None
+            # The system will fall back to the original target_text extraction
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error extracting target text from document: {e}")
+            return None
+
     async def _handle_edit_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles editing a document by creating a suggestion."""
         document_id = state.last_document_id
@@ -1095,6 +1253,14 @@ class AIOrchestratorService:
         
         if not modification:
             return {"response": "Please specify what changes you'd like me to make to the document.", "state": state.dict()}
+        
+        # IMPROVED: Try to extract target text from actual document content
+        # This handles cases like "edit the first paragraph" properly
+        if not target_text or "paragraph" in user_input.lower():
+            extracted_target = await self._extract_target_text_from_document(user_input, document_id, user_context)
+            if extracted_target:
+                target_text = extracted_target
+                logging.info(f"Extracted target text from document: '{target_text[:100]}...'")
         
         # Create the suggestion
         suggestion_result = await create_document_suggestion.coroutine(
@@ -1112,11 +1278,21 @@ class AIOrchestratorService:
         # Save the suggestion ID for potential approval/rejection
         state.last_suggestion_id = suggestion_result.get("suggestion_id")
         
+        # Create a user-friendly suggestion structure for the frontend
+        suggestion_data = {
+            "suggestion_id": suggestion_result.get("suggestion_id"),
+            "document_id": suggestion_result.get("document_id"),
+            "modification": suggestion_result.get("modification"),
+            "original_text": suggestion_result.get("target_text", ""),
+            "suggested_text": suggestion_result.get("suggested_text", ""),
+            "preview_type": "document_edit"
+        }
+        
         return {
             "type": "tool_draft",
             "tool_name": "create_document_suggestion",
-            "tool_input": suggestion_result,
-            "assistant_message": f"I've prepared a suggestion for your document: {suggestion_result.get('message', modification)}. Would you like me to apply this change?",
+            "tool_input": suggestion_data,
+            "assistant_message": f"Here's a more professional version of the text:",
             "state": state.dict()
         }
 
@@ -1172,14 +1348,73 @@ class AIOrchestratorService:
         
         return {"response": reject_result.get("message", "The suggestion has been rejected and removed."), "state": state.dict()}
 
+    async def _handle_create_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles creating a new document."""
+        title = getattr(intent, 'title', None)
+        
+        if not title:
+            # If no title is provided, ask the user for one
+            state.pending_action = "awaiting_document_title"
+            return {"response": "What would you like to name the document?", "state": state.dict()}
+        
+        # Create the document
+        document_result = await create_document.coroutine(
+            title=title,
+            user_context=user_context
+        )
+        
+        if document_result.get("error"):
+            return {"response": f"I couldn't create the document: {document_result['error']}", "state": state.dict()}
+        
+        if document_result.get("success"):
+            # Update state with the new document
+            document_id = document_result.get("document_id")
+            if document_id:
+                state.last_document_id = document_id
+                state.last_document_title = title
+            
+            # Clear pending action after successful creation
+            state.pending_action = None
+            
+            return {
+                "type": "navigation",
+                "target_url": f"/docs/{document_id}?title={title}" if document_id else "/docs",
+                "response": f"I've created a new document titled '{title}' for you.",
+                "state": state.dict()
+            }
+        else:
+            return {"response": f"An unexpected error occurred during document creation.", "state": state.dict()}
+
     # --- MAIN ENTRY POINT ---
     async def process_message(self, request: ChatRequest, testing: bool = False) -> Dict[str, Any]:
         chat_history = self._prepare_chat_history(request.chat_history)
+        
+        # --- Context Injection from UI ---
+        # If the UI provides a document context, inject it into the state at the beginning of the request.
+        if request.ui_context and request.ui_context.page == 'docs' and request.ui_context.document_id:
+            if request.conversation_state.last_document_id != request.ui_context.document_id:
+                logging.info(f"Updating conversation state with new document context: ID {request.ui_context.document_id}")
+                request.conversation_state.last_document_id = request.ui_context.document_id
+                request.conversation_state.last_document_title = request.ui_context.document_title
+        # ---------------------------------
+
         print(f"\n--- New Request ---")
         print(f"User Input: {request.input}")
         print(f"Initial State: {request.conversation_state.dict()}")
 
         try:
+            # --- Handle Pending Actions ---
+            if request.conversation_state.pending_action == "awaiting_document_title":
+                # User is providing a title for the document
+                # Create a synthetic intent with the user's input as the title
+                intent = Intent(intent="create_document", title=request.input)
+                # Call the handler directly, bypassing the classifier and extractor
+                response = await self._handle_create_document_intent(intent, request.user_context, request.conversation_state, request.input, testing=testing)
+                print(f"4. FINAL State: {response.get('state')}")
+                print("---------------------------\n")
+                return {"type": "text", **response}
+            # --------------------------
+
             # STAGE 1: CLASSIFY INTENT
             intent_name = await self._classify_intent(request.input, chat_history)
             print(f"\n--- 🧠 AI Orchestrator ---")
@@ -1217,6 +1452,7 @@ class AIOrchestratorService:
                 'open_document': self._handle_open_document_intent,
                 'close_document': self._handle_close_document_intent,
                 'summarize_document': self._handle_summarize_document_intent,
+                'create_document': self._handle_create_document_intent,
                 'edit_document': self._handle_edit_document_intent,
                 'apply_suggestion': self._handle_apply_suggestion_intent,
                 'reject_suggestion': self._handle_reject_suggestion_intent,

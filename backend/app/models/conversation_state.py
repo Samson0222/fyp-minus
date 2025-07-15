@@ -16,3 +16,4 @@ class ConversationState(BaseModel):
     last_document_id: Optional[str] = Field(None, description="The ID of the last Google Docs document that was interacted with.")
     last_document_title: Optional[str] = Field(None, description="The title of the last Google Docs document that was interacted with.")
     last_suggestion_id: Optional[str] = Field(None, description="The ID of the last document suggestion that was created.")
+    pending_action: Optional[str] = None

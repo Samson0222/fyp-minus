@@ -23,7 +23,7 @@ const pageConfig: { [key: string]: { title: string; icon: React.ReactNode } } = 
   "/": { title: "Home", icon: <Home size={22} /> },
   "/calendar": { title: "Schedule", icon: <Calendar size={22} /> },
   "/email": { title: "Emails", icon: <Mail size={22} /> },
-  "/docs": { title: "Docs", icon: <FileText size={22} /> },
+  "/docs": { title: "Docs Dashboard", icon: <FileText size={22} /> },
   "/settings": { title: "Settings", icon: <Settings size={22} /> },
   "/mission-control": { title: "Mission Control", icon: <Bot size={22} /> },
 };
@@ -88,7 +88,7 @@ const Layout: React.FC<LayoutProps> = ({ children, showChatSidebar = true, custo
     }
   });
 
-  const currentPage = pageConfig[location.pathname] || { title: "Dashboard", icon: <Home size={22} /> };
+  const currentPage = pageConfig[location.pathname] || { title: "Docs View", icon: <FileText size={22} /> };
 
   return (
     <div className="flex h-screen w-full bg-gradient-main overflow-hidden">
