@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/use-toast";
 import { FileText, RefreshCw, Plus, Search, Calendar, Tag, AlertTriangle, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import UnauthorizedPage from "@/components/layout/UnauthorizedPage";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,6 +51,8 @@ const DocsDashboard: React.FC = () => {
   const [filteredDocuments, setFilteredDocuments] = useState<DocumentMetadata[]>([]);
   const [docToDelete, setDocToDelete] = useState<DocumentMetadata | null>(null);
   const [viewMode, setViewMode] = useState<'active' | 'trashed'>('active');
+  
+
 
   // 1. Check authentication status first
   useEffect(() => {
@@ -107,7 +110,8 @@ const DocsDashboard: React.FC = () => {
       toast({
         title: 'Error Loading Documents',
         description: 'Failed to load your Google Docs. Please try again.',
-        variant: 'destructive'
+        variant: 'destructive',
+        duration: 3000
       });
     } finally {
       setLoading(false);
@@ -127,6 +131,7 @@ const DocsDashboard: React.FC = () => {
         toast({
           title: 'Document Moved to Trash',
           description: `"${docToDelete.title}" has been moved to the trash.`,
+          duration: 3000,
         });
         // Remove the document from the local state for instant UI update
         setDocuments(prev => prev.filter(d => d.document_id !== docToDelete.document_id));
@@ -140,6 +145,7 @@ const DocsDashboard: React.FC = () => {
         title: 'Error',
         description: 'Could not move the document to trash. Please try again.',
         variant: 'destructive',
+        duration: 3000
       });
     } finally {
       setDocToDelete(null); // Close the dialog
@@ -163,6 +169,7 @@ const DocsDashboard: React.FC = () => {
         toast({
           title: 'Sync Complete',
           description: `Synced ${data.synced_count} documents successfully.`,
+          duration: 3000
         });
         
         // Refresh the documents list
@@ -175,7 +182,8 @@ const DocsDashboard: React.FC = () => {
       toast({
         title: 'Sync Failed',
         description: 'Failed to sync with Google Drive. Please try again.',
-        variant: 'destructive'
+        variant: 'destructive',
+        duration: 3000
       });
     } finally {
       setSyncing(false);
@@ -208,6 +216,7 @@ const DocsDashboard: React.FC = () => {
     toast({
       title: 'Create Document',
       description: 'Document creation feature coming soon!',
+      duration: 3000
     });
   };
 
@@ -224,6 +233,8 @@ const DocsDashboard: React.FC = () => {
       return 'Unknown';
     }
   };
+
+
 
   if (isAuthLoading) {
     return (
@@ -248,7 +259,7 @@ const DocsDashboard: React.FC = () => {
 
   return (
     <Layout>
-      <div className="flex flex-col h-full bg-gradient-main">
+      <div className="h-full bg-gradient-main">
         {/* Header */}
         <div className="flex-shrink-0 px-6 py-4 border-b border-white/10">
           <div className="flex items-center justify-between">

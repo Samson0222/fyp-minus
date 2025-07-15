@@ -83,3 +83,43 @@ We are moving beyond a simple LLM call to a true agentic workflow where the AI c
 
 -   **Goal:** Enable hands-free interaction with the AI assistant.
 -   **Implementation:** Integrate Google's STT and TTS services. Implement a "wake word" or push-to-talk mechanism to activate voice commands and receive spoken responses from the AI.
+
+## 7. Development Precautions & Authentication Lessons
+
+### 7.1. User Authentication and Context Handling
+
+- **Always Trust the Backend for User Context:**
+  - Never trust user context (user_id, credentials, etc.) sent from the frontend. Always inject or validate it on the backend using a dependency (e.g., FastAPI's `Depends(get_current_user)`).
+  - This prevents spoofing and ensures the backend always has the correct, up-to-date credentials.
+
+- **DEV_AUTH_BYPASS Mode:**
+  - In development, set `DEV_AUTH_BYPASS=true` in the backend `.env` file. This allows the backend to skip JWT validation and use a hardcoded test user (e.g., `cbede3b0-2f68-47df-9c26-09a46e588567`).
+  - The backend should load Google OAuth tokens for this user directly from the local `tokens/` directory (e.g., `tokens/token_google_cbede3b0-2f68-47df-9c26-09a46e588567.json`).
+  - The frontend may have its own dev bypass flag (e.g., `VITE_DEV_AUTH_BYPASS`), but the backend's flag is authoritative for all authentication logic.
+
+- **UserContext Model Consistency:**
+  - The `UserContext` Pydantic model should have a single source of truth for field names (e.g., `user_id`, not `id`).
+  - All code (tools, routers, services) must use the same attribute names to avoid runtime errors.
+
+- **Tool Argument Passing (LangChain):**
+  - When using LangChain's `@tool` decorator, extra arguments (like `user_context`) are dropped unless explicitly included in the tool's schema.
+  - To pass runtime-only arguments (like credentials), call the tool's underlying async function directly (using `.coroutine`), not via the LangChain wrapper.
+
+- **Error Handling:**
+  - Always log and surface errors related to missing or invalid credentials clearly. This helps quickly diagnose issues with token loading or user context propagation.
+
+### 7.2. Common Pitfalls
+
+- **Mismatched Field Names:**
+  - Changing `id` to `user_id` (or vice versa) in the user context model requires updating all references throughout the codebase, including tools and services.
+
+- **Frontend/Backend Bypass Mismatch:**
+  - If the frontend is in dev bypass mode but the backend is not (or vice versa), authentication will fail. Always keep `.env` files in sync for both.
+
+- **Token File Location:**
+  - The backend must have read access to the correct token file for the test user in dev mode. If the file is missing or malformed, Google API calls will fail.
+
+- **LangChain Tool Wrappers:**
+  - The LangChain tool wrapper is strict about argument schemas. For advanced use cases, bypass the wrapper and call the original function directly.
+
+---

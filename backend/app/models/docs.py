@@ -66,8 +66,10 @@ class DocumentSearchResult(BaseModel):
 
 class DocumentContent(BaseModel):
     """Represents the full content of a Google Doc"""
+    success: bool = Field(..., description="Indicates if the operation was successful.")
     document_id: str
-    title: str
-    content: str
-    revision_id: str
-    last_updated: datetime 
+    title: Optional[str] = None
+    content: Optional[str] = None
+    revision_id: Optional[str] = None
+    last_updated: Optional[datetime] = None
+    message: Optional[str] = Field(None, description="A message, especially in case of an error.") 

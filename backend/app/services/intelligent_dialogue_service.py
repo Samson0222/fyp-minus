@@ -33,7 +33,7 @@ class IntelligentDialogueService:
     def _initialize_sample_data(self):
         """Initialize with sample memories and personality profiles"""
         # Sample user memories
-        sample_user_id = "test_user_001"
+        sample_user_id = "cbede3b0-2f68-47df-9c26-09a46e588567"
         sample_memories = [
             {
                 "content": "User prefers concise responses and doesn't like verbose explanations",

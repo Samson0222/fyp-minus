@@ -12,6 +12,11 @@ class AbstractLLMService(ABC):
         pass
 
     @abstractmethod
+    async def generate_text(self, prompt: str) -> str:
+        """Generate plain text response without JSON parsing - for summarization, etc."""
+        pass
+
+    @abstractmethod
     def get_usage_stats(self) -> Dict[str, Any]:
         """Returns usage statistics for the service."""
         pass 

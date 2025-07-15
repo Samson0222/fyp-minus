@@ -25,6 +25,7 @@ const Settings = () => {
       toast({
         title: "Google Account Connected!",
         description: "Successfully authenticated. All services should now be active.",
+        duration: 3000
       });
       // Use history.replaceState to clean the URL without reloading
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -33,6 +34,7 @@ const Settings = () => {
         title: "Authentication Failed",
         description: "Could not connect to Google. Please try again.",
         variant: 'destructive',
+        duration: 3000
       });
       window.history.replaceState({}, document.title, window.location.pathname);
     }
@@ -50,7 +52,7 @@ const Settings = () => {
     } catch (error) {
       console.error("Failed to fetch auth status", error);
       setAuthStatus({ authenticated: false, message: 'Could not fetch connection status.' });
-      toast({ title: "Error", description: "Could not fetch connection status.", variant: 'destructive' });
+      toast({ title: "Error", description: "Could not fetch connection status.", variant: 'destructive', duration: 3000 });
     } finally {
       setLoading(false);
     }
@@ -63,11 +65,11 @@ const Settings = () => {
   const handleDisconnect = async () => {
     try {
       await fetch('/api/v1/auth/google/disconnect', { method: 'POST' });
-      toast({ title: "Disconnected", description: "Successfully disconnected from Google." });
+      toast({ title: "Disconnected", description: "Successfully disconnected from Google.", duration: 3000 });
       // Refetch status to update the UI
       fetchStatus();
     } catch (error) {
-      toast({ title: "Error", description: "Failed to disconnect.", variant: 'destructive' });
+      toast({ title: "Error", description: "Failed to disconnect.", variant: 'destructive', duration: 3000 });
     }
   };
 
@@ -93,7 +95,7 @@ const Settings = () => {
 
   return (
     <Layout>
-      <div className="p-6 h-full space-y-8">
+      <div className="p-6 h-full space-y-8 overflow-y-auto">
         <Card className="max-w-3xl mx-auto bg-dark-secondary border-white/10">
           <CardHeader>
             <CardTitle className="text-white text-2xl">Google Integration</CardTitle>

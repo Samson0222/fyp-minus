@@ -96,6 +96,21 @@ class LMStudioLLMService(AbstractLLMService):
             logging.error(f"LM Studio processing error: {e}")
             return {"error": f"Command processing failed: {str(e)}"}
 
+    async def generate_text(self, prompt: str) -> str:
+        """Generate plain text response without JSON parsing - for summarization, etc."""
+        try:
+            if self.mock_mode:
+                return f"Mock response: {prompt[:100]}..."
+            
+            # Use LM Studio for plain text generation
+            messages = [HumanMessage(content=prompt)]
+            response = await self.llm.ainvoke(messages)
+            return response.content
+            
+        except Exception as e:
+            logging.error(f"Text generation error: {e}")
+            return f"Error generating text: {str(e)}"
+
     def get_usage_stats(self) -> Dict[str, Any]:
         """Return status for the LM Studio service."""
         if self.mock_mode:

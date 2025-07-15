@@ -14,10 +14,10 @@ langchain-openai==0.2.14
 openai>=1.58.1
 
 # Gmail API dependencies
-google-auth==2.23.4
-google-auth-oauthlib==1.1.0
-google-auth-httplib2==0.1.1
-google-api-python-client==2.109.0
+google-auth
+google-auth-oauthlib==1.2.0
+google-auth-httplib2
+google-api-python-client==2.128.0
 email-validator==2.1.0
 beautifulsoup4==4.12.3
 
@@ -26,3 +26,5 @@ beautifulsoup4==4.12.3
 langchain-google-genai>=2.0.0
 google-generativeai>=0.8.0
 websockets>=12.0
+pytz==2024.1
+dateparser==1.2.0

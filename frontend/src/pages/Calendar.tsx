@@ -98,9 +98,7 @@ const Calendar: React.FC = () => {
     authStatus: { authenticated: false, message: 'Checking...' },
     loading: true
   });
-  const isPanelVisible = false;
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [viewEvent, setViewEvent] = useState<CalendarEvent | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -117,7 +115,7 @@ const Calendar: React.FC = () => {
 
   // Establish WebSocket connection
   useEffect(() => {
-    const userId = "test_user_001"; 
+    const userId = "cbede3b0-2f68-47df-9c26-09a46e588567"; 
 
     if (calendarState.authStatus.authenticated) {
       const ws = new WebSocket(`ws://localhost:8000/ws/calendar/${userId}`);
@@ -125,10 +123,6 @@ const Calendar: React.FC = () => {
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.event === 'sync_complete') {
-          toast({
-            title: "Real-time Update ✨",
-            description: "Your calendar has been updated automatically from Google.",
-          });
           loadCalendarData();
         }
       };
@@ -136,7 +130,7 @@ const Calendar: React.FC = () => {
       ws.onerror = (error) => console.error("WebSocket error:", error);
       return () => ws.close();
     }
-  }, [calendarState.authStatus.authenticated, toast]);
+  }, [calendarState.authStatus.authenticated]);
 
   useEffect(() => {
     checkAuthStatus();
@@ -183,24 +177,25 @@ const Calendar: React.FC = () => {
     } catch (error) {
       console.error('Failed to load calendar data:', error);
       setCalendarState(prev => ({ ...prev, loading: false }));
-      toast({ title: "Error", description: "Failed to load calendar data.", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to load calendar data.", variant: "destructive", duration: 3000 });
     }
   };
 
   const refreshCalendarData = async () => {
     setCalendarState(prev => ({ ...prev, loading: true }));
-    toast({ title: "Syncing...", description: "Refreshing from Google Calendar." });
+    toast({ title: "Syncing...", description: "Refreshing from Google Calendar.", duration: 3000 });
 
     try {
       await loadCalendarData();
       toast({
         title: "Sync Successful",
-        description: "Calendar refreshed from Google Calendar."
+        description: "Calendar refreshed from Google Calendar.",
+        duration: 3000
       });
     } catch (error) {
       console.error('Failed to refresh calendar data:', error);
       setCalendarState(prev => ({ ...prev, loading: false }));
-      toast({ title: "Sync Error", description: "Could not refresh from Google Calendar.", variant: "destructive" });
+      toast({ title: "Sync Error", description: "Could not refresh from Google Calendar.", variant: "destructive", duration: 3000 });
     }
   };
 
@@ -336,6 +331,7 @@ const Calendar: React.FC = () => {
       toast({
         title: "Event Created",
         description: "Event successfully added to your Google Calendar.",
+        duration: 3000
       });
       
     setIsModalOpen(false);
@@ -353,7 +349,8 @@ const Calendar: React.FC = () => {
       toast({
         title: "Error",
         description: "Failed to create event. Please try again.",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 3000
       });
     }
   };
@@ -370,6 +367,7 @@ const Calendar: React.FC = () => {
       toast({
         title: "Event Deleted",
         description: "The event has been removed from your calendar.",
+        duration: 3000
       });
       
       setIsViewOpen(false);
@@ -379,15 +377,22 @@ const Calendar: React.FC = () => {
       toast({
         title: "Error",
         description: "Failed to delete event. Please try again.",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 3000
       });
     }
     setIsDeleteConfirmOpen(false);
   };
 
   const formattedLastRefresh = useMemo(() => {
-    if (!calendarState.lastRefresh) return '';
-    return calendarState.lastRefresh.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+    if (!calendarState.lastRefresh) return 'N/A';
+    return calendarState.lastRefresh.toLocaleString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
   }, [calendarState.lastRefresh]);
 
   // Custom event rendering function
@@ -424,48 +429,59 @@ const Calendar: React.FC = () => {
 
   return (
     <Layout>
-      <div className={`h-full flex flex-col transition-all duration-300 ${isPanelVisible ? 'md:grid-cols-[1fr_350px]' : ''}`}>
-        <div className="flex-1 flex flex-col bg-dark-primary text-white overflow-hidden">
-          {/* Main header */}
-          <header className="flex items-center justify-between p-4 border-b border-white/10">
-            <div className="flex items-center space-x-4">
-              <CalendarIcon className="w-6 h-6 text-violet-300" />
-              <h1 className="text-xl font-bold">My Schedule</h1>
-              <Badge variant="secondary">{todayEventCount} events today</Badge>
-            </div>
-            <div className="flex items-center space-x-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={refreshCalendarData} disabled={calendarState.loading}>
-                      <RefreshCw className={`w-5 h-5 ${calendarState.loading ? 'animate-spin' : ''}`} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Refresh from Google</p>
-                  </TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={() => navigate('/settings')}>
-                      <Settings className="w-5 h-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Calendar Settings</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+      <div className="h-full flex flex-col transition-all duration-300">
+        <div className="p-6 flex flex-col space-y-6 h-full">
+          <div className="flex-shrink-0 flex items-center justify-between">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-white">
+              {calendarState.authStatus.authenticated ? (
+                <>
+                  {/* Connected icon */}
+                  <CheckCircle className="w-4 h-4 text-green-400" />
 
-              <Button onClick={handleNewEventClick} className="bg-violet hover:bg-violet-light">
+                  {/* Total events badge */}
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-violet/30 text-violet-light">
+                    {calendarState.events.length}
+                  </span>
+                  <span>events</span>
+
+                  {/* Today count */}
+                  <span className="text-white/70">•</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-sm font-bold bg-violet text-white">
+                    {todayEventCount}
+                  </span>
+                  <span className="text-sm">event{todayEventCount !== 1 ? 's' : ''} today</span>
+
+                  {/* Last synced */}
+                  {calendarState.lastRefresh && (
+                    <>
+                      <span className="text-white/70">•</span>
+                      <span className="text-white/70 text-xs">Last synced: {formattedLastRefresh}</span>
+                    </>
+                  )}
+                </>
+              ) : (
+                <span>Not connected</span>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={handleNewEventClick}
+                variant="default"
+                size="sm"
+                className="bg-violet hover:bg-violet/90 text-white"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 New Event
               </Button>
+              {calendarState.authStatus.authenticated && (
+                <Button onClick={refreshCalendarData} variant="outline" size="sm" disabled={calendarState.loading} className="bg-dark-tertiary border-white/10 text-white hover:bg-dark-secondary">
+                  <RefreshCw className={`w-4 h-4 mr-2 ${calendarState.loading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              )}
             </div>
-          </header>
+          </div>
 
-          {/* Main content */}
           <div className="flex-grow flex flex-col min-h-0">
             <Card className="bg-dark-secondary border-white/10 flex-grow">
                 <CardContent className="p-6 h-full">
@@ -497,192 +513,179 @@ const Calendar: React.FC = () => {
           </div>
         </div>
 
-        {/* Sidebar for settings/info */}
-        <div className="hidden md:block w-full md:w-auto bg-dark-secondary border-l border-white/10">
-          <div className="p-6">
-            <h2 className="text-lg font-bold mb-4">Calendar Settings</h2>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="calendar-source">Calendar Source</Label>
-                <Input id="calendar-source" value="Google Calendar" disabled />
+        {/* Create Event Modal */}
+        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+          <DialogContent className="sm:max-w-[425px] bg-dark-secondary border-violet-light/30 text-white">
+            <DialogHeader>
+              <DialogTitle>Create New Event</DialogTitle>
+              <DialogDescription>
+                Add a new event to your Google Calendar. This will be synced automatically.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-4 py-4">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="summary">Title</Label>
+                <Input
+                  id="summary"
+                  value={newEvent.summary}
+                  placeholder="(No Title)"
+                  onChange={(e) => setNewEvent(prev => ({ ...prev, summary: e.target.value }))}
+                  className="bg-dark-tertiary border-slate-700 focus:ring-violet-500 focus:border-violet-500"
+                />
               </div>
-              <div>
-                <Label htmlFor="last-sync">Last Sync</Label>
-                <Input id="last-sync" value={formattedLastRefresh} disabled />
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  value={newEvent.description}
+                  onChange={(e) => setNewEvent(prev => ({ ...prev, description: e.target.value }))}
+                  className="bg-dark-tertiary border-slate-700 focus:ring-violet-500 focus:border-violet-500"
+                />
               </div>
-              <div>
-                <Label htmlFor="auth-status">Authentication Status</Label>
-                <Input id="auth-status" value={calendarState.authStatus.message} disabled />
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="allDay"
+                    checked={newEvent.all_day}
+                    onCheckedChange={(checked) => handleAllDayToggle(checked as boolean)}
+                  />
+                  <Label htmlFor="allDay" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    All-day
+                  </Label>
+                </div>
               </div>
-              <div>
-                <Label htmlFor="total-events">Total Events</Label>
-                <Input id="total-events" value={calendarState.events.length} disabled />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Create/Edit Event Modal */}
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="bg-dark-secondary border-violet-light/30 text-white">
-          <DialogHeader>
-            <DialogTitle>Create New Event</DialogTitle>
-            <DialogDescription>
-              Add a new event to your Google Calendar. This will be synced automatically.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="summary" className="text-right">
-                Title
-              </Label>
-              <Input
-                id="summary"
-                value={newEvent.summary}
-                onChange={(e) => setNewEvent({ ...newEvent, summary: e.target.value })}
-                className="col-span-3 bg-dark-tertiary border-white/20"
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="description" className="text-right">
-                Description
-              </Label>
-              <Textarea
-                id="description"
-                value={newEvent.description}
-                onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
-                className="col-span-3 bg-dark-tertiary border-white/20"
-                rows={3}
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label className="text-right">
-                Starts
-              </Label>
-              <div className="col-span-3 flex items-center gap-2">
-                 <DatePicker date={newEvent.start} onDateChange={(d) => handleDateChange(d, 'start')} />
-                 {!newEvent.all_day && <TimePicker date={newEvent.start} onDateChange={(d) => handleDateChange(d, 'start')} />}
-              </div>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label className="text-right">
-                Ends
-              </Label>
-              <div className="col-span-3 flex items-center gap-2">
-                 <DatePicker date={newEvent.end} onDateChange={(d) => handleDateChange(d, 'end')} />
-                 {!newEvent.all_day && <TimePicker date={newEvent.end} onDateChange={(d) => handleDateChange(d, 'end')} />}
-              </div>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="all-day" className="text-right">
-                All-day
-              </Label>
-              <Checkbox
-                id="all-day"
-                checked={newEvent.all_day}
-                onCheckedChange={handleAllDayToggle}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateEvent} className="bg-violet hover:bg-violet-light">
-              Create Event
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* View Event Details Dialog */}
-      <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
-        <DialogContent className="max-w-md bg-[#1e1e1e] text-white border border-white/10">
-          {viewEvent && (
-            <>
-              <DialogHeader>
-                <DialogTitle>
-                  {viewEvent.summary}
-                </DialogTitle>
-                <DialogDescription>
-                  {viewEvent.all_day ? 'All Day' : `${new Date(viewEvent.start).toLocaleString()} — ${viewEvent.end ? new Date(viewEvent.end).toLocaleString() : ''}`}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3 text-sm py-4">
-                {viewEvent.description && (
-                  <div>
-                    <p className="whitespace-pre-wrap">{viewEvent.description}</p>
-                  </div>
-                )}
-                {viewEvent.location && (
-                  <div>
-                    <p><strong>Location:</strong> {viewEvent.location}</p>
-          </div>
-                )}
-                {viewEvent.html_link && (
-                  <div>
-                    <a href={viewEvent.html_link} target="_blank" rel="noopener noreferrer" className="text-violet-light underline">Open in Google Calendar ↗</a>
-        </div>
-                )}
-      </div>
-              <DialogFooter className="flex items-center justify-end space-x-2">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={() => {
-                        if (viewEvent) {
-                          setNewEvent({
-                            summary: viewEvent.summary,
-                            description: viewEvent.description || '',
-                            start: new Date(viewEvent.start),
-                            end: viewEvent.end ? new Date(viewEvent.end) : new Date(viewEvent.start),
-                            all_day: viewEvent.all_day,
-                          });
+              {!newEvent.all_day && (
+                <>
+                  <div className="flex flex-col gap-1">
+                    <Label>Date</Label>
+                    <DatePicker 
+                      date={newEvent.start} 
+                      setDate={(date) => {
+                        if (date) {
+                          const newStart = new Date(date);
+                          newStart.setHours(newEvent.start.getHours(), newEvent.start.getMinutes());
+                          const newEnd = new Date(date);
+                          newEnd.setHours(newEvent.end.getHours(), newEvent.end.getMinutes());
+                          setNewEvent(prev => ({ ...prev, start: newStart, end: newEnd }));
                         }
-                        setIsViewOpen(false);
-                        setIsModalOpen(true);
-                      }}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Edit event</p>
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={() => setIsDeleteConfirmOpen(true)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Delete event</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-      
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
-        <AlertDialogContent className="bg-dark-secondary border-slate-800 text-white">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the event
-              from your Google Calendar.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteEvent} className="bg-red-600 hover:bg-red-700">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+                      }} 
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label>From</Label>
+                    <TimePicker date={newEvent.start} setDate={(date) => date && setNewEvent(prev => ({ ...prev, start: date }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label>To</Label>
+                    <TimePicker date={newEvent.end} setDate={(date) => date && setNewEvent(prev => ({ ...prev, end: date }))} />
+                  </div>
+                </>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleCreateEvent}
+                className="bg-violet hover:bg-violet/90"
+              >
+                Create Event
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* View Event Details Modal */}
+        <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
+          <DialogContent className="max-w-md bg-[#1e1e1e] text-white border border-white/10">
+            {viewEvent && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>
+                    {viewEvent.summary}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {viewEvent.all_day ? 'All Day' : `${new Date(viewEvent.start).toLocaleString()} — ${viewEvent.end ? new Date(viewEvent.end).toLocaleString() : ''}`}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 text-sm py-4">
+                  {viewEvent.description && (
+                    <div>
+                      <p className="whitespace-pre-wrap">{viewEvent.description}</p>
+                    </div>
+                  )}
+                  {viewEvent.location && (
+                    <div>
+                      <p><strong>Location:</strong> {viewEvent.location}</p>
+            </div>
+                  )}
+                  {viewEvent.html_link && (
+                    <div>
+                      <a href={viewEvent.html_link} target="_blank" rel="noopener noreferrer" className="text-violet-light underline">Open in Google Calendar ↗</a>
+          </div>
+                  )}
+        </div>
+                <DialogFooter className="flex items-center justify-end space-x-2">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={() => {
+                          if (viewEvent) {
+                            setNewEvent({
+                              summary: viewEvent.summary,
+                              description: viewEvent.description || '',
+                              start: new Date(viewEvent.start),
+                              end: viewEvent.end ? new Date(viewEvent.end) : new Date(viewEvent.start),
+                              all_day: viewEvent.all_day,
+                            });
+                          }
+                          setIsViewOpen(false);
+                          setIsModalOpen(true);
+                        }}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Edit event</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={() => setIsDeleteConfirmOpen(true)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Delete event</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+        
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+          <AlertDialogContent className="bg-dark-secondary border-slate-800 text-white">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the event
+                from your Google Calendar.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setIsDeleteConfirmOpen(false)}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDeleteEvent} className="bg-red-600 hover:bg-red-700">
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
     </Layout>
   );
 };

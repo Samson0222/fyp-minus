@@ -116,7 +116,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                   toast({ 
                     title: 'Voice Command Processed', 
                     description: voiceData.response,
-                    duration: 5000
+                    duration: 1000
                   });
                 }, 500);
               }
@@ -126,7 +126,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
               toast({
                 title: 'Voice Command Error',
                 description: 'Failed to process voice command, but transcription was successful.',
-                variant: 'destructive'
+                variant: 'destructive',
+                duration: 1000
               });
             }
           } catch (err) {
@@ -135,14 +136,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             toast({
               title: 'Transcription Error',
               description: 'Failed to transcribe audio. Please try again.',
-              variant: 'destructive'
+              variant: 'destructive',
+              duration: 1000
             });
           }
         };
 
         recorder.start();
         setIsListening(true);
-        toast({ title: 'Voice Recognition Active', description: 'Speak now…' });
+        toast({ title: 'Voice Recognition Active', description: 'Speak now…', duration: 1000 });
 
         // Auto stop after 5 seconds
         setTimeout(() => {
@@ -157,7 +159,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         toast({ 
           title: 'Microphone error', 
           description: String(err), 
-          variant: 'destructive' 
+          variant: 'destructive', 
+          duration: 3000
         });
       }
     } else {
@@ -199,13 +202,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           <ChevronLeft size={16} />
         </button>
         <div className="flex flex-col items-center justify-center h-full">
-          <button 
+          {/* <button 
             onClick={onToggleCollapse}
             className="p-2 rounded-full bg-violet text-white hover:bg-violet-light transition-colors"
             title="Open Chat"
           >
             <Send size={18} />
-          </button>
+          </button> */}
         </div>
       </div>
     );

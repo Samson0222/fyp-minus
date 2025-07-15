@@ -12,7 +12,7 @@ from app.core.database import get_database
 # Dependency to get current user (simplified demo)
 async def get_current_user(authorization: Optional[str] = None):
     """Stub user extraction – replace with real auth if needed."""
-    return {"user_id": "test_user_001", "email": "test@example.com"}
+    return {"user_id": "cbede3b0-2f68-47df-9c26-09a46e588567", "email": "test@example.com"}
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/calendar", tags=["calendar"])
@@ -187,14 +187,10 @@ async def get_google_calendar_events(
             time_min = datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
             time_max = datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)
         else:
-            # Default to current month
+            # Default to the entire current year
             now = datetime.now(timezone.utc)
-            time_min = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            # Next month's first day
-            if now.month == 12:
-                time_max = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            else:
-                time_max = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            time_min = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            time_max = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         
         # Fetch events from Google Calendar
         events_result = service.events().list(

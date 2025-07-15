@@ -3,12 +3,14 @@ from fastapi.responses import RedirectResponse
 from typing import Optional
 import os
 import logging
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
 
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 
 from app.core.config import GOOGLE_SCOPES
+from app.dependencies import get_current_user
+from app.models.user_context import UserContext
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -17,11 +19,7 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# Dependency to get current user (simplified for now)
-async def get_current_user(authorization: Optional[str] = None):
-    """Stub user extraction - replace with real auth if needed."""
-    return {"user_id": "test_user_001", "email": "test@example.com"}
-
+# The old get_current_user stub is no longer needed.
 
 def create_google_oauth_flow(redirect_uri: str) -> Flow:
     """Create Google OAuth flow for Calendar authentication."""
@@ -41,7 +39,7 @@ def create_google_oauth_flow(redirect_uri: str) -> Flow:
 
 
 @router.get("/login", summary="Initiate Google OAuth2 flow")
-async def google_login(request: Request, user = Depends(get_current_user)):
+async def google_login(request: Request, user: UserContext = Depends(get_current_user)):
     """
     Redirects the user to Google's OAuth 2.0 server to initiate authentication.
     """
@@ -62,10 +60,21 @@ async def google_login(request: Request, user = Depends(get_current_user)):
         
         # Store state and user_id in session/cache for verification
         # For now, we'll include user_id in the state parameter
-        state_with_user = f"{state}:{user['user_id']}"
+        state_with_user = f"{state}:{user.user_id}"
         
+        # The authorization_url already has a 'state' parameter. We need to replace it
+        # to avoid sending two state parameters.
+        parsed_url = urlparse(authorization_url)
+        query_params = parse_qs(parsed_url.query)
+        query_params['state'] = [state_with_user]
+        new_query = urlencode(query_params, doseq=True)
+        
+        new_authorization_url = urlunparse(
+            (parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.params, new_query, parsed_url.fragment)
+        )
+
         # Redirect user to Google OAuth consent screen
-        return RedirectResponse(url=authorization_url)
+        return RedirectResponse(url=new_authorization_url)
         
     except Exception as e:
         logger.error(f"Google auth initiation error: {e}")
@@ -88,7 +97,7 @@ async def google_auth_callback(
             oauth_state, user_id = state.rsplit(':', 1)
         else:
             oauth_state = state
-            user_id = "test_user_001"  # Fallback for safety
+            user_id = "cbede3b0-2f68-47df-9c26-09a46e588567"  # Fallback for safety
 
         # Exchange authorization code for credentials
         base_url = str(request.base_url).rstrip('/')
@@ -125,18 +134,20 @@ async def google_auth_callback(
 
 
 @router.get("/status", summary="Check Google authentication status")
-async def get_google_auth_status(user_id: str = "test_user_001"):
+async def get_google_auth_status(user: UserContext = Depends(get_current_user)):
     """
-    Checks if a valid, non-expired token exists for the user.
+    Checks if a valid, non-expired token exists for the current authenticated user.
+    If a valid token exists, it returns the user's information as well.
     """
     try:
         tokens_dir = os.getenv("GOOGLE_TOKENS_DIR", "tokens")
-        token_path = os.path.join(tokens_dir, f"token_google_{user_id}.json")
+        token_path = os.path.join(tokens_dir, f"token_google_{user.user_id}.json")
         
         if not os.path.exists(token_path):
             return {
                 "authenticated": False,
-                "message": "No token found or token is invalid."
+                "message": "Google account not connected.",
+                "user": user.dict()
             }
         
         # Try to load and validate credentials
@@ -144,53 +155,48 @@ async def get_google_auth_status(user_id: str = "test_user_001"):
             creds = Credentials.from_authorized_user_file(token_path, GOOGLE_SCOPES)
             
             # Check if credentials are valid or can be refreshed
-            if creds.valid:
+            if creds.valid or (creds.expired and creds.refresh_token):
                 return {
                     "authenticated": True,
-                    "message": "Google Calendar connected and valid"
-                }
-            elif creds.expired and creds.refresh_token:
-                return {
-                    "authenticated": True,
-                    "message": "Google Calendar connected (needs refresh)"
+                    "message": "Google Calendar connected and valid",
+                    "user": user.dict()
                 }
             else:
                 return {
                     "authenticated": False,
-                    "message": "Google Calendar authentication expired"
+                    "message": "Google Calendar authentication expired",
+                    "user": user.dict()
                 }
                 
         except Exception as cred_error:
-            logger.warning(f"Invalid credentials file for user {user_id}: {cred_error}")
+            logger.warning(f"Invalid credentials file for user {user.user_id}: {cred_error}")
             return {
                 "authenticated": False,
-                "message": "Invalid Google Calendar credentials"
+                "message": "Invalid Google Calendar credentials",
+                "user": user.dict()
             }
             
     except Exception as e:
         logger.error(f"Auth status check error: {e}")
         return {
             "authenticated": False,
-            "message": f"Error checking authentication: {str(e)}"
+            "message": f"Error checking authentication: {str(e)}",
+            "user": None
         }
 
 
 @router.post("/disconnect", summary="Disconnect Google account")
-async def disconnect_google_account(user_id: str = "test_user_001"):
+async def disconnect_google_account(user: UserContext = Depends(get_current_user)):
     """
-    Deletes the user's Google token file, effectively disconnecting their account.
+    Deletes the current user's Google token file, effectively disconnecting their account.
     """
     try:
         tokens_dir = os.getenv("GOOGLE_TOKENS_DIR", "tokens")
-        token_path = os.path.join(tokens_dir, f"token_google_{user_id}.json")
+        token_path = os.path.join(tokens_dir, f"token_google_{user.user_id}.json")
         
         if os.path.exists(token_path):
             os.remove(token_path)
-            # --- Unsubscribe from Push Notifications (Webhook) ---
-            # In a real app, you would also stop the channel here
-            # by calling service.channels().stop() with the channel_id and resource_id
-            # stored in your database. For simplicity, we are skipping this for now.
-            logger.info(f"Google Calendar disconnected for user {user_id}")
+            logger.info(f"Google Calendar disconnected for user {user.user_id}")
             return {
                 "success": True,
                 "message": "Google Calendar disconnected successfully"

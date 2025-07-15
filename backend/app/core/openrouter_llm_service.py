@@ -133,6 +133,30 @@ Be precise, context-aware, and always provide reasoning for accessibility users.
             logging.error(f"LLM processing error: {e}")
             return self._fallback_response(user_input, str(e))
 
+    async def generate_text(self, prompt: str) -> str:
+        """Generate plain text response without JSON parsing - for summarization, etc."""
+        try:
+            if self.mock_mode:
+                return f"Mock response: {prompt[:100]}..."
+            
+            # Use OpenRouter for plain text generation
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=800
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            logging.error(f"Text generation error: {e}")
+            return f"Error generating text: {str(e)}"
+
     def _enhanced_mock_parsing(self, user_input: str) -> Dict[str, Any]:
         """Enhanced mock parsing with Qwen3 32B-style responses"""
         user_lower = user_input.lower()

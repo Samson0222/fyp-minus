@@ -1,117 +1,1492 @@
 import os
 import logging
-from typing import Dict, Any, List
-
-import google.generativeai as genai
-from google.oauth2 import service_account
+from typing import Dict, Any, List, Optional, Literal
+from datetime import datetime, timedelta
+import pytz
+import dateparser
 
 # LangChain Imports
-from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.schema import HumanMessage, AIMessage, SystemMessage
-from pydantic import BaseModel
+from langchain.schema import HumanMessage, AIMessage, BaseMessage
+from pydantic import BaseModel, Field
 
-# Internal Tool Imports
-from app.tools.calendar_tools import get_calendar_events, create_calendar_event_draft
+# Internal Imports
+from app.tools.calendar_tools import get_calendar_events, create_calendar_event_draft, edit_calendar_event
+from app.tools.gmail_tools import list_emails, get_email_details, create_draft_email, send_draft, delete_draft
+from app.tools.telegram_tools import find_telegram_chat, get_conversation_history, send_telegram_message, get_unread_summary
+from app.tools.google_docs_tools import (
+    list_documents, get_document_details, create_document, get_document_content,
+    create_document_suggestion, apply_document_suggestion, reject_document_suggestion
+)
+from app.tools.utils_tools import get_current_time
+from app.models.user_context import UserContext
+from app.models.conversation_state import ConversationState
+from app.models.intent import Intent
+from app.services.gmail_service import GmailService
 
-# --- Pydantic Models ---
+# Pydantic Models for the new two-stage router
+class _IntentClassification(BaseModel):
+    """The classified high-level intent of the user."""
+    intent: Literal[
+        'create_event', 'edit_event', 'find_event', 'list_events',
+        'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
+        'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'get_latest_telegram_message',
+        'summarize_all_unread_telegram',
+        'list_documents', 'open_document', 'close_document', 'summarize_document', 'create_document', 'edit_document', 'apply_suggestion', 'reject_suggestion',
+        'general_chat'
+    ] = Field(description="The user's single primary goal.")
+
 class Message(BaseModel):
+    """A single message in a conversation history."""
     role: str
     content: str
 
+class UIContext(BaseModel):
+    """The context of the UI, e.g., which page the user is on."""
+    page: str
+    document_id: Optional[str] = None
+    document_title: Optional[str] = None
+    path: Optional[str] = None
+
 class ChatRequest(BaseModel):
-    message: str
-    conversation_history: List[Message] = []
-    ui_context: Dict[str, Any] = {}
+    input: str = Field(..., description="The user's input message.")
+    chat_history: List[Message] = Field(default=[], description="The conversation history.")
+    user_context: UserContext = Field(description="The user context.")
+    conversation_state: ConversationState = Field(default_factory=ConversationState, description="The state of the current conversation.")
+    ui_context: Optional[UIContext] = Field(None, description="The context of the UI from which the request originates.")
 
-# --- Service Class ---
+class _EventResolverResponse(BaseModel):
+    """The result of a reasoning task to find the best matching event."""
+    matched_event: Optional[Dict[str, Any]] = Field(description="The single event object from the list that best matches the user's query, or null if no clear match is found.")
+
+# Service Class
 class AIOrchestratorService:
-    def __init__(self, credentials_path: str, model: str = "gemini-1.5-flash"):
+    def __init__(self, model: str = "gemini-2.5-flash"):
         self.model_name = model
-        self.llm = None
-        self.agent_executor = None
-        self.mock_mode = True
+        api_key = os.environ.get("GOOGLE_GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_GEMINI_API_KEY not found.")
 
-        if not os.path.exists(credentials_path):
-            logging.warning(f"Gemini credentials not found at {credentials_path}. Orchestrator running in mock mode.")
-            return
+        self.router_llm = ChatGoogleGenerativeAI(model=self.model_name, google_api_key=api_key, temperature=0)
+        self.chat_llm = ChatGoogleGenerativeAI(model=self.model_name, google_api_key=api_key, temperature=0.7)
+        
+        logging.info("✅ AI Orchestrator Service initialized.")
 
+        # Initialize tools available to the agent
+        self.tools = [
+            get_current_time,
+            list_emails,
+            get_email_details,
+            create_draft_email,
+            send_draft,
+            delete_draft,
+            get_calendar_events,
+            create_calendar_event_draft,
+            edit_calendar_event,
+            find_telegram_chat,
+            get_conversation_history,
+            send_telegram_message,
+            get_unread_summary,
+            list_documents,
+            get_document_details,
+            create_document,
+            get_document_content,
+            create_document_suggestion,
+            apply_document_suggestion,
+            reject_document_suggestion,
+        ]
+
+    def _prepare_chat_history(self, conversation_history: List['Message']) -> List[BaseMessage]:
+        return [HumanMessage(content=msg.content) if msg.role.lower() == 'user' else AIMessage(content=msg.content) for msg in conversation_history]
+
+    # --- ROUTER (NEW TWO-STAGE IMPLEMENTATION) ---
+    async def _classify_intent(self, user_input: str, chat_history: List[BaseMessage]) -> str:
+        """Stage 1: Classify the user's high-level intent."""
+        prompt = ChatPromptTemplate.from_messages([
+            ("system",
+             "You are an expert at classifying user intent. Based on the user's message and the conversation history, "
+             "classify the user's primary goal into one of the following categories. "
+             "You must respond with a JSON object containing a single key 'intent' whose value is EXACTLY one of the allowed categories.\n\n"
+             "The ONLY allowed categories are: "
+             "`create_event`, `edit_event`, `find_event`, `list_events`, "
+             "`list_emails`, `find_email`, `compose_email`, `reply_to_email`, `send_email_draft`, `refine_email_draft`, `cancel_email_draft`, "
+             "`find_telegram_chat`, `reply_to_telegram`, `summarize_telegram_chat`, `send_telegram_draft`, `get_latest_telegram_message`, `summarize_all_unread_telegram`, "
+             "`list_documents`, `open_document`, `close_document`, `summarize_document`, `edit_document`, `apply_suggestion`, `reject_suggestion`, `general_chat`\n\n"
+             "IMPORTANT: You must ONLY return one of these exact intent names. Do NOT return tool names like 'create_document_suggestion' or 'apply_document_suggestion'.\n\n"
+             "Classification rules:\n"
+             "- A request like 'what's new in my email?' is `list_emails`\n"
+             "- A request like 'find the email from jane' is `find_email`\n"
+             "- A request like 'draft an email to john' is `compose_email`\n"
+             "- A request like 'reply to the last email' is `reply_to_email`\n"
+             "- A request like 'make it more formal' or 'add a sentence' while a draft is being reviewed is `refine_email_draft`\n"
+             "- A user saying 'send it' or clicking 'send' on a draft review card is `send_email_draft`\n"
+             "- A user saying 'cancel that' or 'nevermind' while a draft is being reviewed is `cancel_email_draft`\n"
+             "- A request like 'what's on my calendar?' is `list_events`\n"
+             "- A request like 'find my meeting with bob' is `find_event`\n"
+             "- A request like 'when is my latest dental appointment?' is `find_event`\n"
+             "- A request like 'summarize my chat with the design team' is `summarize_telegram_chat`\n"
+             "- A request like 'find my conversation with Samson' is `find_telegram_chat`\n"
+             "- A user saying 'yes, send it' or 'go ahead' after a telegram draft is shown is `send_telegram_draft`\n"
+             "- A request like 'what's the latest message in the dev chat?' is `get_latest_telegram_message`\n"
+             "- A request like 'what did I miss on Telegram?' or 'summarize my unread telegrams' is `summarize_all_unread_telegram`\n"
+             "- A request like 'reply to the project group' is `reply_to_telegram`\n"
+             "- A request like 'show me my documents' or 'list my docs' is `list_documents`\n"
+             "- A request like 'open the marketing strategy document' is `open_document`\n"
+             "- A request like 'go back to the dashboard' or 'close this document' is `close_document`\n"
+             "- A request like 'summarize this document' or 'what is this doc about?' is `summarize_document`\n"
+             "- A request like 'create a new document', 'help me create a document', or 'make a new doc' is `create_document`\n"
+             "- A request like 'change this text to sound more formal', 'edit the first paragraph', or 'add a new section' is `edit_document`\n"
+             "- A user saying 'approve', 'apply', 'yes', or 'apply this change' after a document suggestion is shown is `apply_suggestion`\n"
+             "- A user saying 'reject', 'no', 'cancel', or 'don't make this change' after a document suggestion is shown is `reject_suggestion`"),
+            ("placeholder", "{chat_history}"),
+            ("human", "{input}")
+        ])
+        
         try:
-            # --- LLM Initialization ---
-            credentials = service_account.Credentials.from_service_account_file(
-                credentials_path,
-                scopes=['https://www.googleapis.com/auth/generative-language.retriever']
-            )
-            genai.configure(credentials=credentials)
-            self.llm = ChatGoogleGenerativeAI(model=self.model_name, temperature=0.7, convert_system_message_to_human=True)
-
-            # --- Agent Initialization ---
-            tools = [get_calendar_events, create_calendar_event_draft]
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", """You are Minus, a powerful AI assistant. Your primary goal is to help users manage their schedule and communications.
-
-IMPORTANT INSTRUCTION: The user may use words like "task", "to-do", or "reminder". You must interpret all of these as a request to create a calendar event. Use the 'create_calendar_event_draft' tool for this purpose. Do not tell the user you are creating an event instead of a task; simply ask for the details needed to schedule it.
-
-Example:
-User: "Remind me to call the pharmacy tomorrow."
-You: "Okay, what time tomorrow should I schedule the call to the pharmacy?"
-
-Always use your tools to help the user. If you create a draft for something, always ask the user for confirmation before proceeding."""),
-                ("placeholder", "{chat_history}"),
-                ("human", "{input}"),
-                ("placeholder", "{agent_scratchpad}"),
-            ])
-            agent = create_tool_calling_agent(self.llm, tools, prompt)
-            self.agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+            structured_llm = self.router_llm.with_structured_output(_IntentClassification)
+            chain = prompt | structured_llm
+            result = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
             
-            self.mock_mode = False
-            logging.info("✅ AI Orchestrator Service initialized successfully with Gemini Agent.")
+            # Add a safeguard in case the LLM returns a None response
+            if not result:
+                logging.warning("Intent classification returned None. Defaulting to 'general_chat'.")
+                return 'general_chat'
+            
+            # Validate that the returned intent is in the allowed list
+            allowed_intents = [
+                'create_event', 'edit_event', 'find_event', 'list_events',
+                'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
+                'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'get_latest_telegram_message', 'summarize_all_unread_telegram',
+                'list_documents', 'open_document', 'close_document', 'summarize_document', 'create_document', 'edit_document', 'apply_suggestion', 'reject_suggestion',
+                'general_chat'
+            ]
+            
+            if result.intent not in allowed_intents:
+                logging.warning(f"LLM returned invalid intent '{result.intent}'. Defaulting to 'general_chat'.")
+                return 'general_chat'
+                
+            return result.intent
+            
         except Exception as e:
-            logging.error(f"Failed to initialize Gemini Agent for AI Orchestrator: {e}", exc_info=True)
+            logging.error(f"Error in intent classification: {e}")
+            # Fallback to simple keyword matching
+            user_input_lower = user_input.lower()
+            
+            # Document-related fallbacks
+            if any(word in user_input_lower for word in ['edit', 'change', 'modify', 'update', 'rewrite']):
+                return 'edit_document'
+            elif any(word in user_input_lower for word in ['create', 'new document', 'make document', 'new doc']):
+                return 'create_document'
+            elif any(word in user_input_lower for word in ['approve', 'apply', 'yes', 'accept']):
+                return 'apply_suggestion'
+            elif any(word in user_input_lower for word in ['reject', 'no', 'cancel', 'decline']):
+                return 'reject_suggestion'
+            elif any(word in user_input_lower for word in ['summarize', 'summary', 'what is this']):
+                return 'summarize_document'
+            elif any(word in user_input_lower for word in ['open', 'show', 'view']):
+                return 'open_document'
+            elif any(word in user_input_lower for word in ['list', 'documents', 'docs']):
+                return 'list_documents'
+            
+            # Email-related fallbacks
+            elif any(word in user_input_lower for word in ['email', 'inbox', 'mail']):
+                return 'list_emails'
+            
+            # Calendar-related fallbacks
+            elif any(word in user_input_lower for word in ['calendar', 'event', 'meeting', 'appointment']):
+                return 'list_events'
+            
+            # Default fallback
+            return 'general_chat'
 
-    def _prepare_chat_history(self, conversation_history: List[Message]) -> List:
-        history = []
-        for msg in conversation_history:
-            if msg.role.lower() == 'user':
-                history.append(HumanMessage(content=msg.content))
-            elif msg.role.lower() == 'assistant':
-                history.append(AIMessage(content=msg.content))
-        return history
+    async def _extract_details(self, intent_name: str, user_input: str, chat_history: List[BaseMessage]) -> Intent:
+        """Stage 2: Extract detailed information based on the classified intent."""
+        prompts = {
+            'find_event': (
+                "You are an expert at extracting event details for a search query. The user wants to find a specific event. "
+                "Your job is to extract the following: \n"
+                "1. `event_description`: The subject of the event to find (e.g., 'dental appointment'). \n"
+                "2. `search_start_date` and `search_end_date`: A sensible date range. \n"
+                "   - If the user says 'latest' or 'next', the range should be from 'today' to the keyword 'end_of_the_year'. \n"
+                "   - If no date is mentioned, default to a range from 'one month ago' to 'end_of_the_year'."
+            ),
+            'list_events': (
+                "You are an expert at extracting a date range for listing events. The user wants a list of events. "
+                "Your ONLY job is to extract the date range they specified (e.g., 'tomorrow', 'this week', 'next month') into `search_start_date` and `search_end_date`. "
+                "If no date range is mentioned, default both to 'today'."
+            ),
+            'create_event': (
+                "The user wants to create an event. Extract the details: \n"
+                "1. `summary`: The main title of the event (e.g., 'call mom'). \n"
+                "2. `start_time`: The FULL date and time expression (e.g., 'tomorrow 5pm'). \n"
+                "3. `end_time`: Any specified end time. \n"
+                "4. `description`: Any other details."
+            ),
+            'edit_event': (
+                "The user wants to edit an event. Extract the details: \n"
+                "1. `event_description`: The subject of the event to find and edit (e.g., 'dental appointment'). "
+                "Look in chat history if they say 'it'.\n"
+                "2. `summary`, `start_time`, `end_time`, `description`: Any NEW details to update the event with."
+            ),
+            'list_emails': (
+                "The user wants to see their emails. Extract any search query they provide. "
+                "For example, in 'show me unread emails from uber', the query is 'is:unread from:uber'. "
+                "If no query is given, default to 'is:inbox'."
+            ),
+            'find_email': (
+                "The user wants to find a specific email. Extract the essential keywords from their request. "
+                "For example, for 'the latest email about the project proposal from lyft', the keywords would be 'project proposal lyft'. "
+                "Crucially, DO NOT include conversational words or search operators like 'latest', 'newest', 'find', 'from:', or 'is:'. "
+                "Just extract the core nouns, names, or topics."
+            ),
+            'compose_email': (
+                "The user wants to write a new email. Extract the `email_to`, `email_subject`, and `email_body`."
+            ),
+            'reply_to_email': (
+                "The user wants to reply to an email. First, identify the email to reply to. Look for clues like 'the last one' or a subject. "
+                "If they don't specify, note that `email_query` is 'the last email'. "
+                "Then, extract the core message for the `email_body`. For example, in 'tell him I will attend', the body is 'I will attend'. "
+                "The AI will expand this into a full, polite email later."
+            ),
+            'send_email_draft': (
+                "The user has approved sending a draft, either by clicking a button or by saying something like 'send it' or 'looks good'. "
+                "If the user message is a JSON object, extract the `draft_id`. "
+                "If it's a natural language command, you don't need to extract anything; the system will use the draft ID from its memory."
+            ),
+            'refine_email_draft': (
+                "The user is reviewing a draft and wants to change it. "
+                "Your job is to extract the user's LATEST refinement instruction from their most recent message. "
+                "For example, if the user says 'make it sound more formal', the `email_body` should be 'make it sound more formal'. "
+                "IGNORE previous instructions in the chat history."
+            ),
+            'cancel_email_draft': (
+                "The user wants to cancel and delete the current email draft. They might say 'cancel it', 'stop', or 'nevermind'. "
+                "No parameters are needed."
+            ),
+            'find_telegram_chat': (
+                "The user wants to find a specific Telegram chat. Extract the user's description of the chat into the `chat_query` field. "
+                "For example, for 'find my chat with the marketing team', the `chat_query` would be 'marketing team'."
+            ),
+            'summarize_telegram_chat': (
+                "The user wants a summary of a Telegram chat. Extract their description of the chat into the `chat_query` field. "
+                "For example, in 'what's new in the dev chat', the `chat_query` is 'dev chat'."
+            ),
+            'reply_to_telegram': (
+                "The user wants to send a reply to a Telegram chat. Extract their description of the chat into the `chat_query` field, "
+                "and the content of their reply into the `message_body` field. For example, in 'tell the project group I am on my way', "
+                "the `chat_query` is 'project group' and `message_body` is 'I am on my way'."
+            ),
+            'send_telegram_draft': (
+                "The user has approved sending a Telegram message that was just drafted. No parameters are needed."
+            ),
+            'get_latest_telegram_message': (
+                "The user wants the latest message from a specific Telegram chat. "
+                "Extract their description of the chat into the `chat_query` field. "
+                "If the user does not specify a chat (e.g., 'my telegram chat'), you MUST set `chat_query` to the exact string 'LATEST'."
+            ),
+            'summarize_all_unread_telegram': (
+                "The user wants a summary of all their unread Telegram messages. This action takes no parameters."
+            ),
+            'list_documents': (
+                "The user wants to see their Google Docs documents. Extract any search query they provide. "
+                "For example, in 'show me documents about marketing', the query is 'marketing'. "
+                "If no query is given, default to '*' for all documents."
+            ),
+            'open_document': (
+                "The user wants to open a specific document. Extract the document name or description into the `document_query` field. "
+                "For example, in 'open the marketing strategy document', the `document_query` is 'marketing strategy'."
+            ),
+            'close_document': (
+                "The user wants to close the current document and return to the dashboard. This is a navigation command that takes no parameters."
+            ),
+            'summarize_document': (
+                "The user wants a summary of the current document or a specific document. "
+                "If they specify a document name, extract it into the `document_query` field. "
+                "If they're referring to the current document in context, leave `document_query` empty."
+            ),
+            'create_document': (
+                "The user wants to create a new document. Extract the document title from their request. "
+                "For example, in 'create a document called Meeting Notes', the `title` would be 'Meeting Notes'. "
+                "If no specific title is provided, you can suggest a generic title like 'New Document' or leave it empty."
+            ),
+            'edit_document': (
+                "The user wants to edit a document. Extract the modification details: "
+                "`target_text`: ONLY extract if the user provides specific text to find (e.g., 'change the word hello to hi'). "
+                "For references like 'first paragraph', 'second paragraph', etc., leave this EMPTY - the system will handle it. "
+                "`modification`: A description of what changes to make. "
+                "`new_content`: Any new content to add (if applicable). "
+                "`position`: Where to place new content ('before', 'after', or 'replace')."
+            ),
+            'apply_suggestion': (
+                "The user has approved applying a document suggestion. "
+                "Extract the `suggestion_id` if provided, or leave it empty if the system should use the suggestion from context. "
+                "The user may say 'approve', 'apply', 'yes', or similar approval words."
+            ),
+            'reject_suggestion': (
+                "The user has rejected a document suggestion. "
+                "Extract the `suggestion_id` if provided, or leave it empty if the system should use the suggestion from context. "
+                "The user may say 'reject', 'no', 'cancel', or similar rejection words."
+            )
+        }
+        
+        prompt_template = prompts.get(intent_name)
+        if not prompt_template:
+            # For intents without specific prompts, return a basic intent
+            logging.warning(f"No prompt template found for intent '{intent_name}'. Creating basic intent.")
+            return Intent(intent=intent_name)
 
-    async def process_message(self, request: ChatRequest) -> Dict[str, Any]:
-        if self.mock_mode or not self.agent_executor:
-            return {
-                "type": "text",
-                "response": f"Orchestrator is in mock mode. Received: '{request.message}'"
-            }
-        
-        chat_history = self._prepare_chat_history(request.conversation_history)
-        
         try:
-            # The agent executor handles the full conversational loop
-            result = await self.agent_executor.ainvoke({
-                "input": request.message,
-                "chat_history": chat_history
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", prompt_template),
+                ("placeholder", "{chat_history}"),
+                ("human", "{input}")
+            ])
+            
+            # Use the Intent model for structured output
+            structured_llm = self.router_llm.with_structured_output(Intent)
+            chain = prompt | structured_llm
+            
+            extracted_data = await chain.ainvoke({"input": user_input, "chat_history": chat_history})
+            
+            if extracted_data:
+                # Ensure the intent field is set correctly
+                extracted_data.intent = intent_name
+                return extracted_data
+            else:
+                logging.warning(f"Structured output returned None for intent '{intent_name}'. Creating basic intent.")
+                return Intent(intent=intent_name)
+                
+        except Exception as e:
+            logging.error(f"Error in detail extraction for intent '{intent_name}': {e}")
+            # Return a basic intent object to avoid errors
+            return Intent(intent=intent_name)
+
+    async def _handle_edit_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """
+        Handles editing an event. If the event is not in the conversation state,
+        it uses the find_event logic to resolve ambiguity first.
+        """
+        event_id_to_edit = state.last_event_id
+
+        # If we don't know which event to edit, or if the user provided a new description, we must find it first.
+        if not event_id_to_edit or intent.event_description:
+            print(f"No event ID in state or new description provided. Searching for event matching: '{intent.event_description}'")
+            # Use the more robust find logic to resolve ambiguity
+            find_result = await self._handle_find_event_intent(intent, user_context, state, user_input, testing)
+            
+            # If the find operation needs to ask a question or results in an error, pass that response through immediately.
+            if "I'm sorry, I'm still not sure" in find_result.get("response", "") or "error" in find_result:
+                 return find_result
+
+            # If an event was found, its ID is now in the state. Proceed with this new ID.
+            event_id_to_edit = state.last_event_id
+        
+        if not event_id_to_edit:
+            # This case handles when find_event succeeds but doesn't set an ID, which shouldn't happen but is a good safeguard.
+            return {"response": "I'm not sure which event you want to edit. Please be more specific.", "state": state.dict()}
+
+        # Now that we have a definitive event_id, check if there are any actual changes to be made.
+        if not any([intent.summary, intent.description, intent.start_time, intent.end_time]):
+            # The user might have just confirmed which event to edit. Ask for the actual change.
+            return {
+                "response": f"Great. What would you like to change about that event?",
+                "state": state.dict()
+            }
+
+        result = await edit_calendar_event.coroutine(
+            event_id=event_id_to_edit,
+            summary=intent.summary,
+            description=intent.description,
+            start_time=intent.start_time,
+            end_time=intent.end_time,
+            user_context=user_context
+        )
+        
+        if isinstance(result, dict) and "error" in result:
+            return {"response": result["error"], "state": state.dict()}
+        
+        if result.get("status") == "event_updated":
+            state.last_event_id = result.get("details", {}).get("event_id")
+            return {"response": "Done. I've updated the event.", "state": state.dict()}
+        else:
+            error_message = result.get("error", "Sorry, I couldn't update the event. Please try again.")
+            return {"response": error_message, "state": state.dict()}
+
+    async def _handle_find_event_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """
+        Finds a specific event by first getting a broad list of potential candidates 
+        and then using a second AI call to reason over that list to find the best match.
+        """
+        if not intent.event_description:
+            return {"response": "I can help with that, but I need to know what event you're looking for. For example, 'my meeting with Bob' or 'my dental appointment'.", "state": state.dict()}
+
+        # Step 1: Get a broad list of candidate events
+        start_time_str = intent.search_start_date or 'one month ago'
+        end_time_str = intent.search_end_date or 'end_of_the_year'
+        start_dt, end_dt = self._get_expanded_date_range(start_time_str, end_time_str)
+
+        if not start_dt or not end_dt:
+            return {"response": "Sorry, I had trouble understanding the date range for your search.", "state": state.dict()}
+
+        candidate_events = await get_calendar_events.coroutine(
+            start_time=start_dt, end_time=end_dt, user_context=user_context
+        )
+
+        if isinstance(candidate_events, dict) and "error" in candidate_events:
+            return {"response": candidate_events["error"], "state": state.dict()}
+        if not candidate_events:
+            return {"response": f"I couldn't find any events at all matching '{intent.event_description}' in the timeframe from {start_time_str} to {end_time_str}.", "state": state.dict()}
+
+        # Filter candidates based on the event description from the intent
+        matching_events = [e for e in candidate_events if intent.event_description.lower() in e.get('summary', '').lower()]
+
+        if not matching_events:
+            return {"response": f"I found some events in that time range, but none of them seem to be about '{intent.event_description}'.", "state": state.dict()}
+
+        # If only one match, we're done.
+        if len(matching_events) == 1:
+            best_match = matching_events[0]
+            state.last_event_id = best_match.get('id')
+            response_prompt_text = f"I found this event: {best_match.get('summary')} on {best_match.get('start', {}).get('dateTime')}. Is this the correct one?"
+            final_response = await self.chat_llm.ainvoke(response_prompt_text)
+            return {"response": final_response.content, "state": state.dict()}
+            
+        # Step 2: If multiple matches, use a resolver LLM to reason over the list of candidates
+        pruned_candidates = self._prune_event_list_for_resolver(matching_events)
+        
+        resolver_prompt = ChatPromptTemplate.from_messages([
+            ("system", 
+             "You are a reasoning engine. Your task is to analyze the user's query and the list of calendar events to find the single best match. "
+             "Consider event summaries, descriptions, and relative terms like 'latest', 'first', 'today', or specific dates. "
+             "Respond ONLY with the single best matching event object from the list, or null if no single event is a clear match."),
+            ("human", "User's Clarification: '{user_input}'\n\nList of Potential Events:\n{event_list}")
+        ])
+        structured_resolver_llm = self.chat_llm.with_structured_output(_EventResolverResponse)
+        resolver_chain = resolver_prompt | structured_resolver_llm
+        
+        resolver_result = await resolver_chain.ainvoke({
+            "user_input": user_input, # Pass the user's latest clarification (e.g., 'the one on the 14th')
+            "event_list": str(pruned_candidates)
+        })
+
+        best_match = resolver_result.matched_event
+
+        # Step 3: Act on the resolved event
+        if best_match:
+            state.last_event_id = best_match.get('id')
+            response_prompt_text = f"Great, I've identified the event: {best_match.get('summary')} on {best_match.get('start', {}).get('dateTime')}. Now, what would you like to do with it?"
+            final_response = await self.chat_llm.ainvoke(response_prompt_text)
+            return {"response": final_response.content, "state": state.dict()}
+        else:
+            # If the resolver fails, ask for clarification again with the list of options.
+            event_summaries = [f"'{e['summary']}' on {e['start'].get('dateTime', e['start'].get('date'))}" for e in matching_events]
+            return {"response": "I'm sorry, I'm still not sure which one you mean. Could you be more specific? Here are the options I found:\n- " + "\n- ".join(event_summaries), "state": state.dict()}
+
+    def _prune_event_list_for_resolver(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Prunes the event list to only include fields relevant for AI reasoning."""
+        pruned_list = []
+        for event in events:
+            pruned_list.append({
+                "id": event.get("id"),
+                "summary": event.get("summary"),
+                "description": event.get("description"),
+                "start": event.get("start"),
+                "end": event.get("end"),
+            })
+        return pruned_list
+
+    # --- LOGIC HANDLERS ---
+    def _get_expanded_date_range(self, start_str: str, end_str: Optional[str]) -> (Optional[datetime], Optional[datetime]):
+        """
+        Parses start and end date strings, handles special keywords, 
+        and returns timezone-aware datetime objects.
+        """
+        malaysia_tz = pytz.timezone('Asia/Kuala_Lumpur')
+        now = datetime.now(malaysia_tz)
+        
+        final_end_str = end_str or start_str
+        
+        start_dt = None
+        end_dt = None
+
+        try:
+            # Handle special keywords first
+            if start_str == 'today':
+                start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            elif start_str == 'one month ago':
+                start_dt = (now - timedelta(days=30))
+            else:
+                start_dt = dateparser.parse(start_str)
+
+            if final_end_str == 'end_of_the_year':
+                end_dt = now.replace(month=12, day=31, hour=23, minute=59, second=59, microsecond=0)
+            else:
+                end_dt = dateparser.parse(final_end_str)
+
+            if not start_dt or not end_dt:
+                logging.error(f"Date parsing resulted in None for: {start_str} or {final_end_str}")
+                return None, None
+            
+            # Ensure timezone awareness
+            if start_dt.tzinfo is None:
+                start_dt = malaysia_tz.localize(start_dt)
+            if end_dt.tzinfo is None:
+                end_dt = malaysia_tz.localize(end_dt)
+
+            # If it's a single day query, expand to end of day
+            if start_dt.date() == end_dt.date():
+                end_dt = end_dt.replace(hour=23, minute=59, second=59)
+
+            print(f"DEBUG: Calculated date range: {start_dt.isoformat()} to {end_dt.isoformat()}")
+            return start_dt, end_dt
+
+        except Exception as e:
+            logging.error(f"Date calculation failed for '{start_str}' to '{final_end_str}': {e}")
+            return None, None
+
+    async def _handle_find_telegram_chat_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles finding a telegram chat and returning its details."""
+        if not intent.chat_query:
+            return {"response": "Whoops, I have to know which chat you're looking for. Can you be more specific?", "state": state.dict()}
+
+        chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context.dict())
+
+        if chat_details.get("error"):
+            return {"response": chat_details["error"], "state": state.dict()}
+
+        if chat_details.get("success"):
+            state.last_telegram_chat_id = chat_details.get("chat_id")
+            response = f"I found the chat: '{chat_details['chat_name']}'. What would you like to do with it?"
+            return {"response": response, "state": state.dict()}
+        
+        return {"response": "I couldn't seem to find that chat. Please try again.", "state": state.dict()}
+
+    async def _handle_summarize_telegram_chat_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Finds a chat, gets its history, and summarizes it."""
+        print("\n--- 🧠 INTENT: _handle_summarize_telegram_chat_intent ---")
+        chat_id = state.last_telegram_chat_id
+        if not chat_id:
+            if not intent.chat_query:
+                return {"response": "I need to know which chat you want to summarize. Please specify one.", "state": state.dict()}
+            print("   - No chat_id in state, calling 'find_telegram_chat' tool...")
+            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context.dict())
+            if chat_details.get("error"):
+                return {"response": chat_details["error"], "state": state.dict()}
+            if not chat_details.get("success"):
+                return {"response": "I couldn't find the specified chat to summarize.", "state": state.dict()}
+            chat_id = chat_details.get("chat_id")
+            state.last_telegram_chat_id = chat_id
+            print(f"   - Tool found chat_id: {chat_id}")
+
+        print("   - Calling 'get_conversation_history' tool...")
+        history = await get_conversation_history.coroutine(chat_id=chat_id, user_context=user_context.dict())
+        if not history or "error" in history[0]:
+            return {"response": "I found the chat but couldn't retrieve its history.", "state": state.dict()}
+
+        summary_prompt = f"Here is the recent history for the Telegram chat '{intent.chat_query}':\n\n{history}\n\nPlease provide a concise summary of the conversation."
+        print("\n--- 📝 FINAL PROMPT for Summarization ---")
+        print(summary_prompt)
+        print("----------------------------------------")
+        summary = await self.chat_llm.ainvoke(summary_prompt)
+
+        return {"response": summary.content, "state": state.dict()}
+
+    async def _handle_reply_to_telegram_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """
+        Finds a chat and prepares a message draft for it.
+        It does NOT send the message. It returns a draft for the user to review.
+        """
+        if not intent.message_body:
+            return {"response": "What message would you like to send?", "state": state.dict()}
+
+        chat_id = state.last_telegram_chat_id
+        chat_name = "the current chat"
+
+        if not chat_id:
+            if not intent.chat_query:
+                return {"response": "I'm not sure which chat to reply to. Please specify one.", "state": state.dict()}
+            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context.dict())
+            if chat_details.get("error"):
+                return {"response": chat_details["error"], "state": state.dict()}
+            if not chat_details.get("success"):
+                return {"response": "I couldn't find the specified chat to send a message to.", "state": state.dict()}
+            chat_id = chat_details.get("chat_id")
+            chat_name = chat_details.get("chat_name")
+            state.last_telegram_chat_id = chat_id
+        
+        # Use the LLM to expand the user's core message into a more natural one.
+        body_generation_prompt = f"A user wants to send a message to the Telegram chat '{chat_name}'. Their core instruction is: '{intent.message_body}'. Expand this into a natural, friendly message body. For example, if the user says 'I am on my way', you could write 'Just letting you know, I'm on my way now!'. Respond ONLY with the generated message body."
+        
+        generated_body = await self.chat_llm.ainvoke(body_generation_prompt)
+        final_body = generated_body.content if generated_body else intent.message_body
+
+        # Save the draft body to state so we can send it later
+        state.last_message_body = final_body
+        
+        return {
+            "type": "telegram_draft",
+            "details": {
+                "chat_id": chat_id,
+                "chat_name": chat_name,
+                "body": final_body
+            },
+            "response": f"I've drafted the following reply to '{chat_name}':\n\n> {final_body}\n\nShould I send it?",
+            "state": state.dict()
+        }
+
+    async def _handle_send_telegram_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Sends the telegram message that was previously drafted and stored in the state."""
+        chat_id = state.last_telegram_chat_id
+        message_body = state.last_message_body
+
+        if not chat_id or not message_body:
+            return {"response": "I'm sorry, I seem to have forgotten what message we were sending. Please draft it again.", "state": state.dict()}
+
+        send_result = await send_telegram_message.coroutine(chat_id=chat_id, message=message_body, user_context=user_context.dict())
+
+        # Clear state after sending
+        state.last_telegram_chat_id = None
+        state.last_message_body = None
+
+        if send_result.get("success"):
+            return {"response": "Done. The message has been sent.", "state": state.dict()}
+        else:
+            return {"response": send_result.get("error", "I failed to send the message."), "state": state.dict()}
+
+    async def _handle_get_latest_telegram_message_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Finds a chat and returns its last message. Handles a special 'LATEST' keyword."""
+        
+        if not intent.chat_query:
+            return {"response": "I need to know which chat you're asking about. Please be more specific or ask for the latest overall.", "state": state.dict()}
+
+        # Handle the special case where the user wants the latest message across all chats
+        if intent.chat_query == 'LATEST':
+            summary_data = await get_unread_summary.coroutine(user_context=user_context.dict())
+            if not summary_data or "info" in summary_data[0] or "error" in summary_data[0]:
+                return {"response": "You have no new messages across any of your chats.", "state": state.dict()}
+
+            # Find the message with the most recent timestamp across all chats
+            latest_message_details = None
+            most_recent_timestamp = None
+
+            for chat in summary_data:
+                # This assumes the tool returns full message objects, not just strings
+                # We need to adapt if the tool's output changes
+                # For now, we'll assume a simple structure for the sake of the example
+                # In a real scenario, the tool would need to return timestamps
+                pass # Logic to find the true latest message would go here.
+            
+            # For now, let's just return the latest from the first chat as a proxy
+            first_chat_with_unread = summary_data[0]
+            chat_name = first_chat_with_unread['chat_name']
+            latest_msg_content = first_chat_with_unread['messages'][-1]
+            return {"response": f"Your latest message is in '{chat_name}':\n\n> {latest_msg_content}", "state": state.dict()}
+
+        # --- Standard logic for finding a specific chat ---
+        chat_id = state.last_telegram_chat_id
+        chat_name = "the current chat"
+        if not chat_id or intent.chat_query: # If a new query is provided, re-search
+            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context.dict())
+            if chat_details.get("error"):
+                return {"response": chat_details["error"], "state": state.dict()}
+            if not chat_details.get("success"):
+                return {"response": "I couldn't find the specified chat.", "state": state.dict()}
+            chat_id = chat_details.get("chat_id")
+            chat_name = chat_details.get("chat_name")
+            state.last_telegram_chat_id = chat_id
+
+        history = await get_conversation_history.coroutine(chat_id=chat_id, user_context=user_context.dict())
+        if not history or "error" in history[0] or not isinstance(history, list) or len(history) == 0:
+            return {"response": f"I couldn't find any message history for '{chat_name}'.", "state": state.dict()}
+
+        latest_message = history[-1]
+        response = f"The latest message in '{chat_name}' is:\n\n> {latest_message}"
+        
+        return {"response": response, "state": state.dict()}
+
+    async def _handle_summarize_all_unread_telegram_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Fetches all unread messages and asks the LLM to summarize them."""
+        print("\n--- 🧠 INTENT: _handle_summarize_all_unread_telegram_intent ---")
+        
+        unread_data = await get_unread_summary.coroutine(user_context=user_context.dict())
+
+        if not unread_data or "error" in unread_data[0]:
+            error_message = unread_data[0].get("error", "I couldn't retrieve the unread message summary.")
+            return {"response": error_message, "state": state.dict()}
+
+        if "info" in unread_data[0]:
+            return {"response": unread_data[0]["info"], "state": state.dict()}
+
+        summary_prompt = f"You have received the following unread messages from Telegram. Please provide a concise summary for the user, grouped by chat.\n\n{unread_data}"
+        print("\n--- 📝 FINAL PROMPT for Unread Summary ---")
+        print(summary_prompt)
+        print("----------------------------------------")
+        summary = await self.chat_llm.ainvoke(summary_prompt)
+
+        return {"response": summary.content, "state": state.dict()}
+
+    async def _handle_list_events_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        start_time_str = intent.search_start_date or 'today'
+        end_time_str = intent.search_end_date or start_time_str
+        start_dt, end_dt = self._get_expanded_date_range(start_time_str, end_time_str)
+
+        if not start_dt or not end_dt:
+            return {"response": "Sorry, I had trouble understanding the date range for your search.", "state": state.dict()}
+
+        events = await get_calendar_events.coroutine(
+            start_time=start_dt, end_time=end_dt, user_context=user_context
+        )
+
+        if isinstance(events, dict) and "error" in events:
+            return {"response": events["error"], "state": state.dict()}
+
+        if not events:
+            return {"response": f"You have no events on your calendar for {start_time_str}.", "state": state.dict()}
+
+        response_prompt = f"Here are the events on the user's calendar for {start_time_str}: {events}. Summarize them in a clear, friendly list."
+        final_response = await self.chat_llm.ainvoke(response_prompt)
+        return {"response": final_response.content, "state": state.dict()}
+
+    async def _handle_create_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles the intent to create a new calendar event."""
+        result = await create_calendar_event_draft.coroutine(
+            summary=intent.summary,
+            start_time=intent.start_time,
+            end_time=intent.end_time,
+            description=intent.description,
+            user_context=user_context
+        )
+
+        if isinstance(result, dict) and "error" in result:
+            return {"response": result["error"], "state": state.dict()}
+
+        if result and result.get("status") == "event_created":
+            state.last_event_id = result.get("details", {}).get("event_id")
+            return {"response": result.get("confirmation_message", "I've created the event."), "state": state.dict()}
+        else:
+            error_message = result.get("error", "Sorry, I couldn't create the event. Please try again.")
+            return {"response": error_message, "state": state.dict()}
+
+    async def _handle_list_emails_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles the 'list_emails' intent."""
+        query = intent.query or "is:inbox"
+        
+        email_list = await list_emails.coroutine(query=query, max_results=5, user_context=user_context, testing=testing)
+
+        if not email_list:
+            return {"response": f"I couldn't find any emails for the query '{query}'.", "state": state.dict()}
+            
+        # Let the LLM format the response nicely
+        prompt = (
+            f"Here is a list of emails found for the user's query: '{user_input}'. "
+            f"Please present this to the user in a clear, summarized way.\n\n"
+            f"Emails: {email_list}"
+        )
+        final_response = await self.chat_llm.ainvoke(prompt)
+        return {"response": final_response.content, "state": state.dict()}
+
+    async def _handle_find_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """
+        Handles finding a specific email by first fetching a list of recent emails 
+        and then using an LLM to reason over that list to find the best match.
+        This approach is more robust than relying on a perfect search query from the first LLM.
+        """
+        print("\n--- HANDLING FIND_EMAIL INTENT ---")
+        if not intent.query:
+            print("LOG: Intent has no query. Aborting.")
+            return {"response": "I can help find an email, but I need to know what to search for. For example, 'the email from my manager' or 'the email about the quarterly report'.", "state": state.dict()}
+
+        # Step 1: Fetch a broad list of recent emails (e.g., last 30 days)
+        # The user's original query (e.g., 'from:Samson') is still useful for a first-pass filter.
+        print(f"LOG: Step 1 - Searching for candidate emails with initial query: '{intent.query}'")
+        candidate_emails = await list_emails.coroutine(query=intent.query, max_results=10, user_context=user_context, testing=testing) # Increased max_results
+
+        if not candidate_emails:
+            print("LOG: list_emails tool returned no results.")
+            return {"response": f"I couldn't find any emails matching your search: '{intent.query}'. You could try being less specific to see more results.", "state": state.dict()}
+
+        print(f"LOG: Found {len(candidate_emails)} candidate email(s).")
+
+        # If there's only one result, we can skip the reasoning step.
+        if len(candidate_emails) == 1:
+            best_match_id = candidate_emails[0]['id']
+            print("LOG: Step 2 - Only one candidate found. Skipping LLM resolver.")
+        else:
+            # Step 2: Use a resolver LLM to reason over the list of candidates
+            print(f"LOG: Step 2 - Multiple candidates found. Engaging LLM to resolve the best match.")
+            resolver_prompt = ChatPromptTemplate.from_messages([
+                ("system",
+                 "You are a reasoning engine. Below is a user's request and a list of JSON objects representing their recent emails. "
+                 "Your task is to analyze the request and identify the `id` of the single email from the list that best matches. "
+                 "Pay close attention to relative terms like 'latest', 'newest', 'first', or 'oldest'. "
+                 "To determine the 'latest' or 'newest', you MUST compare the `date` field of each email object. A more recent date is later. "
+                 "Respond ONLY with the `id` of the single best matching email, or 'null' if no single email is a clear match."),
+                ("human", "User Request: {user_input}\n\nEmail List:\n{email_list}")
+            ])
+            
+            # A Pydantic model for the resolver's response
+            class _EmailResolverResponse(BaseModel):
+                matched_email_id: Optional[str] = Field(description="The 'id' of the single email object that best matches the user's request.")
+
+            structured_resolver_llm = self.chat_llm.with_structured_output(_EmailResolverResponse)
+            resolver_chain = resolver_prompt | structured_resolver_llm
+            
+            resolver_result = await resolver_chain.ainvoke({
+                "user_input": user_input,
+                "email_list": str(candidate_emails) # Pass the list of dicts as a string
             })
 
-            # The 'output' from the agent executor is the final response to the user.
-            # In the future, we can inspect `result['intermediate_steps']` to handle
-            # the "Draft, Review, Approve" pattern more explicitly.
-            return {
-                "type": "text",
-                "response": result.get("output", "I'm sorry, I couldn't generate a response.")
-            }
+            # FIX: Handle the case where the resolver fails and returns a None object.
+            if resolver_result:
+                best_match_id = resolver_result.matched_email_id
+            else:
+                best_match_id = None
+
+            print(f"LOG: LLM Resolver has finished. Best match ID: {best_match_id}")
+        
+        # Step 3: Act on the resolved email ID
+        print(f"LOG: Step 3 - Proceeding with email ID: {best_match_id}")
+        if best_match_id:
+            email_details = await get_email_details.coroutine(message_id=best_match_id, summarize=True, user_context=user_context, testing=testing)
+            
+            if not email_details or "error" in email_details:
+                 print("LOG: Error fetching details for the resolved email.")
+                 return {"response": "I found the right email, but ran into an error trying to read its content.", "state": state.dict()}
+
+            state.last_email_id = email_details.get('id')
+            state.last_thread_id = email_details.get('thread_id')
+            
+            # The summary is already in email_details because of summarize=True
+            summary = email_details.get('summary', 'The summary is not available.')
+            
+            prompt = f"The user asked for: '{user_input}'. I found the following email and summarized it: {summary}. Present this summary to the user and ask if they would like to reply."
+            print("LOG: Generating final summary response for user.")
+            final_response = await self.chat_llm.ainvoke(prompt)
+            return {"response": final_response.content, "state": state.dict()}
+        else:
+            print("LOG: LLM resolver could not determine a best match or returned null.")
+            # Create a user-friendly list of options if the resolver fails
+            options_list = "\n".join([f"- From: {email.get('sender', {}).get('name', 'N/A')}, Subject: {email.get('subject', 'N/A')}" for email in candidate_emails])
+            return {"response": f"I found a few emails matching '{intent.query}', but I'm not sure which one you meant. Here are the top results:\n{options_list}\n\nCould you be more specific?", "state": state.dict()}
+
+    async def _handle_compose_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles the 'compose_email' intent by creating a draft."""
+        if not intent.email_to or not intent.email_subject or not intent.email_body:
+            return {"response": "To compose an email, I need to know who it's for, the subject, and the message. Could you provide those details?", "state": state.dict()}
+            
+        draft_details = await create_draft_email.coroutine(
+            to=intent.email_to,
+            subject=intent.email_subject,
+            body=intent.email_body,
+            user_context=user_context,
+            testing=testing
+        )
+        
+        # This is a special response type the frontend will look for
+        return {
+            "type": "draft_review",
+            "details": draft_details,
+            "state": state.dict()
+        }
+
+    async def _handle_reply_to_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles replying to an email by creating a draft reply."""
+        thread_id = state.last_thread_id
+        email_to_reply_to = None
+
+        if not thread_id:
+            # If no thread is in context, we must find the email first.
+            # Default to finding the 'latest' email if no query is provided by the extractor.
+            find_query = intent.email_query or "in:inbox" 
+            
+            found_emails = await list_emails.coroutine(query=find_query, max_results=1, user_context=user_context, testing=testing)
+            if not found_emails:
+                return {"response": f"I couldn't find an email to reply to based on your request: '{user_input}'.", "state": state.dict()}
+            
+            email_to_reply_to = await get_email_details.coroutine(message_id=found_emails[0]['id'], user_context=user_context, testing=testing)
+            thread_id = email_to_reply_to.get('thread_id')
+            state.last_thread_id = thread_id
+            state.last_email_id = email_to_reply_to.get('id')
+        else:
+            # We have a thread, get the details of the last message to prepare the reply
+            email_to_reply_to = await get_email_details.coroutine(message_id=state.last_email_id, user_context=user_context, testing=testing)
+
+        if not email_to_reply_to or not thread_id:
+            return {"response": "I seem to have lost track of the email we were talking about. Could you specify which one you'd like to reply to?", "state": state.dict()}
+
+        # The 'To' for the reply should be the 'From' of the original email.
+        reply_to_address = email_to_reply_to['sender']['email']
+        
+        # Prepend "Re: " to subject if it's not already there
+        original_subject = email_to_reply_to['subject']
+        reply_subject = f"Re: {original_subject}" if not original_subject.lower().startswith('re:') else original_subject
+        
+        # IMPROVEMENT: Use LLM to expand the user's core message into a polite email body.
+        body_generation_prompt = f"A user wants to reply to an email with the subject '{original_subject}'. Their core instruction is: '{intent.email_body}'. Expand this into a polite, professional email body. For example, if the user says 'I'll be there', you could write 'Thank you for the invitation. I would be happy to attend. Looking forward to it!'. Start directly with the body, do not include a subject line, and sign off with 'Best regards, [Your Name]'."
+        
+        llm = self.chat_llm
+        generated_body = await llm.ainvoke(body_generation_prompt)
+        final_body = generated_body.content if generated_body else intent.email_body
+        
+        draft_details = await create_draft_email.coroutine(
+            to=reply_to_address,
+            subject=reply_subject,
+            body=final_body,
+            thread_id=thread_id,
+            user_context=user_context,
+            testing=testing
+        )
+        
+        # Save the new draft_id to state for potential refinement
+        if draft_details and "draft_id" in draft_details:
+            state.last_draft_id = draft_details["draft_id"]
+            state.last_recipient_email = reply_to_address # Remember who we're replying to
+
+        return {
+            "type": "draft_review",
+            "details": draft_details,
+            "state": state.dict()
+        }
+
+    async def _handle_send_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles sending a previously created draft."""
+        # The user can either click the button (passing draft_id in the intent) or say 'send it' (using draft_id from state).
+        draft_id_to_send = intent.draft_id or state.last_draft_id
+        
+        if not draft_id_to_send:
+            return {"response": "I'm sorry, I don't have a draft to send. Please create a draft first.", "state": state.dict()}
+        
+        send_result = await send_draft.coroutine(draft_id=draft_id_to_send, user_context=user_context, testing=testing)
+        
+        if send_result and send_result.get('id'):
+            # Clear the last email/thread/draft context as the action is complete.
+            state.last_email_id = None
+            state.last_thread_id = None
+            state.last_draft_id = None
+            state.last_recipient_email = None
+            return {"response": "Done. The email has been sent successfully.", "state": state.dict()}
+        else:
+            return {"response": "I encountered an error trying to send the email. Please check your drafts in Gmail.", "state": state.dict()}
+
+    async def _handle_refine_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles refining an existing draft."""
+        draft_id = state.last_draft_id
+        if not draft_id:
+            return {"response": "I'm not sure which draft you want to refine. Please start by creating a reply or new email.", "state": state.dict()}
+
+        # Acknowledging the limitation and providing a path forward:
+        # Step 1: Get the current draft details
+        gmail_service = GmailService(user_id=user_context.user_id, testing=testing)
+        try:
+            original_draft_details = await gmail_service.get_draft_details(draft_id)
         except Exception as e:
-            logging.error(f"Error invoking agent executor: {e}", exc_info=True)
+            return {"response": f"Sorry, I couldn't retrieve the original draft to modify it. Error: {e}", "state": state.dict()}
+
+        # Step 2: Create a prompt for the LLM to refine the body
+        refinement_prompt = (
+            f"A user wants to refine an email draft they are writing. "
+            f"Their instruction is: '{intent.email_body}'.\n\n"
+            f"Here is the current email body:\n---\n{original_draft_details.body_plain}\n---\n\n"
+            f"Please generate a new email body that incorporates the user's instruction. "
+            f"Respond ONLY with the new, complete email body."
+        )
+        
+        refined_body_response = await self.chat_llm.ainvoke(refinement_prompt)
+        refined_body = refined_body_response.content if refined_body_response else original_draft_details.body_plain
+
+        # Step 3: Delete the old draft
+        await delete_draft.coroutine(draft_id=draft_id, user_context=user_context, testing=testing)
+        
+        # Get recipient from state to avoid parsing issues
+        recipient_email = state.last_recipient_email
+        if not recipient_email:
+            return {"response": "I'm sorry, I've lost track of who this email was for. Please start the reply again.", "state": state.dict()}
+
+        # Step 4: Create a new draft with the refined body
+        new_draft_details = await create_draft_email.coroutine(
+            to=recipient_email,
+            subject=original_draft_details.subject,
+            body=refined_body,
+            thread_id=original_draft_details.thread_id,
+            user_context=user_context,
+            testing=testing
+        )
+
+        # Step 5: Update state and return for review
+        if new_draft_details and "draft_id" in new_draft_details:
+            state.last_draft_id = new_draft_details["draft_id"]
+        else:
+            state.last_draft_id = None # Clear if new draft creation failed
+
+        return {
+            "type": "draft_review",
+            "details": new_draft_details,
+            "state": state.dict()
+        }
+
+    async def _handle_cancel_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles cancelling and deleting the current draft."""
+        draft_id_to_delete = state.last_draft_id
+        
+        if not draft_id_to_delete:
+            return {"response": "There is no active draft to cancel.", "state": state.dict()}
+            
+        await delete_draft.coroutine(draft_id=draft_id_to_delete, user_context=user_context, testing=testing)
+        
+        # Clear the draft context
+        state.last_draft_id = None
+        state.last_recipient_email = None
+        
+        return {"response": "Got it. I've cancelled and deleted the draft.", "state": state.dict()}
+
+    # --- GOOGLE DOCS INTENT HANDLERS ---
+
+    async def _handle_list_documents_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles listing the user's Google Docs documents."""
+        # The detail extractor populates the 'document_query' field in the Intent model
+        query = getattr(intent, 'document_query', '*')
+        
+        print(f"Orchestrator: Handling 'list_documents' with extracted query: '{query}'")
+
+        documents_result = await list_documents.coroutine(
+            query=query,  # Pass the extracted query to the 'query' parameter of the tool
+            limit=20,
+            trashed=False,
+            user_context=user_context
+        )
+        
+        if documents_result.get("error"):
+            return {"response": f"I couldn't retrieve your documents: {documents_result['error']}", "state": state.dict()}
+        
+        documents = documents_result.get("documents", [])
+        if not documents:
+            if query != '*':
+                response = f"I couldn't find any documents matching '{query}'."
+            else:
+                response = "You don't have any documents yet."
+        else:
+            doc_list = "\n".join([f"• {doc['title']}" for doc in documents[:10]])
+            response = f"Here are your documents for '{query}':\n\n{doc_list}"
+            if len(documents) > 10:
+                response += f"\n\n...and {len(documents) - 10} more."
+        
+        print("Orchestrator: Successfully listed documents.")
+        return {"response": response, "state": state.dict()}
+
+    async def _handle_open_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles opening a specific document."""
+        document_query = getattr(intent, 'document_query', None)
+        
+        if not document_query:
+            return {"response": "Please specify which document you'd like to open.", "state": state.dict()}
+        
+        # Find the document
+        document_result = await get_document_details.coroutine(
+            query=document_query,
+            user_context=user_context
+        )
+        
+        if document_result.get("error"):
+            return {"response": f"I couldn't find that document: {document_result['error']}", "state": state.dict()}
+        
+        if document_result.get("multiple_matches"):
+            docs = document_result.get("documents", [])
+            doc_list = "\n".join([f"• {doc['title']}" for doc in docs])
+            return {"response": f"I found multiple documents matching '{document_query}':\n\n{doc_list}\n\nPlease be more specific.", "state": state.dict()}
+        
+        document = document_result.get("document")
+        if not document:
+            return {"response": f"I couldn't find a document matching '{document_query}'. Please check the name and try again.", "state": state.dict()}
+        
+        # Save the document context and trigger navigation
+        state.last_document_id = document["document_id"]
+        state.last_document_title = document["title"]
+        
+        return {
+            "type": "navigation",
+            "target_url": f"/docs/{document['document_id']}?title={document['title']}",
+            "response": f"Opening '{document['title']}'...",
+            "state": state.dict()
+        }
+
+    async def _handle_close_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles closing the current document and returning to dashboard."""
+        
+        # Check if a document is currently open
+        if state.last_document_id:
+            # Clear document context
+            state.last_document_id = None
+            state.last_document_title = None
+            state.last_suggestion_id = None
+            
+            # Return a special response type for the frontend to handle navigation
             return {
-                "type": "error",
-                "response": "Sorry, I encountered an error while processing your request."
+                "type": "document_closed",
+                "response": "The document has been closed.",
+                "state": state.dict()
+            }
+        else:
+            # No document is open
+            return {
+                "response": "There is no document currently open to close.",
+                "state": state.dict()
             }
 
+    async def _handle_summarize_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles summarizing a document."""
+        document_query = getattr(intent, 'document_query', None)
+        document_id = None
+        
+        if document_query:
+            # Find the specific document
+            document_result = await get_document_details.coroutine(
+                query=document_query,
+                user_context=user_context
+            )
+            
+            if document_result.get("error"):
+                return {"response": f"I couldn't find that document: {document_result['error']}", "state": state.dict()}
+            
+            document = document_result.get("document")
+            if not document:
+                return {"response": f"I couldn't find a document matching '{document_query}'.", "state": state.dict()}
+            
+            document_id = document["document_id"]
+        else:
+            # Use the current document from context
+            document_id = state.last_document_id
+            if not document_id:
+                return {"response": "Please specify which document you'd like me to summarize, or open a document first.", "state": state.dict()}
+        
+        # Get the document content and summarize it
+        content_result = await get_document_content.coroutine(
+            document_id=document_id,
+            summarize=True,
+            user_context=user_context
+        )
+        
+        if content_result.get("error"):
+            return {"response": f"I couldn't read the document: {content_result['error']}", "state": state.dict()}
+        
+        content = content_result.get("content", "")
+        if not content:
+            return {"response": "This document appears to be empty.", "state": state.dict()}
+        
+        return {"response": f"Here's a summary of the document:\n\n{content}", "state": state.dict()}
+
+    async def _extract_target_text_from_document(self, user_input: str, document_id: str, user_context: UserContext) -> Optional[str]:
+        """
+        Intelligently extract target text from actual document content.
+        Handles phrases like 'first paragraph', 'second paragraph', etc.
+        """
+        try:
+            # Get the actual document content
+            content_result = await get_document_content.coroutine(
+                document_id=document_id,
+                summarize=False,  # Important: get actual content, not summary
+                user_context=user_context
+            )
+            
+            if content_result.get("error") or not content_result.get("content"):
+                logging.error(f"Failed to get document content for target text extraction: {content_result.get('error')}")
+                return None
+            
+            document_content = content_result.get("content", "")
+            
+            # Split content into paragraphs - handle different paragraph separators
+            # Google Docs might use different line break patterns
+            paragraphs = []
+            
+            # Try double newlines first
+            if '\n\n' in document_content:
+                paragraphs = [p.strip() for p in document_content.split('\n\n') if p.strip()]
+            else:
+                # Fallback to single newlines, but filter out very short lines
+                potential_paragraphs = [p.strip() for p in document_content.split('\n') if p.strip()]
+                paragraphs = [p for p in potential_paragraphs if len(p) > 10]  # Filter out headers, single words, etc.
+            
+            if not paragraphs:
+                logging.warning("Document appears to be empty or has no paragraphs")
+                return None
+            
+            user_lower = user_input.lower()
+            
+            # Handle specific paragraph references
+            if "first paragraph" in user_lower and len(paragraphs) > 0:
+                return paragraphs[0]
+            elif "second paragraph" in user_lower and len(paragraphs) > 1:
+                return paragraphs[1]
+            elif "third paragraph" in user_lower and len(paragraphs) > 2:
+                return paragraphs[2]
+            elif "last paragraph" in user_lower and len(paragraphs) > 0:
+                return paragraphs[-1]
+            
+            # Handle numbered paragraph references
+            import re
+            paragraph_match = re.search(r'(\d+)(?:st|nd|rd|th)?\s+paragraph', user_lower)
+            if paragraph_match:
+                paragraph_num = int(paragraph_match.group(1))
+                if 1 <= paragraph_num <= len(paragraphs):
+                    return paragraphs[paragraph_num - 1]
+            
+            # If no specific paragraph reference found, return None
+            # The system will fall back to the original target_text extraction
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error extracting target text from document: {e}")
+            return None
+
+    async def _handle_edit_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles editing a document by creating a suggestion."""
+        document_id = state.last_document_id
+        
+        if not document_id:
+            return {"response": "Please open a document first before making edits.", "state": state.dict()}
+        
+        # Extract edit parameters
+        target_text = getattr(intent, 'target_text', None)
+        modification = getattr(intent, 'modification', None)
+        new_content = getattr(intent, 'new_content', None)
+        position = getattr(intent, 'position', 'replace')
+        
+        if not modification:
+            return {"response": "Please specify what changes you'd like me to make to the document.", "state": state.dict()}
+        
+        # IMPROVED: Try to extract target text from actual document content
+        # This handles cases like "edit the first paragraph" properly
+        if not target_text or "paragraph" in user_input.lower():
+            extracted_target = await self._extract_target_text_from_document(user_input, document_id, user_context)
+            if extracted_target:
+                target_text = extracted_target
+                logging.info(f"Extracted target text from document: '{target_text[:100]}...'")
+        
+        # Create the suggestion
+        suggestion_result = await create_document_suggestion.coroutine(
+            document_id=document_id,
+            modification=modification,
+            target_text=target_text,
+            new_content=new_content,
+            position=position,
+            user_context=user_context
+        )
+        
+        if suggestion_result.get("error"):
+            return {"response": f"I couldn't create the suggestion: {suggestion_result['error']}", "state": state.dict()}
+        
+        # Save the suggestion ID for potential approval/rejection
+        state.last_suggestion_id = suggestion_result.get("suggestion_id")
+        
+        # Create a user-friendly suggestion structure for the frontend
+        suggestion_data = {
+            "suggestion_id": suggestion_result.get("suggestion_id"),
+            "document_id": suggestion_result.get("document_id"),
+            "modification": suggestion_result.get("modification"),
+            "original_text": suggestion_result.get("target_text", ""),
+            "suggested_text": suggestion_result.get("suggested_text", ""),
+            "preview_type": "document_edit"
+        }
+        
+        return {
+            "type": "tool_draft",
+            "tool_name": "create_document_suggestion",
+            "tool_input": suggestion_data,
+            "assistant_message": f"Here's a more professional version of the text:",
+            "state": state.dict()
+        }
+
+    async def _handle_apply_suggestion_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles applying a document suggestion."""
+        suggestion_id = getattr(intent, 'suggestion_id', None) or state.last_suggestion_id
+        document_id = state.last_document_id
+        
+        if not suggestion_id:
+            return {"response": "I don't have a suggestion to apply. Please make an edit first.", "state": state.dict()}
+        
+        if not document_id:
+            return {"response": "I need to know which document to apply the suggestion to.", "state": state.dict()}
+        
+        # Apply the suggestion
+        apply_result = await apply_document_suggestion.coroutine(
+            suggestion_id=suggestion_id,
+            document_id=document_id,
+            user_context=user_context
+        )
+        
+        if apply_result.get("error"):
+            return {"response": f"I couldn't apply the suggestion: {apply_result['error']}", "state": state.dict()}
+        
+        # Clear the suggestion from state
+        state.last_suggestion_id = None
+        
+        return {"response": apply_result.get("message", "The suggestion has been applied to your document."), "state": state.dict()}
+
+    async def _handle_reject_suggestion_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles rejecting a document suggestion."""
+        suggestion_id = getattr(intent, 'suggestion_id', None) or state.last_suggestion_id
+        document_id = state.last_document_id
+        
+        if not suggestion_id:
+            return {"response": "I don't have a suggestion to reject. The suggestion may have already been processed.", "state": state.dict()}
+        
+        if not document_id:
+            return {"response": "I need to know which document the suggestion belongs to.", "state": state.dict()}
+        
+        # Reject the suggestion
+        reject_result = await reject_document_suggestion.coroutine(
+            suggestion_id=suggestion_id,
+            document_id=document_id,
+            user_context=user_context
+        )
+        
+        if reject_result.get("error"):
+            return {"response": f"I couldn't reject the suggestion: {reject_result['error']}", "state": state.dict()}
+        
+        # Clear the suggestion from state
+        state.last_suggestion_id = None
+        
+        return {"response": reject_result.get("message", "The suggestion has been rejected and removed."), "state": state.dict()}
+
+    async def _handle_create_document_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+        """Handles creating a new document."""
+        title = getattr(intent, 'title', None)
+        
+        if not title:
+            # If no title is provided, ask the user for one
+            state.pending_action = "awaiting_document_title"
+            return {"response": "What would you like to name the document?", "state": state.dict()}
+        
+        # Create the document
+        document_result = await create_document.coroutine(
+            title=title,
+            user_context=user_context
+        )
+        
+        if document_result.get("error"):
+            return {"response": f"I couldn't create the document: {document_result['error']}", "state": state.dict()}
+        
+        if document_result.get("success"):
+            # Update state with the new document
+            document_id = document_result.get("document_id")
+            if document_id:
+                state.last_document_id = document_id
+                state.last_document_title = title
+            
+            # Clear pending action after successful creation
+            state.pending_action = None
+            
+            return {
+                "type": "navigation",
+                "target_url": f"/docs/{document_id}?title={title}" if document_id else "/docs",
+                "response": f"I've created a new document titled '{title}' for you.",
+                "state": state.dict()
+            }
+        else:
+            return {"response": f"An unexpected error occurred during document creation.", "state": state.dict()}
+
+    # --- MAIN ENTRY POINT ---
+    async def process_message(self, request: ChatRequest, testing: bool = False) -> Dict[str, Any]:
+        chat_history = self._prepare_chat_history(request.chat_history)
+        
+        # --- Context Injection from UI ---
+        # If the UI provides a document context, inject it into the state at the beginning of the request.
+        if request.ui_context and request.ui_context.page == 'docs' and request.ui_context.document_id:
+            if request.conversation_state.last_document_id != request.ui_context.document_id:
+                logging.info(f"Updating conversation state with new document context: ID {request.ui_context.document_id}")
+                request.conversation_state.last_document_id = request.ui_context.document_id
+                request.conversation_state.last_document_title = request.ui_context.document_title
+        # ---------------------------------
+
+        print(f"\n--- New Request ---")
+        print(f"User Input: {request.input}")
+        print(f"Initial State: {request.conversation_state.dict()}")
+
+        try:
+            # --- Handle Pending Actions ---
+            if request.conversation_state.pending_action == "awaiting_document_title":
+                # User is providing a title for the document
+                # Create a synthetic intent with the user's input as the title
+                intent = Intent(intent="create_document", title=request.input)
+                # Call the handler directly, bypassing the classifier and extractor
+                response = await self._handle_create_document_intent(intent, request.user_context, request.conversation_state, request.input, testing=testing)
+                print(f"4. FINAL State: {response.get('state')}")
+                print("---------------------------\n")
+                return {"type": "text", **response}
+            # --------------------------
+
+            # STAGE 1: CLASSIFY INTENT
+            intent_name = await self._classify_intent(request.input, chat_history)
+            print(f"\n--- 🧠 AI Orchestrator ---")
+            print(f"1. CLASSIFIER identified intent as: {intent_name}")
+
+            if intent_name == 'general_chat':
+                final_response = await self.chat_llm.ainvoke(request.input)
+                return {"type": "text", "response": final_response.content, "state": request.conversation_state.dict()}
+
+            # STAGE 2: EXTRACT DETAILS
+            intent = await self._extract_details(intent_name, request.input, chat_history)
+            print(f"2. EXTRACTOR populated details: {intent.dict(exclude_none=True)}")
+
+            # STAGE 3: EXECUTE LOGIC
+            print("3. EXECUTING intent handler...")
+            handler_map = {
+                'find_event': self._handle_find_event_intent,
+                'list_events': self._handle_list_events_intent,
+                'edit_event': self._handle_edit_intent,
+                'create_event': self._handle_create_intent,
+                'list_emails': self._handle_list_emails_intent,
+                'find_email': self._handle_find_email_intent,
+                'compose_email': self._handle_compose_email_intent,
+                'reply_to_email': self._handle_reply_to_email_intent,
+                'send_email_draft': self._handle_send_email_draft_intent,
+                'refine_email_draft': self._handle_refine_email_draft_intent,
+                'cancel_email_draft': self._handle_cancel_email_draft_intent,
+                'find_telegram_chat': self._handle_find_telegram_chat_intent,
+                'summarize_telegram_chat': self._handle_summarize_telegram_chat_intent,
+                'reply_to_telegram': self._handle_reply_to_telegram_intent,
+                'send_telegram_draft': self._handle_send_telegram_draft_intent,
+                'get_latest_telegram_message': self._handle_get_latest_telegram_message_intent,
+                'summarize_all_unread_telegram': self._handle_summarize_all_unread_telegram_intent,
+                'list_documents': self._handle_list_documents_intent,
+                'open_document': self._handle_open_document_intent,
+                'close_document': self._handle_close_document_intent,
+                'summarize_document': self._handle_summarize_document_intent,
+                'create_document': self._handle_create_document_intent,
+                'edit_document': self._handle_edit_document_intent,
+                'apply_suggestion': self._handle_apply_suggestion_intent,
+                'reject_suggestion': self._handle_reject_suggestion_intent,
+            }
+
+            handler = handler_map.get(intent.intent)
+            
+            if handler:
+                response = await handler(intent, request.user_context, request.conversation_state, request.input, testing=testing)
+            else: 
+                # Fallback for unhandled intents
+                final_response = await self.chat_llm.ainvoke(request.input)
+                response = {"response": final_response.content, "state": request.conversation_state.dict()}
+            
+            print(f"4. FINAL State: {response.get('state')}")
+            print("---------------------------\n")
+
+            # Handle multi-part responses
+            if response.get("type") == "telegram_draft":
+                 return {
+                    "type": "telegram_draft",
+                    "details": response["details"],
+                    "response": response["response"],
+                    "state": response["state"]
+                }
+
+            return {"type": "text", **response}
+
+        except Exception as e:
+            logging.error(f"Error in process_message: {e}", exc_info=True)
+            return {"type": "error", "response": "Sorry, I encountered an internal error."}
+
 # --- Singleton Instantiation ---
-CREDENTIALS_FILE = "credentials/gemini_credentials.json"
-ai_orchestrator = AIOrchestratorService(credentials_path=CREDENTIALS_FILE)
+ai_orchestrator = AIOrchestratorService()
 
 def get_orchestrator_service():
     return ai_orchestrator 

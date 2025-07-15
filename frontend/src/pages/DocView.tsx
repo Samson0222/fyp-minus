@@ -26,8 +26,6 @@ const DocView: React.FC = () => {
 
   // State for UI and document management
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [documentMetadata, setDocumentMetadata] = useState<DocumentMetadata | null>(null);
-  const [loadingMetadata, setLoadingMetadata] = useState(true);
   const [iframeError, setIframeError] = useState(false);
   const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'unauthenticated'>('checking');
 
@@ -50,39 +48,14 @@ const DocView: React.FC = () => {
     }
   };
 
-  // Fetch document metadata
-  const fetchDocumentMetadata = async () => {
-    if (!documentId) return;
-
-    try {
-      setLoadingMetadata(true);
-      const response = await fetch(`/api/v1/docs/${documentId}/metadata`);
-      
-      if (response.ok) {
-        const data: DocumentMetadata = await response.json();
-        setDocumentMetadata(data);
-      } else {
-        console.error('Failed to fetch document metadata');
-      }
-    } catch (error) {
-      console.error('Error fetching document metadata:', error);
-      toast({
-        title: 'Metadata Error',
-        description: 'Failed to load document information.',
-        variant: 'destructive'
-      });
-    } finally {
-      setLoadingMetadata(false);
-    }
-  };
-
   // Handle iframe load error
   const handleIframeError = () => {
     setIframeError(true);
     toast({
       title: 'Document Load Error',
       description: 'Failed to load the Google Doc. Please check your permissions and try again.',
-      variant: 'destructive'
+      variant: 'destructive',
+      duration: 3000
     });
   };
 
@@ -103,26 +76,9 @@ const DocView: React.FC = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
   };
 
-  // Format date for display
-  const formatDate = (dateString: string) => {
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return 'Unknown';
-    }
-  };
-
   // Load data on component mount
   useEffect(() => {
     checkAuthStatus();
-    fetchDocumentMetadata();
   }, [documentId]);
 
   // Validation
@@ -145,11 +101,16 @@ const DocView: React.FC = () => {
     );
   }
 
+  const customDocsChat = (
+    <DocsChat 
+      isCollapsed={isSidebarCollapsed}
+      onToggleCollapse={handleToggleSidebar}
+    />
+  );
+
   return (
-    <Layout showChatSidebar={false}>
-      <div className="flex h-full bg-gradient-main">
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col">
+    <Layout showChatSidebar={true} customChatSidebar={customDocsChat} customChatCollapsed={isSidebarCollapsed}>
+      <div className="flex flex-col h-full bg-gradient-main">
           {/* Header */}
           <div className="flex-shrink-0 bg-dark-secondary/30 border-b border-white/10 px-6 py-4">
             <div className="flex items-center justify-between">
@@ -166,36 +127,8 @@ const DocView: React.FC = () => {
                 
                 <div className="border-l border-white/20 pl-4">
                   <h1 className="text-xl font-semibold text-white truncate max-w-md">
-                    {documentMetadata?.title || documentTitle}
+                    {documentTitle}
                   </h1>
-                  
-                  {loadingMetadata ? (
-                    <div className="flex items-center text-white/60 text-sm mt-1">
-                      <Loader2 size={12} className="animate-spin mr-1" />
-                      Loading details...
-                    </div>
-                  ) : documentMetadata ? (
-                    <div className="flex items-center gap-4 text-white/60 text-sm mt-1">
-                      <span>Last modified: {formatDate(documentMetadata.last_modified_gdrive)}</span>
-                      {documentMetadata.minus_tags && documentMetadata.minus_tags.length > 0 && (
-                        <div className="flex items-center gap-1">
-                          <span>Tags:</span>
-                          {documentMetadata.minus_tags.slice(0, 2).map((tag, index) => (
-                            <Badge 
-                              key={index}
-                              variant="secondary"
-                              className="bg-violet/20 text-violet text-xs"
-                            >
-                              {tag}
-                            </Badge>
-                          ))}
-                          {documentMetadata.minus_tags.length > 2 && (
-                            <span className="text-white/40">+{documentMetadata.minus_tags.length - 2}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
                 </div>
               </div>
 
@@ -279,22 +212,11 @@ const DocView: React.FC = () => {
               <iframe
                 src={googleDocsUrl}
                 className="w-full h-full border-0"
-                title={`Google Doc: ${documentMetadata?.title || documentTitle}`}
+                title={`Google Doc: ${documentTitle}`}
                 onError={handleIframeError}
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
               />
             )}
-          </div>
-        </div>
-
-        {/* DocsChat Sidebar */}
-        <div className={`fixed right-0 top-0 h-full bg-dark-primary border-l border-white/10 transition-all duration-300 z-40 ${
-          isSidebarCollapsed ? 'w-16' : 'w-80'
-        }`}>
-          <DocsChat 
-            isCollapsed={isSidebarCollapsed}
-            onToggleCollapse={handleToggleSidebar}
-          />
         </div>
       </div>
     </Layout>

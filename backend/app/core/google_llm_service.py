@@ -150,6 +150,26 @@ class GoogleLLMService(AbstractLLMService):
                 "params": {"message": f"Sorry, I couldn't process that command: {str(e)}"}
             }
 
+    async def generate_text(self, prompt: str) -> str:
+        """Generate plain text response without JSON parsing - for summarization, etc."""
+        try:
+            if self.mock_mode:
+                return f"Mock response: {prompt[:100]}..."
+            
+            # Use the direct genai model for plain text generation
+            if self.genai_model:
+                response = self.genai_model.generate_content(prompt)
+                return response.text
+            else:
+                # Fallback to LangChain if direct model not available
+                messages = [HumanMessage(content=prompt)]
+                response = await self.llm.ainvoke(messages)
+                return response.content
+                
+        except Exception as e:
+            logging.error(f"Text generation error: {e}")
+            return f"Error generating text: {str(e)}"
+
     def _mock_command_parsing(self, user_input: str) -> Dict[str, Any]:
         """Mock command parsing for testing without credentials"""
         user_lower = user_input.lower()
