@@ -26,6 +26,15 @@ export interface TelegramDraft {
   body: string;
 }
 
+// Define a union type for all possible AI actions
+type AiAction = 
+  | { type: 'text', response: string, verbal_response?: string }
+  | { type: 'tool_draft', tool_name: string, tool_input: ToolDraftDetails['tool_input'], assistant_message: string, verbal_response?: string }
+  | { type: 'draft_review', details: DraftReviewDetails, verbal_response?: string }
+  | { type: 'navigation', target_url: string, response: string, verbal_response?: string }
+  | { type: 'telegram_draft', details: TelegramDraft, response: string, verbal_response?: string };
+
+
 interface GeneralPurposeChatWrapperProps {
   setTelegramDraft: Dispatch<SetStateAction<TelegramDraft | null>>;
   isCollapsed?: boolean;
@@ -154,6 +163,96 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
     setIsSpeaking(false);
   };
 
+  const processAndDisplayMessage = async (action: AiAction) => {
+    let aiMessage: Message | null = null;
+    if (action.type === 'text') {
+      aiMessage = {
+        id: `ai-${Date.now()}-${Math.random()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: { type: 'text', text: action.response }
+      };
+    } else if (action.type === 'tool_draft') {
+      aiMessage = {
+        id: `ai-${Date.now()}-${Math.random()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: { 
+          type: 'tool_draft', 
+          tool_name: action.tool_name,
+          tool_input: action.tool_input,
+          assistant_message: action.assistant_message
+        }
+      };
+    } else if (action.type === 'draft_review') {
+      aiMessage = {
+        id: `ai-${Date.now()}-${Math.random()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: {
+          type: 'draft_review',
+          details: action.details
+        }
+      };
+    } else if (action.type === 'navigation') {
+      if (action.target_url) {
+        navigate(action.target_url);
+      }
+      aiMessage = {
+        id: `ai-${Date.now()}-${Math.random()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: { type: 'text', text: action.response || 'Navigating...' }
+      };
+    } else if (action.type === 'telegram_draft') {
+        setTelegramDraft(action.details);
+        aiMessage = {
+          id: `ai-${Date.now()}-${Math.random()}`,
+          sender: 'ai',
+          timestamp: new Date(),
+          content: {
+            type: 'text', // Display as a simple text message in the chat history
+            text: action.response 
+          }
+        };
+    }
+
+
+    if (aiMessage) {
+        setMessages((prev) => [...prev, aiMessage as Message]);
+        
+        const verbalResponse = (action.verbal_response || (aiMessage.content.type === 'text' ? aiMessage.content.text : null));
+        if (verbalResponse) {
+            try {
+                handleStopSpeaking(); 
+                setIsSpeaking(true);
+                const audio = await synthesizeSpeech(verbalResponse);
+                currentAudioRef.current = audio;
+                
+                return new Promise<void>((resolve) => {
+                  audio.play();
+                  audio.onended = () => {
+                      handleStopSpeaking();
+                      resolve();
+                  };
+                  audio.onerror = () => {
+                      console.error("Error playing TTS audio.");
+                      handleStopSpeaking();
+                      resolve();
+                  }
+                });
+
+            } catch (speechError) {
+                console.error('TTS synthesis error:', speechError);
+                handleStopSpeaking();
+            }
+        }
+    }
+    // If no audio, resolve immediately
+    return Promise.resolve();
+  };
+
+
   const processTextMessage = async (text: string) => {
     if (!user) return;
 
@@ -178,6 +277,8 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
         }),
       });
 
+      setIsLoading(false);
+
       if (!response.ok) {
         const errorData = await response.json();
         const errorMessage = typeof errorData.detail === 'string' 
@@ -192,95 +293,19 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
         setConversationState(data.state);
       }
 
-      if (data.type === 'telegram_draft') {
-        setTelegramDraft(data.details);
-        const confirmationMessage: Message = {
-          id: `ai-${Date.now()}`,
-          sender: 'ai',
-          timestamp: new Date(),
-          content: {
-            type: 'text',
-            text: data.response
-          }
-        };
-        setMessages((prev) => [...prev, confirmationMessage]);
+      if (data.type === 'multi_action') {
+        for (const action of data.actions) {
+          await processAndDisplayMessage(action);
+          // Optional: add a small delay between messages for a more natural feel
+          await new Promise(resolve => setTimeout(resolve, 500)); 
+        }
       } else {
-        let aiMessage: Message | null = null;
-        if (data.type === 'text') {
-          aiMessage = {
-            id: `ai-${Date.now()}`,
-            sender: 'ai',
-            timestamp: new Date(),
-            content: { type: 'text', text: data.response }
-          };
-        } else if (data.type === 'tool_draft') {
-          aiMessage = {
-            id: `ai-${Date.now()}`,
-            sender: 'ai',
-            timestamp: new Date(),
-            content: { 
-              type: 'tool_draft', 
-              tool_name: data.tool_name,
-              tool_input: data.tool_input,
-              assistant_message: data.assistant_message
-            }
-          };
-        } else if (data.type === 'draft_review') {
-          aiMessage = {
-            id: `ai-${Date.now()}`,
-            sender: 'ai',
-            timestamp: new Date(),
-            content: {
-              type: 'draft_review',
-              details: data.details
-            }
-          };
-        } else if (data.type === 'navigation') {
-          if (data.target_url) {
-            navigate(data.target_url);
-          }
-          aiMessage = {
-            id: `ai-${Date.now()}`,
-            sender: 'ai',
-            timestamp: new Date(),
-            content: { type: 'text', text: data.response || 'Navigating...' }
-          };
-        }
-
-        if (aiMessage) {
-          setMessages((prev) => [...prev, aiMessage as Message]);
-          
-          // If we have a text response, synthesize speech
-          if (aiMessage.content.type === 'text' && aiMessage.content.text) {
-            // Stop any previous speech before starting new playback
-            handleStopSpeaking(); 
-            try {
-              setIsSpeaking(true);
-              const audio = await synthesizeSpeech(aiMessage.content.text);
-              currentAudioRef.current = audio;
-              
-              audio.play();
-              
-              audio.onended = () => {
-                handleStopSpeaking(); // Use the handler to ensure cleanup
-              };
-              audio.onerror = () => {
-                console.error("Error playing TTS audio.");
-                handleStopSpeaking();
-              }
-
-            } catch (speechError) {
-              console.error('TTS synthesis error:', speechError);
-              handleStopSpeaking();
-            }
-          }
-        }
+        await processAndDisplayMessage(data);
       }
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to get a response.';
       setError(errorMessage);
-    } finally {
       setIsLoading(false);
     }
   };

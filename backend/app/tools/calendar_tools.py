@@ -188,117 +188,82 @@ async def create_calendar_event_draft(
         "confirmation_message": "The event has been successfully scheduled in your calendar."
     }
 
-@tool("edit_calendar_event", args_schema=EditCalendarEventInput)
+@tool(args_schema=EditCalendarEventInput)
 async def edit_calendar_event(
     event_id: str,
-    summary: Optional[str] = None,
-    start_time: Optional[str] = None,
-    end_time: Optional[str] = None,
-    attendees_to_add: Optional[List[str]] = None,
-    attendees_to_remove: Optional[List[str]] = None,
-    description: Optional[str] = None,
-    **kwargs
+    new_summary: Optional[str] = None,
+    new_start_time: Optional[str] = None,
+    new_end_time: Optional[str] = None,
+    new_description: Optional[str] = None,
+    user_context: UserContext = None
 ) -> Dict[str, Any]:
     """
-    Edits an existing Google Calendar event. You must provide the event_id.
-    Only the fields you want to change need to be provided.
+    Updates an existing calendar event with new details.
+    You must provide the event_id of the event to update.
+    You can provide one or more fields to update: new_summary, new_start_time, new_end_time, or new_description.
     """
-    user_context = kwargs.get("user_context")
     if not user_context:
-        return {"error": "User context is missing, cannot edit the event."}
+        return {"error": "User context is missing."}
 
     calendar_service = GoogleCalendarService()
 
+    # First, get the existing event to calculate duration and apply changes
     existing_event = calendar_service.get_event(user_id=user_context.user_id, event_id=event_id)
     if not existing_event:
-        return {"error": f"Event with ID '{event_id}' not found."}
+        return {"error": f"Could not find the event with ID {event_id} to update."}
 
-    # --- Step 1: Cache the original duration for timed events ---
-    original_duration = None
-    is_timed_event = 'dateTime' in existing_event.get('start', {})
-    if is_timed_event:
-        try:
-            start_str = existing_event['start']['dateTime']
-            end_str = existing_event['end']['dateTime']
-            original_duration = datetime.datetime.fromisoformat(end_str) - datetime.datetime.fromisoformat(start_str)
-        except (KeyError, ValueError) as e:
-            print(f"Warning: Could not calculate original event duration: {e}")
-
-    # --- Step 2: Apply direct updates (summary, description) ---
-    if summary is not None:
-        existing_event['summary'] = summary
-    if description is not None:
-        existing_event['description'] = description
-
+    # --- Time Parsing and Duration Logic ---
     malaysia_tz = pytz.timezone('Asia/Kuala_Lumpur')
-    parser_settings = {'PREFER_DATES_FROM': 'future'}
-    new_start_dt = None
-
-    # --- Step 3: Apply date/time updates from user input ---
-    if start_time:
-        normalized_start_time = _normalize_time_string(start_time)
-        start_dt = dateparser.parse(normalized_start_time, settings=parser_settings)
-        if not start_dt:
-            return {"error": f"Could not understand the start time: '{start_time}'."}
-        
-        if is_timed_event:
-            if start_dt.tzinfo is None:
-                start_dt = malaysia_tz.localize(start_dt)
-            existing_event['start'] = {'dateTime': start_dt.isoformat(), 'timeZone': 'Asia/Kuala_Lumpur'}
-            new_start_dt = start_dt # Keep track of the new datetime object
-        else: # all-day event
-            existing_event['start'] = {'date': start_dt.date().isoformat()}
-
-    if end_time:
-        normalized_end_time = _normalize_time_string(end_time)
-        end_dt = dateparser.parse(normalized_end_time, settings=parser_settings)
-        if not end_dt:
-             return {"error": f"Could not understand the end time: '{end_time}'."}
-
-        if is_timed_event:
-            if end_dt.tzinfo is None:
-                end_dt = malaysia_tz.localize(end_dt)
-            existing_event['end'] = {'dateTime': end_dt.isoformat(), 'timeZone': 'Asia/Kuala_Lumpur'}
-        else:
-            end_date = end_dt.date()
-            if not start_time:
-                original_start_date = datetime.date.fromisoformat(existing_event['start']['date'])
-                if end_date < original_start_date:
-                    end_date = original_start_date
-            existing_event['end'] = {'date': (end_date + datetime.timedelta(days=1)).isoformat()}
-
-    # --- Step 4: If only start time was changed, preserve the original duration ---
-    elif start_time and new_start_dt and original_duration is not None:
-        new_end_dt = new_start_dt + original_duration
-        existing_event['end'] = {'dateTime': new_end_dt.isoformat(), 'timeZone': 'Asia/Kuala_Lumpur'}
-
-    # Update attendees
-    if attendees_to_add or attendees_to_remove:
-        current_attendees = existing_event.get('attendees', [])
-        if attendees_to_remove:
-            current_attendees = [p for p in current_attendees if p.get('email') not in attendees_to_remove]
-        if attendees_to_add:
-            for email in attendees_to_add:
-                current_attendees.append({'email': email})
-        existing_event['attendees'] = current_attendees
+    parser_settings = {'PREFER_DATES_FROM': 'future', 'TIMEZONE': 'Asia/Kuala_Lumpur'}
+    original_duration = None
     
-    # NOTE: This assumes your GoogleCalendarService has an `update_event` method.
+    if 'dateTime' in existing_event.get('start', {}):
+        start_dt = datetime.datetime.fromisoformat(existing_event['start']['dateTime'])
+        end_dt = datetime.datetime.fromisoformat(existing_event['end']['dateTime'])
+        original_duration = end_dt - start_dt
+
+    updates = {}
+    if new_summary:
+        updates['summary'] = new_summary
+    if new_description:
+        updates['description'] = new_description
+
+    new_start_dt_obj = None
+    if new_start_time:
+        new_start_dt_obj = dateparser.parse(new_start_time, settings=parser_settings)
+        if not new_start_dt_obj:
+            return {"error": f"I couldn't understand the start time '{new_start_time}'."}
+        if new_start_dt_obj.tzinfo is None:
+            new_start_dt_obj = malaysia_tz.localize(new_start_dt_obj)
+        updates['start'] = {'dateTime': new_start_dt_obj.isoformat(), 'timeZone': 'Asia/Kuala_Lumpur'}
+
+    if new_end_time:
+        new_end_dt_obj = dateparser.parse(new_end_time, settings=parser_settings)
+        if not new_end_dt_obj:
+            return {"error": f"I couldn't understand the end time '{new_end_time}'."}
+        if new_end_dt_obj.tzinfo is None:
+            new_end_dt_obj = malaysia_tz.localize(new_end_dt_obj)
+        updates['end'] = {'dateTime': new_end_dt_obj.isoformat(), 'timeZone': 'Asia/Kuala_Lumpur'}
+    
+    # If only start time was changed, preserve original duration
+    elif new_start_dt_obj and original_duration:
+        new_end_dt_obj = new_start_dt_obj + original_duration
+        updates['end'] = {'dateTime': new_end_dt_obj.isoformat(), 'timeZone': 'Asia/Kuala_Lumpur'}
+
+    if not updates:
+        return {"error": "No valid update information was provided."}
+
     updated_event = calendar_service.update_event(
         user_id=user_context.user_id,
         event_id=event_id,
-        event_data=existing_event
+        updates=updates
     )
 
-    if not updated_event:
-        return {"error": "Failed to update the calendar event."}
-
+    if "error" in updated_event:
+        return updated_event
+    
     return {
         "status": "event_updated",
-        "details": {
-            "summary": updated_event.get('summary'),
-            "start": updated_event.get('start', {}),
-            "end": updated_event.get('end', {}),
-            "html_link": updated_event.get('htmlLink'),
-            "event_id": updated_event.get('id')
-        }
+        "confirmation_message": "Done. I've updated the event.",
+        "details": {"event_id": updated_event.get("id")}
     }

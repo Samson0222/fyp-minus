@@ -18,6 +18,14 @@ interface ConversationState {
   last_suggestion_id?: string | null;
 }
 
+// Define a union type for all possible AI actions
+type AiAction =
+  | { type: 'text'; response: string; verbal_response?: string }
+  | { type: 'tool_draft'; tool_name: string; tool_input: ToolDraftDetails['tool_input']; assistant_message: string; verbal_response?: string }
+  | { type: 'document_closed'; response: string; verbal_response?: string }
+  | { type: 'navigation'; target_url: string, response: string, verbal_response?: string };
+
+
 interface DocsChatProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
@@ -134,6 +142,66 @@ const DocsChat: React.FC<DocsChatProps> = ({
     setIsSpeaking(false);
   };
 
+  const processAndDisplayMessage = async (action: AiAction) => {
+    const aiMessage: Message = {
+      id: `ai-${Date.now()}-${Math.random()}`,
+      sender: 'ai',
+      timestamp: new Date(),
+      content: { type: 'text', text: 'An unexpected response was received.' } // Default
+    };
+
+    if (action.type === 'text') {
+      aiMessage.content = { type: 'text', text: action.response };
+    } else if (action.type === 'tool_draft') {
+      aiMessage.content = { 
+        type: 'tool_draft', 
+        tool_name: action.tool_name,
+        tool_input: action.tool_input,
+        assistant_message: action.assistant_message
+      };
+    } else if (action.type === 'document_closed') {
+      aiMessage.content = { type: 'text', text: action.response };
+      toast({ title: 'Document Closed', description: 'Returning to dashboard...', duration: 3000 });
+      navigate('/docs');
+    } else if (action.type === 'navigation') {
+        if (action.target_url) {
+            navigate(action.target_url);
+        }
+        aiMessage.content = { type: 'text', text: action.response || 'Navigating...' };
+    }
+    
+    setMessages(prev => [...prev, aiMessage]);
+    
+    const verbalResponse = (action.verbal_response || (aiMessage.content.type === 'text' ? aiMessage.content.text : null));
+    if (verbalResponse) {
+        try {
+            handleStopSpeaking();
+            setIsSpeaking(true);
+            const audio = await synthesizeSpeech(verbalResponse);
+            currentAudioRef.current = audio;
+            
+            return new Promise<void>((resolve) => {
+              audio.play();
+              audio.onended = () => {
+                  handleStopSpeaking();
+                  resolve();
+              };
+              audio.onerror = () => {
+                  console.error("Error playing TTS audio.");
+                  handleStopSpeaking();
+                  resolve();
+              };
+            });
+
+        } catch (speechError) {
+            console.error('TTS synthesis error:', speechError);
+            handleStopSpeaking();
+        }
+    }
+    return Promise.resolve();
+  };
+
+
   const processTextMessage = async (text: string) => {
     if (!documentId) {
       setError("No document is open.");
@@ -165,6 +233,8 @@ const DocsChat: React.FC<DocsChatProps> = ({
         })
       });
 
+      setIsLoading(false);
+
       if (!response.ok) {
         const errorData = await response.json();
         if (Array.isArray(errorData.detail)) {
@@ -180,56 +250,19 @@ const DocsChat: React.FC<DocsChatProps> = ({
         setConversationState(data.state);
       }
 
-      const aiMessage: Message = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        timestamp: new Date(),
-        content: { type: 'text', text: 'An unexpected response was received.' } // Default
-      };
-
-      if (data.type === 'text') {
-        aiMessage.content = { type: 'text', text: data.response };
-      } else if (data.type === 'tool_draft') {
-        aiMessage.content = { 
-          type: 'tool_draft', 
-          tool_name: data.tool_name,
-          tool_input: data.tool_input,
-          assistant_message: data.assistant_message
-        };
-      } else if (data.type === 'document_closed') {
-        aiMessage.content = { type: 'text', text: data.response };
-        toast({ title: 'Document Closed', description: 'Returning to dashboard...', duration: 3000 });
-        navigate('/docs');
-      }
-      
-      setMessages(prev => [...prev, aiMessage]);
-      
-      // If we have a text response, synthesize speech
-      if (aiMessage.content.type === 'text' && aiMessage.content.text) {
-        handleStopSpeaking(); // Stop previous speech
-        try {
-          setIsSpeaking(true);
-          const audio = await synthesizeSpeech(aiMessage.content.text);
-          currentAudioRef.current = audio;
-          audio.play();
-          audio.onended = () => {
-            handleStopSpeaking();
-          };
-          audio.onerror = () => {
-            console.error("Error playing TTS audio.");
-            handleStopSpeaking();
-          };
-        } catch (speechError) {
-          console.error('TTS synthesis error:', speechError);
-          handleStopSpeaking();
+      if (data.type === 'multi_action') {
+        for (const action of data.actions) {
+          await processAndDisplayMessage(action);
+          await new Promise(resolve => setTimeout(resolve, 500)); 
         }
+      } else {
+        await processAndDisplayMessage(data);
       }
       
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to get a response.';
       setError(errorMessage);
       toast({ title: 'Error', description: errorMessage, variant: 'destructive', duration: 3000 });
-    } finally {
       setIsLoading(false);
     }
   };
