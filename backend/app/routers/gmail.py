@@ -9,7 +9,7 @@ from app.models.email import (
     VoiceEmailCommand, EmailMessage
 )
 from app.services.gmail_service import GmailService
-from app.services.voice_email_processor import voice_email_processor
+# from app.services.voice_email_processor import voice_email_processor
 
 logger = logging.getLogger(__name__)
 
@@ -256,71 +256,6 @@ async def search_emails(
     except Exception as e:
         logger.error(f"Error searching emails: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to search emails: {str(e)}")
-
-@router.post("/test-voice")
-async def test_voice_command(request: VoiceCommandRequest):
-    """Test voice command processing without authentication for debugging"""
-    try:
-        command = request.command
-        logger.info(f"TEST: Processing command: '{command}'")
-        
-        # Parse the voice command
-        parsed_command = voice_email_processor.parse_command(command)
-        logger.info(f"TEST: Parsed command type: {parsed_command.command_type}")
-        logger.info(f"TEST: Parsed parameters: {parsed_command.parameters}")
-        
-        response_message = voice_email_processor.generate_response(parsed_command)
-        logger.info(f"TEST: Generated response: {response_message}")
-        
-        return {
-            "command_type": parsed_command.command_type,
-            "response": response_message,
-            "parsed_parameters": parsed_command.parameters,
-            "test_mode": True
-        }
-        
-    except Exception as e:
-        logger.error(f"TEST: Error processing command: {e}")
-        return {
-            "command_type": "error",
-            "response": f"Test error: {str(e)}",
-            "parsed_parameters": {},
-            "test_mode": True
-        }
-
-@router.post("/voice-command")
-async def process_voice_email_command(
-    request: VoiceCommandRequest,
-    user = Depends(get_current_user)
-):
-    """Process voice command for email operations"""
-    try:
-        user_id = user["user_id"]
-        command = request.command
-        
-        # This processor determines the intent and parameters
-        parsed_command = voice_email_processor.parse_command(command)
-        
-        # Instantiate Gmail service for the specific user
-        gmail_service = GmailService(user_id)
-        
-        # Pass the parsed command to the service to execute the action
-        response = await gmail_service.process_voice_command(
-            command_data=parsed_command.dict()
-        )
-        
-        return response
-        
-    except Exception as e:
-        logger.error(f"Error processing voice email command: {e}")
-        logger.error(f"Command was: {request.command}")
-        return {
-            "command_type": "error",
-            "response": f"Sorry, I encountered an error processing your command: {str(e)}",
-            "data": None,
-            "requires_followup": False,
-            "parsed_parameters": {}
-        }
 
 @router.get("/message/{message_id}", response_model=EmailMessage)
 async def get_message(message_id: str, user = Depends(get_current_user)):

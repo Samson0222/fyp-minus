@@ -70,13 +70,3 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> UserC
             detail=f"Could not validate credentials: {e}",
             headers={"WWW-Authenticate": "Bearer"},
         ) 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 

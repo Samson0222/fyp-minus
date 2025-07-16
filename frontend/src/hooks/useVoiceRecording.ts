@@ -7,6 +7,8 @@ interface VoiceRecordingHook {
   error: string | null;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<Blob | null>;
+  transcribeAudio: (audioBlob: Blob) => Promise<string>;
+  synthesizeSpeech: (text: string) => Promise<HTMLAudioElement>; // <-- Return HTMLAudioElement
   clearError: () => void;
 }
 
@@ -130,6 +132,75 @@ export const useVoiceRecording = (): VoiceRecordingHook => {
     });
   }, [isRecording]);
 
+  const transcribeAudio = useCallback(async (audioBlob: Blob): Promise<string> => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const formData = new FormData();
+      formData.append('audio_file', audioBlob, 'recording.webm');
+
+      const response = await fetch('/api/v1/stt/transcribe', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Transcription failed');
+      }
+
+      const data = await response.json();
+      return data.transcript || '';
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to transcribe audio';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const synthesizeSpeech = useCallback(async (text: string): Promise<HTMLAudioElement> => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const response = await fetch('/api/v1/tts/synthesize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text,
+          language_code: 'en-US',
+          speaking_rate: 1.0,
+          pitch: 0.0,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Speech synthesis failed');
+      }
+
+      // Create audio element and play the response
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      
+      // Return the audio element itself
+      return audio;
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to synthesize speech';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const clearError = useCallback(() => {
     setError(null);
   }, []);
@@ -141,6 +212,8 @@ export const useVoiceRecording = (): VoiceRecordingHook => {
     error,
     startRecording,
     stopRecording,
+    transcribeAudio,
+    synthesizeSpeech,
     clearError,
   };
 }; 

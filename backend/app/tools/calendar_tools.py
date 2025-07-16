@@ -1,6 +1,7 @@
 import datetime
 import pytz
 import dateparser
+import asyncio
 from typing import List, Optional, Dict, Any, Union
 from langchain.tools import tool
 from pydantic import BaseModel, Field
@@ -37,8 +38,8 @@ class EditCalendarEventInput(BaseModel):
     description: Optional[str] = Field(default=None, description="The new detailed description for the event.")
 
 class GetEventsInput(BaseModel):
-    start_time: datetime.datetime = Field(description="The start date and time for the event range.")
-    end_time: datetime.datetime = Field(description="The end date and time for the event range.")
+    start_time: datetime.datetime = Field(description="The start of the time range in ISO 8601 format.")
+    end_time: datetime.datetime = Field(description="The end of the time range in ISO 8601 format.")
 
 
 @tool("get_calendar_events", args_schema=GetEventsInput)
@@ -50,22 +51,35 @@ async def get_calendar_events(start_time: datetime.datetime, end_time: datetime.
     if not user_context:
         return {"error": "User context is missing, cannot retrieve calendar events."}
 
-    print(f"Tool 'get_calendar_events' called for user '{user_context.user_id}' with range: {start_time.isoformat()} to {end_time.isoformat()}")
+    # Convert datetimes to ISO strings for use in API calls and logging
+    start_time_iso = start_time.isoformat()
+    end_time_iso = end_time.isoformat()
+
+    print(f"Tool 'get_calendar_events' called for user '{user_context.user_id}' with range: {start_time_iso} to {end_time_iso}")
     
-    # The datetime objects from the orchestrator are already timezone-aware.
-    # We just need to ensure they are formatted correctly for the Google API.
     calendar_service = GoogleCalendarService()
     
-    events = calendar_service.get_events(
+    # Use asyncio.to_thread to run the synchronous get_events method in a separate thread
+    events = await asyncio.to_thread(
+        calendar_service.get_events,
         user_id=user_context.user_id,
-        time_min=start_time.isoformat(),
-        time_max=end_time.isoformat()
+        time_min=start_time_iso,
+        time_max=end_time_iso
     )
     
-    if events is None:
-        return {"error": "Could not retrieve calendar events. The user may need to re-authenticate."}
-        
-    return events
+    # Prune the events to return only the most useful fields to the AI
+    pruned_events = []
+    if isinstance(events, list):
+        for event in events:
+            pruned_events.append({
+                "id": event.get("id"),
+                "summary": event.get("summary"),
+                "start": event.get("start"),
+                "end": event.get("end"),
+                "description": event.get("description")
+            })
+            
+    return pruned_events
 
 
 @tool("create_calendar_event_draft", args_schema=CalendarEventInput)
