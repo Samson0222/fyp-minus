@@ -21,12 +21,16 @@ def get_llm_service() -> Optional[AbstractLLMService]:
 
     try:
         if provider == "google" or provider == "gemma":
-            # Handles Gemma and other Google models
-            creds_path = os.getenv("GEMINI_CREDENTIALS_PATH", "credentials/gemini_credentials.json")
-            if not creds_path or not os.path.exists(creds_path):
-                logging.error(f"GEMINI_CREDENTIALS_PATH not set or file not found for Google provider at '{creds_path}'.")
+            # Handles Gemma and other Google models via API Key
+            api_key = os.getenv("GOOGLE_GEMINI_API_KEY")
+            if not api_key:
+                logging.error("GOOGLE_GEMINI_API_KEY not set for Google provider.")
                 return None
-            return GoogleLLMService(credentials_path=creds_path, model=model)
+            
+            if not model:
+                logging.warning("LLM_MODEL not set, will use a default in GoogleLLMService.")
+
+            return GoogleLLMService(api_key=api_key, model=model)
 
         elif provider == "openrouter" or provider == "qwen":
             # Handles Qwen (or any other model on OpenRouter)

@@ -7,7 +7,6 @@ import logging
 import json
 import re
 from typing import Dict, Any, Optional
-from google.oauth2 import service_account
 import google.generativeai as genai
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage, SystemMessage
@@ -15,26 +14,19 @@ from langchain.schema import HumanMessage, SystemMessage
 from .llm_base import AbstractLLMService
 
 class GoogleLLMService(AbstractLLMService):
-    def __init__(self, credentials_path: str, model: str = "gemini-1.5-flash"):
-        self.credentials_path = credentials_path
+    def __init__(self, api_key: str, model: str):
+        self.api_key = api_key
         self.model_name = model
         self.llm = None
         self.genai_model = None
         
-        # Check if credentials file exists
-        if not os.path.exists(self.credentials_path):
-            logging.warning(f"Credentials file not found at {self.credentials_path} - using mock mode")
+        if not self.api_key:
+            logging.warning("Google API Key not provided - using mock mode")
             self.mock_mode = True
         else:
             try:
-                # Initialize with service account credentials
-                credentials = service_account.Credentials.from_service_account_file(
-                    self.credentials_path,
-                    scopes=['https://www.googleapis.com/auth/generative-language.retriever']
-                )
-                
-                # Configure genai with credentials
-                genai.configure(credentials=credentials)
+                # Configure genai with API key
+                genai.configure(api_key=self.api_key)
                 
                 # Create direct model for testing
                 self.genai_model = genai.GenerativeModel(self.model_name)
@@ -42,13 +34,13 @@ class GoogleLLMService(AbstractLLMService):
                 # Initialize LangChain integration
                 self.llm = ChatGoogleGenerativeAI(
                     model=self.model_name,
-                    credentials=credentials,
+                    google_api_key=self.api_key,
                     temperature=0.7,
                     max_output_tokens=500
                 )
                 
                 self.mock_mode = False
-                logging.info("✅ Gemini LLM initialized successfully with service account")
+                logging.info("✅ Gemini LLM initialized successfully with API key")
                 
                 # Test connection
                 test_response = self.genai_model.generate_content("Respond with 'Connected' if you can read this.")
@@ -58,7 +50,7 @@ class GoogleLLMService(AbstractLLMService):
                     logging.warning("⚠️ Connection test returned unexpected response")
                     
             except Exception as e:
-                logging.error(f"Failed to initialize LLM with service account: {e}")
+                logging.error(f"Failed to initialize LLM with API key: {e}", exc_info=True)
                 self.mock_mode = True
         
         self.system_prompt = """You are Minus, a voice-controlled AI assistant for professional accessibility.
@@ -204,13 +196,13 @@ class GoogleLLMService(AbstractLLMService):
                 return {
                     "model": "mock_mode",
                     "tier": "TESTING",
-                    "status": "No credentials configured - using mock responses"
+                    "status": "No API key configured - using mock responses"
                 }
         
             return {
                 "model": self.model_name,
                 "tier": "STANDARD",
-                "authentication": "Service Account",
+                "authentication": "API Key",
                 "status": "Active - Real AI responses enabled"
             }
         except Exception as e:
