@@ -162,6 +162,20 @@ class AIOrchestratorService:
             logging.error(f"Error in intent classification: {e}")
             user_input_lower = user_input.lower()
             
+            # Check for Telegram-related keywords first
+            if any(word in user_input_lower for word in ['telegram', 'chat', 'message']):
+                if any(word in user_input_lower for word in ['summarize', 'summary', 'what\'s new', 'what is new']):
+                    return 'summarize_telegram_chat'
+                elif any(word in user_input_lower for word in ['reply', 'send', 'message']):
+                    return 'reply_to_telegram'
+                elif any(word in user_input_lower for word in ['find', 'search', 'look for']):
+                    return 'find_telegram_chat'
+                elif any(word in user_input_lower for word in ['latest', 'newest', 'recent']):
+                    return 'get_latest_telegram_message'
+                elif any(word in user_input_lower for word in ['unread', 'new messages']):
+                    return 'summarize_all_unread_telegram'
+            
+            # Check for document-related keywords
             if any(word in user_input_lower for word in ['edit', 'change', 'modify', 'update', 'rewrite']):
                 return 'edit_document'
             elif any(word in user_input_lower for word in ['create', 'new document', 'make document', 'new doc']):
@@ -170,9 +184,9 @@ class AIOrchestratorService:
                 return 'apply_suggestion'
             elif any(word in user_input_lower for word in ['reject', 'no', 'cancel', 'decline']):
                 return 'reject_suggestion'
-            elif any(word in user_input_lower for word in ['summarize', 'summary', 'what is this']):
+            elif any(word in user_input_lower for word in ['summarize', 'summary', 'what is this']) and any(word in user_input_lower for word in ['document', 'doc', 'file']):
                 return 'summarize_document'
-            elif any(word in user_input_lower for word in ['open', 'show', 'view']):
+            elif any(word in user_input_lower for word in ['open', 'show', 'view']) and any(word in user_input_lower for word in ['document', 'doc']):
                 return 'open_document'
             elif any(word in user_input_lower for word in ['list', 'documents', 'docs']):
                 return 'list_documents'
@@ -410,8 +424,6 @@ class AIOrchestratorService:
         matching_events = []
         if intent.event_description:
             matching_events = [e for e in all_events if intent.event_description.lower() in e.get('summary', '').lower()]
-        if not matching_events:
-                return {"response": f"I couldn't find any events matching '{intent.event_description}' in that timeframe.", "state": state.dict()}
         else:
             matching_events = all_events
 
@@ -534,7 +546,7 @@ class AIOrchestratorService:
             if not intent.chat_query:
                 return {"response": "I need to know which chat you want to summarize. Please specify one.", "state": state.dict()}
             print("   - No chat_id in state, calling 'find_telegram_chat' tool...")
-            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context.dict())
+            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context)
             if chat_details.get("error"):
                 return {"response": chat_details["error"], "state": state.dict()}
             if not chat_details.get("success"):
@@ -544,7 +556,7 @@ class AIOrchestratorService:
             print(f"   - Tool found chat_id: {chat_id}")
 
         print("   - Calling 'get_conversation_history' tool...")
-        history = await get_conversation_history.coroutine(chat_id=chat_id, user_context=user_context.dict())
+        history = await get_conversation_history.coroutine(chat_id=chat_id, user_context=user_context)
         if not history or "error" in history[0]:
             return {"response": "I found the chat but couldn't retrieve its history.", "state": state.dict()}
 
@@ -554,7 +566,8 @@ class AIOrchestratorService:
         print("----------------------------------------")
         summary = await self.chat_llm.ainvoke(summary_prompt)
 
-        return {"response": summary.content, "state": state.dict()}
+        response_text = f"{summary.content}\n\nWould you like to send a message to this chat?"
+        return {"response": response_text, "state": state.dict()}
 
     async def _handle_reply_to_telegram_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """
@@ -584,21 +597,41 @@ class AIOrchestratorService:
             
             if not chat_id:
                 return {"response": f"I couldn't find a chat matching '{intent.chat_query}'. Please try a different name.", "state": state.dict()}
+        else:
+            # We have a chat_id from state, but we need to get the chat name
+            db = get_database()
+            telegram_service = TelegramService(db)
+            active_chats = await telegram_service.get_active_chats_for_search(user_context.user_id)
+            matched_chat = next((chat for chat in active_chats if chat['chat_id'] == chat_id), None)
+            if matched_chat:
+                chat_name = matched_chat['chat_name']
 
-        if not intent.message_body:
-            return {"response": "I see you want to send a message. What should it say?", "state": state.dict()}
+        # Check if the user has provided actual message content
+        if not intent.message_body or intent.message_body.lower() in ['yes', 'yeah', 'sure', 'ok', 'okay']:
+            state.pending_action = "awaiting_telegram_message_body"
+            return {
+                "response": "What would you like to say in your reply?",
+                "state": state.dict()
+            }
             
-        # At this point, we have a chat_id and a message. Create a draft for confirmation.
+        # Use LLM to expand the user's core message into a polite, complete reply
+        message_generation_prompt = f"A user wants to send a Telegram message to '{chat_name}'. Their core instruction is: '{intent.message_body}'. Expand this into a polite, complete, concise and more friendly message. For example, if the user says 'tell them I will attend', you could write 'I wanted to let you know that I will attend.'. Make it sound natural and conversational. Provide only ONE message option."
+        
+        llm = self.chat_llm
+        generated_message = await llm.ainvoke(message_generation_prompt)
+        final_message = generated_message.content if generated_message else intent.message_body
+        
+        # At this point, we have a chat_id and a refined message. Create a draft for confirmation.
         state.last_telegram_chat_id = chat_id
-        state.last_message_body = intent.message_body
+        state.last_message_body = final_message
 
         return {
             "type": "telegram_draft",
-            "response": f"Here's the draft of the message: \"{intent.message_body}\". I will send it to '{chat_name}' if it sounds good to you.",
+            "response": f"Here's the draft of the message: \"{final_message}\". I will send it to '{chat_name}' if it sounds good to you.",
             "details": {
                 "chat_id": chat_id,
                 "chat_name": chat_name,
-                "body": intent.message_body
+                "body": final_message
             },
             "state": state.dict()
         }
@@ -643,7 +676,7 @@ class AIOrchestratorService:
             if isinstance(history, list) and history and "error" not in history[0]:
                 state.last_telegram_chat_id = chat_id # Save context
                 latest_message = history[-1]
-                response_text = f"The latest message in '{chat_info.get('chat_name')}' is: {latest_message}"
+                response_text = f"The latest message in '{chat_info.get('chat_name')}' is: {latest_message}\n\nWould you like to reply to this message?"
                 return {"response": response_text, "state": state.dict()}
             else:
                 return {"response": f"I found the chat, but couldn't retrieve its history.", "state": state.dict()}
@@ -668,7 +701,7 @@ class AIOrchestratorService:
                 # Save the context of this latest chat
                 state.last_telegram_chat_id = chat_id
                 
-                response_text = f"Your latest message is in '{chat_name}': {latest_message_text}"
+                response_text = f"Your latest message is in '{chat_name}': {latest_message_text}\n\nWould you like to reply to this message?"
                 return {"response": response_text, "state": state.dict()}
             else:
                 # This case handles empty summaries or unexpected formats
@@ -1499,6 +1532,11 @@ class AIOrchestratorService:
                     email_body=request.input
                 )
                 response = await self._handle_compose_email_intent(intent, request.user_context, request.conversation_state, request.input, testing=testing)
+
+            elif request.conversation_state.pending_action == "awaiting_telegram_message_body":
+                request.conversation_state.pending_action = None
+                intent = Intent(intent="reply_to_telegram", message_body=request.input)
+                response = await self._handle_reply_to_telegram_intent(intent, request.user_context, request.conversation_state, request.input, testing=testing)
 
             else:
                 # --- Standard Flow: No Pending Action ---
