@@ -1,9 +1,10 @@
 import os
 import logging
-from typing import Dict, Any, List, Optional, Literal
+from typing import Dict, Any, List, Optional, Literal, Tuple
 from datetime import datetime, timedelta
 import pytz
 import dateparser
+import json
 
 # LangChain Imports
 from langchain_core.prompts import ChatPromptTemplate
@@ -107,42 +108,29 @@ class AIOrchestratorService:
         """Stage 1: Classify the user's high-level intent."""
         prompt = ChatPromptTemplate.from_messages([
             ("system",
-             "You are an expert at classifying user intent. Based on the user's message and the conversation history, "
-             "classify the user's primary goal into one of the following categories. "
-             "You must respond with a JSON object containing a single key 'intent' whose value is EXACTLY one of the allowed categories.\n\n"
-             "The ONLY allowed categories are: "
-             "`create_event`, `edit_event`, `find_event`, `list_events`, "
+             "You are Minus AI, a friendly and efficient assistant integrated into this application. Your primary goal is to help users manage their connected services like email, calendar, and documents.\n\n"
+             "First, classify the user's intent based on their message. You must respond with a JSON object containing a single key 'intent' whose value is EXACTLY one of the allowed categories.\n\n"
+             "The ONLY allowed categories are: `create_event`, `edit_event`, `find_event`, `list_emails`, "
              "`list_emails`, `find_email`, `compose_email`, `reply_to_email`, `send_email_draft`, `refine_email_draft`, `cancel_email_draft`, "
              "`find_telegram_chat`, `reply_to_telegram`, `summarize_telegram_chat`, `send_telegram_draft`, `refine_telegram_draft`, `get_latest_telegram_message`, `summarize_all_unread_telegram`, "
              "`list_documents`, `open_document`, `close_document`, `summarize_document`, `edit_document`, `apply_suggestion`, `reject_suggestion`, `general_chat`\n\n"
-             "IMPORTANT: You must ONLY return one of these exact intent names. Do NOT return tool names like 'create_document_suggestion' or 'apply_document_suggestion'.\n\n"
-             "Classification rules:\n"
-             "- If the immediate previous turn was about reading a message (email or telegram) and the user's input is a short instruction like 'tell him I'll be there' or 'reply that I agree', classify the intent as `reply_to_email` or `reply_to_telegram` respectively.\n"
-             "- A request like 'what's new in my email?' is `list_emails`\n"
-             "- A request like 'find the email from jane' is `find_email`\n"
-             "- A request like 'draft an email to john' is `compose_email`\n"
-             "- A request like 'reply to the last email' is `reply_to_email`\n"
-             "- A request like 'make it more formal' or 'add a sentence' while a draft is being reviewed is `refine_email_draft`\n"
-             "- A user saying 'send it' or clicking 'send' on a draft review card is `send_email_draft`\n"
-             "- A user saying 'cancel that' or 'nevermind' while a draft is being reviewed is `cancel_email_draft`\n"
-             "- A request like 'what's on my calendar?' is `list_events`\n"
-             "- A request like 'find my meeting with bob' is `find_event`\n"
-             "- A request like 'when is my latest dental appointment?' is `find_event`\n"
-             "- A request like 'summarize my chat with the design team' is `summarize_telegram_chat`\n"
-             "- A request like 'find my conversation with Samson' is `find_telegram_chat`\n"
-             "- A user saying 'yes, send it' or 'go ahead' after a telegram draft is shown is `send_telegram_draft`\n"
-             "- A user wanting to change a drafted telegram message is `refine_telegram_draft`\n"
-             "- A request like 'what's the latest message in the dev chat?' is `get_latest_telegram_message`\n"
-             "- A request like 'what did I miss on Telegram?' or 'summarize my unread telegrams' is `summarize_all_unread_telegram`\n"
-             "- A request like 'reply to the project group' is `reply_to_telegram`\n"
-             "- A request like 'show me my documents' or 'list my docs' is `list_documents`\n"
-             "- A request like 'open the marketing strategy document' is `open_document`\n"
-             "- A request like 'go back to the dashboard' or 'close this document' is `close_document`\n"
-             "- A request like 'summarize this document' or 'what is this doc about?' is `summarize_document`\n"
-             "- A request like 'create a new document', 'help me create a document', or 'make a new doc' is `create_document`\n"
-             "- A request like 'change this text to sound more formal', 'edit the first paragraph', or 'add a new section' is `edit_document`\n"
-             "- A user saying 'approve', 'apply', 'yes', or 'apply this change' after a document suggestion is shown is `apply_suggestion`\n"
-             "- A user saying 'reject', 'no', 'cancel', or 'don't make this change' after a document suggestion is shown is `reject_suggestion`"),
+             "--- Important Rules ---\n"
+             "1.  **Identity:** If asked 'who are you?' or 'introduce yourself', classify the intent as `general_chat`. Your identity is Minus AI, not a generic Google model.\n"
+             "2.  **Clarity:** If the user's request is ambiguous, vague, or you cannot determine a clear action, classify the intent as `general_chat`. In this case, you should later ask the user to rephrase their request.\n"
+             "3.  **Context is Key:** Pay close attention to the immediate previous turn. If the assistant just listed items (emails, documents, events) and the user says 'summarize the first one' or 'open the one from Samson', the intent is to act on that item (e.g., `find_email`, `open_document`). Do NOT misclassify this as `general_chat`.\n"
+             "4.  **Strict Suggestions:** Only classify the intent as `apply_suggestion` or `reject_suggestion` if the AI's last message explicitly presented a suggestion to be approved or rejected.\n"
+             "5.  **Markdown:** You can use markdown (like `**bold**` or `* item`) to format your responses for better readability.\n"
+             "6.  **Tool-based Intents:** Classify intents based on the user's goal, not the specific tool name. For example, 'fix this paragraph' should be `edit_document`, not `create_document_suggestion`.\n\n"
+             "--- Examples ---\n"
+             "- 'who are you?' -> `general_chat`\n"
+             "- 'what can you do?' -> `general_chat`\n"
+             "- 'what's on my calendar today?' -> `find_event`\n"
+             "- (After a list of emails is shown) 'summarize the latest one' -> `find_email`\n"
+             "- 'read my latest email from Samson' -> `find_email`\n"
+             "- 'draft a reply' -> `reply_to_email`\n"
+             "- 'summarize the project update document' -> `summarize_document`\n"
+             "- 'apply that change' -> `apply_suggestion`\n"
+             "- 'that's not right, cancel it' -> `reject_suggestion`"),
             ("placeholder", "{chat_history}"),
             ("human", "{input}")
         ])
@@ -157,7 +145,7 @@ class AIOrchestratorService:
                 return 'general_chat'
                 
             allowed_intents = [
-                'create_event', 'edit_event', 'find_event', 'list_events',
+                'create_event', 'edit_event', 'find_event',
                 'list_emails', 'find_email', 'compose_email', 'reply_to_email', 'send_email_draft', 'refine_email_draft', 'cancel_email_draft',
                 'find_telegram_chat', 'reply_to_telegram', 'summarize_telegram_chat', 'send_telegram_draft', 'refine_telegram_draft', 'get_latest_telegram_message', 'summarize_all_unread_telegram',
                 'list_documents', 'open_document', 'close_document', 'summarize_document', 'create_document', 'edit_document', 'apply_suggestion', 'reject_suggestion',
@@ -174,6 +162,20 @@ class AIOrchestratorService:
             logging.error(f"Error in intent classification: {e}")
             user_input_lower = user_input.lower()
             
+            # Check for Telegram-related keywords first
+            if any(word in user_input_lower for word in ['telegram', 'chat', 'message']):
+                if any(word in user_input_lower for word in ['summarize', 'summary', 'what\'s new', 'what is new']):
+                    return 'summarize_telegram_chat'
+                elif any(word in user_input_lower for word in ['reply', 'send', 'message']):
+                    return 'reply_to_telegram'
+                elif any(word in user_input_lower for word in ['find', 'search', 'look for']):
+                    return 'find_telegram_chat'
+                elif any(word in user_input_lower for word in ['latest', 'newest', 'recent']):
+                    return 'get_latest_telegram_message'
+                elif any(word in user_input_lower for word in ['unread', 'new messages']):
+                    return 'summarize_all_unread_telegram'
+            
+            # Check for document-related keywords
             if any(word in user_input_lower for word in ['edit', 'change', 'modify', 'update', 'rewrite']):
                 return 'edit_document'
             elif any(word in user_input_lower for word in ['create', 'new document', 'make document', 'new doc']):
@@ -182,9 +184,9 @@ class AIOrchestratorService:
                 return 'apply_suggestion'
             elif any(word in user_input_lower for word in ['reject', 'no', 'cancel', 'decline']):
                 return 'reject_suggestion'
-            elif any(word in user_input_lower for word in ['summarize', 'summary', 'what is this']):
+            elif any(word in user_input_lower for word in ['summarize', 'summary', 'what is this']) and any(word in user_input_lower for word in ['document', 'doc', 'file']):
                 return 'summarize_document'
-            elif any(word in user_input_lower for word in ['open', 'show', 'view']):
+            elif any(word in user_input_lower for word in ['open', 'show', 'view']) and any(word in user_input_lower for word in ['document', 'doc']):
                 return 'open_document'
             elif any(word in user_input_lower for word in ['list', 'documents', 'docs']):
                 return 'list_documents'
@@ -359,141 +361,98 @@ class AIOrchestratorService:
             return Intent(intent=intent_name)
 
     async def _handle_edit_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
-        """
-        Handles editing an event. If the event is not in the conversation state,
-        it uses the find_event logic to resolve ambiguity first.
-        """
-        event_id_to_edit = state.last_event_id
+        """Handles the multi-turn process of editing a calendar event."""
+        # Step 1: Check if we have an event in context.
+        if not state.last_event_id:
+            return {"response": "I'm not sure which event you want to edit. Please find an event first.", "state": state.dict()}
 
-        # If we don't know which event to edit, or if the user provided a new description, we must find it first.
-        if not event_id_to_edit or intent.event_description:
-            print(f"No event ID in state or new description provided. Searching for event matching: '{intent.event_description}'")
-            # Use the more robust find logic to resolve ambiguity
-            find_result = await self._handle_find_event_intent(intent, user_context, state, user_input, testing)
-            
-            # If the find operation needs to ask a question or results in an error, pass that response through immediately.
-            if "I'm sorry, I'm still not sure" in find_result.get("response", "") or "error" in find_result:
-                 return find_result
+        # Step 2: If the AI hasn't extracted any details, it means it needs more info.
+        # The prompt for the extractor should be improved to get all details at once if possible.
+        # For now, we'll ask the user what to change.
+        if not intent.summary and not intent.start_time and not intent.end_time and not intent.description:
+            state.pending_action = "awaiting_event_update"
+            return {"response": "Great. What would you like to change about that event?", "state": state.dict()}
 
-            # If an event was found, its ID is now in the state. Proceed with this new ID.
-            event_id_to_edit = state.last_event_id
-        
-        if not event_id_to_edit:
-            # This case handles when find_event succeeds but doesn't set an ID, which shouldn't happen but is a good safeguard.
-            return {"response": "I'm not sure which event you want to edit. Please be more specific.", "state": state.dict()}
-
-        # Now that we have a definitive event_id, check if there are any actual changes to be made.
-        if not any([intent.summary, intent.description, intent.start_time, intent.end_time]):
-            # The user might have just confirmed which event to edit. Ask for the actual change.
-            return {
-                "response": f"Great. What would you like to change about that event?",
-                "state": state.dict()
-            }
-
+        # Step 3: We have the details. Call the tool to update the event.
         result = await edit_calendar_event.coroutine(
-            event_id=event_id_to_edit,
-            summary=intent.summary,
-            description=intent.description,
-            start_time=intent.start_time,
-            end_time=intent.end_time,
+            event_id=state.last_event_id,
+            new_summary=intent.summary,
+            new_start_time=intent.start_time,
+            new_end_time=intent.end_time,
+            new_description=intent.description,
             user_context=user_context
         )
         
-        if isinstance(result, dict) and "error" in result:
+        if "error" in result:
             return {"response": result["error"], "state": state.dict()}
         
-        if result.get("status") == "event_updated":
-            state.last_event_id = result.get("details", {}).get("event_id")
-            return {"response": "Done. I've updated the event.", "state": state.dict()}
-        else:
-            error_message = result.get("error", "Sorry, I couldn't update the event. Please try again.")
-            return {"response": error_message, "state": state.dict()}
+        # Clear the pending action on success
+        state.pending_action = None
+        return {"response": result.get("confirmation_message", "I've updated the event."), "state": state.dict()}
 
     async def _handle_find_event_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """
-        Finds a specific event by first getting a broad list of potential candidates 
-        and then using a second AI call to reason over that list to find the best match.
+        Finds events based on a description or time range.
+        If one event is found, it saves it to state for follow-up actions.
+        If multiple are found, it lists them for clarification.
+        This is the primary handler for all calendar read operations.
         """
-        if not intent.event_description:
-            return {"response": "I can help with that, but I need to know what event you're looking for. For example, 'my meeting with Bob' or 'my dental appointment'.", "state": state.dict()}
+        # Determine the date range for the search. Default to 'today' if not specified.
+        start_time_str = intent.search_start_date or 'today'
+        end_time_str = intent.search_end_date or 'today'
+        
+        # If a specific description is given, expand the date range to ensure we find it.
+        if intent.event_description:
+            start_time_str = 'one month ago'
+            end_time_str = 'one year from now'
 
-        # Step 1: Get a broad list of candidate events
-        start_time_str = intent.search_start_date or 'one month ago'
-        end_time_str = intent.search_end_date or 'end_of_the_year'
         start_dt, end_dt = self._get_expanded_date_range(start_time_str, end_time_str)
-
         if not start_dt or not end_dt:
-            return {"response": "Sorry, I had trouble understanding the date range for your search.", "state": state.dict()}
+            return {"response": "Sorry, I had trouble understanding that date range.", "state": state.dict()}
 
-        candidate_events = await get_calendar_events.coroutine(
+        # Get all events that fall within the broad date range.
+        all_events = await get_calendar_events.coroutine(
             start_time=start_dt, end_time=end_dt, user_context=user_context
         )
 
-        if isinstance(candidate_events, dict) and "error" in candidate_events:
-            return {"response": candidate_events["error"], "state": state.dict()}
-        if not candidate_events:
-            return {"response": f"I couldn't find any events at all matching '{intent.event_description}' in the timeframe from {start_time_str} to {end_time_str}.", "state": state.dict()}
+        if isinstance(all_events, dict) and "error" in all_events:
+            return {"response": all_events["error"], "state": state.dict()}
+        if not all_events:
+            return {"response": "I couldn't find any events in that timeframe.", "state": state.dict()}
 
-        # Filter candidates based on the event description from the intent
-        matching_events = [e for e in candidate_events if intent.event_description.lower() in e.get('summary', '').lower()]
-
-        if not matching_events:
-            return {"response": f"I found some events in that time range, but none of them seem to be about '{intent.event_description}'.", "state": state.dict()}
-
-        # If only one match, we're done.
-        if len(matching_events) == 1:
-            best_match = matching_events[0]
-            state.last_event_id = best_match.get('id')
-            response_prompt_text = f"I found this event: {best_match.get('summary')} on {best_match.get('start', {}).get('dateTime')}. Is this the correct one?"
-            final_response = await self.chat_llm.ainvoke(response_prompt_text)
-            return {"response": final_response.content, "state": state.dict()}
-            
-        # Step 2: If multiple matches, use a resolver LLM to reason over the list of candidates
-        pruned_candidates = self._prune_event_list_for_resolver(matching_events)
-        
-        resolver_prompt = ChatPromptTemplate.from_messages([
-            ("system", 
-             "You are a reasoning engine. Your task is to analyze the user's query and the list of calendar events to find the single best match. "
-             "Consider event summaries, descriptions, and relative terms like 'latest', 'first', 'today', or specific dates. "
-             "Respond ONLY with the single best matching event object from the list, or null if no single event is a clear match."),
-            ("human", "User's Clarification: '{user_input}'\n\nList of Potential Events:\n{event_list}")
-        ])
-        structured_resolver_llm = self.chat_llm.with_structured_output(_EventResolverResponse)
-        resolver_chain = resolver_prompt | structured_resolver_llm
-        
-        resolver_result = await resolver_chain.ainvoke({
-            "user_input": user_input, # Pass the user's latest clarification (e.g., 'the one on the 14th')
-            "event_list": str(pruned_candidates)
-        })
-
-        best_match = resolver_result.matched_event
-
-        # Step 3: Act on the resolved event
-        if best_match:
-            state.last_event_id = best_match.get('id')
-            response_prompt_text = f"Great, I've identified the event: {best_match.get('summary')} on {best_match.get('start', {}).get('dateTime')}. Now, what would you like to do with it?"
-            final_response = await self.chat_llm.ainvoke(response_prompt_text)
-            return {"response": final_response.content, "state": state.dict()}
+        # If a specific event description was provided, filter the results.
+        matching_events = []
+        if intent.event_description:
+            matching_events = [e for e in all_events if intent.event_description.lower() in e.get('summary', '').lower()]
         else:
-            # If the resolver fails, ask for clarification again with the list of options.
-            event_summaries = [f"'{e['summary']}' on {e['start'].get('dateTime', e['start'].get('date'))}" for e in matching_events]
-            return {"response": "I'm sorry, I'm still not sure which one you mean. Could you be more specific? Here are the options I found:\n- " + "\n- ".join(event_summaries), "state": state.dict()}
+            matching_events = all_events
 
-    def _prune_event_list_for_resolver(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Prunes the event list to only include fields relevant for AI reasoning."""
-        pruned_list = []
-        for event in events:
-            pruned_list.append({
-                "id": event.get("id"),
-                "summary": event.get("summary"),
-                "description": event.get("description"),
-                "start": event.get("start"),
-                "end": event.get("end"),
-            })
-        return pruned_list
+        # --- Core Logic: Handle based on number of matches ---
+        state.last_event_id = None  # Always clear previous event context on a new search
 
-    # --- LOGIC HANDLERS ---
-    def _get_expanded_date_range(self, start_str: str, end_str: Optional[str]) -> (Optional[datetime], Optional[datetime]):
+        # Case 1: Exactly one event found. Set it in state for follow-up.
+        if len(matching_events) == 1:
+            event = matching_events[0]
+            state.last_event_id = event['id']
+            event_time = self._format_event_time(event)
+            response = f"I found one event for you: **{event['summary']}** {event_time}. You can ask me to add a description, or edit it."
+            return {"response": response, "state": state.dict()}
+
+        # Case 2: Multiple events found. List them for clarification.
+        else:
+            event_list_str = ""
+            for event in matching_events[:5]:  # Limit to 5 to avoid overwhelming the user
+                event_time = self._format_event_time(event)
+                event_list_str += f"\n* **{event['summary']}** {event_time}"
+
+            response = f"I found a few events for that timeframe:{event_list_str}"
+            if len(matching_events) > 5:
+                response += f"\n\n...and {len(matching_events) - 5} more."
+            response += "\n\nWhich one would you like to focus on?"
+            
+            return {"response": response, "state": state.dict()}
+
+    def _get_expanded_date_range(self, start_date_str: str, end_date_str: str) -> Tuple[Optional[str], Optional[str]]:
         """
         Parses start and end date strings, handles special keywords, 
         and returns timezone-aware datetime objects.
@@ -501,19 +460,19 @@ class AIOrchestratorService:
         malaysia_tz = pytz.timezone('Asia/Kuala_Lumpur')
         now = datetime.now(malaysia_tz)
         
-        final_end_str = end_str or start_str
+        final_end_str = end_date_str or start_date_str
         
         start_dt = None
         end_dt = None
 
         try:
             # Handle special keywords first
-            if start_str == 'today':
+            if start_date_str == 'today':
                 start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            elif start_str == 'one month ago':
+            elif start_date_str == 'one month ago':
                 start_dt = (now - timedelta(days=30))
             else:
-                start_dt = dateparser.parse(start_str)
+                start_dt = dateparser.parse(start_date_str)
 
             if final_end_str == 'end_of_the_year':
                 end_dt = now.replace(month=12, day=31, hour=23, minute=59, second=59, microsecond=0)
@@ -521,7 +480,7 @@ class AIOrchestratorService:
                 end_dt = dateparser.parse(final_end_str)
 
             if not start_dt or not end_dt:
-                logging.error(f"Date parsing resulted in None for: {start_str} or {final_end_str}")
+                logging.error(f"Date parsing resulted in None for: {start_date_str} or {final_end_str}")
                 return None, None
             
             # Ensure timezone awareness
@@ -538,8 +497,29 @@ class AIOrchestratorService:
             return start_dt, end_dt
 
         except Exception as e:
-            logging.error(f"Date calculation failed for '{start_str}' to '{final_end_str}': {e}")
+            logging.error(f"Date calculation failed for '{start_date_str}' to '{final_end_str}': {e}")
             return None, None
+
+    def _format_event_time(self, event: Dict[str, Any]) -> str:
+        """Formats the event start and end times into a readable string."""
+        start = event.get('start', {})
+        if 'dateTime' in start:
+            start_dt = datetime.fromisoformat(start['dateTime'])
+            # .lstrip('0') for cross-platform compatibility (removes leading zero from hour)
+            start_time_str = start_dt.strftime('%I:%M %p').lstrip('0')
+
+            end = event.get('end', {})
+            if 'dateTime' in end:
+                end_dt = datetime.fromisoformat(end['dateTime'])
+                # Only show end time if it's more than a minute after the start
+                if (end_dt - start_dt).total_seconds() > 60:
+                    end_time_str = end_dt.strftime('%I:%M %p').lstrip('0')
+                    return f"from {start_time_str} to {end_time_str}"
+            
+            return f"at {start_time_str}"
+        elif 'date' in start:
+            return "which is an all-day event"
+        return ""
 
     async def _handle_find_telegram_chat_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles finding a telegram chat and returning its details."""
@@ -566,7 +546,7 @@ class AIOrchestratorService:
             if not intent.chat_query:
                 return {"response": "I need to know which chat you want to summarize. Please specify one.", "state": state.dict()}
             print("   - No chat_id in state, calling 'find_telegram_chat' tool...")
-            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context.dict())
+            chat_details = await find_telegram_chat.coroutine(chat_query=intent.chat_query, user_context=user_context)
             if chat_details.get("error"):
                 return {"response": chat_details["error"], "state": state.dict()}
             if not chat_details.get("success"):
@@ -576,7 +556,7 @@ class AIOrchestratorService:
             print(f"   - Tool found chat_id: {chat_id}")
 
         print("   - Calling 'get_conversation_history' tool...")
-        history = await get_conversation_history.coroutine(chat_id=chat_id, user_context=user_context.dict())
+        history = await get_conversation_history.coroutine(chat_id=chat_id, user_context=user_context)
         if not history or "error" in history[0]:
             return {"response": "I found the chat but couldn't retrieve its history.", "state": state.dict()}
 
@@ -586,7 +566,8 @@ class AIOrchestratorService:
         print("----------------------------------------")
         summary = await self.chat_llm.ainvoke(summary_prompt)
 
-        return {"response": summary.content, "state": state.dict()}
+        response_text = f"{summary.content}\n\nWould you like to send a message to this chat?"
+        return {"response": response_text, "state": state.dict()}
 
     async def _handle_reply_to_telegram_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """
@@ -616,21 +597,41 @@ class AIOrchestratorService:
             
             if not chat_id:
                 return {"response": f"I couldn't find a chat matching '{intent.chat_query}'. Please try a different name.", "state": state.dict()}
+        else:
+            # We have a chat_id from state, but we need to get the chat name
+            db = get_database()
+            telegram_service = TelegramService(db)
+            active_chats = await telegram_service.get_active_chats_for_search(user_context.user_id)
+            matched_chat = next((chat for chat in active_chats if chat['chat_id'] == chat_id), None)
+            if matched_chat:
+                chat_name = matched_chat['chat_name']
 
-        if not intent.message_body:
-            return {"response": "I see you want to send a message. What should it say?", "state": state.dict()}
+        # Check if the user has provided actual message content
+        if not intent.message_body or intent.message_body.lower() in ['yes', 'yeah', 'sure', 'ok', 'okay']:
+            state.pending_action = "awaiting_telegram_message_body"
+            return {
+                "response": "What would you like to say in your reply?",
+                "state": state.dict()
+            }
             
-        # At this point, we have a chat_id and a message. Create a draft for confirmation.
+        # Use LLM to expand the user's core message into a polite, complete reply
+        message_generation_prompt = f"A user wants to send a Telegram message to '{chat_name}'. Their core instruction is: '{intent.message_body}'. Expand this into a polite, complete, concise and more friendly message. For example, if the user says 'tell them I will attend', you could write 'I wanted to let you know that I will attend.'. Make it sound natural and conversational. Provide only ONE message option."
+        
+        llm = self.chat_llm
+        generated_message = await llm.ainvoke(message_generation_prompt)
+        final_message = generated_message.content if generated_message else intent.message_body
+        
+        # At this point, we have a chat_id and a refined message. Create a draft for confirmation.
         state.last_telegram_chat_id = chat_id
-        state.last_message_body = intent.message_body
+        state.last_message_body = final_message
 
         return {
             "type": "telegram_draft",
-            "response": f"Here's the draft of the message: \"{intent.message_body}\". I will send it to '{chat_name}' if it sounds good to you.",
+            "response": f"Here's the draft of the message: \"{final_message}\". I will send it to '{chat_name}' if it sounds good to you.",
             "details": {
                 "chat_id": chat_id,
                 "chat_name": chat_name,
-                "body": intent.message_body
+                "body": final_message
             },
             "state": state.dict()
         }
@@ -675,7 +676,7 @@ class AIOrchestratorService:
             if isinstance(history, list) and history and "error" not in history[0]:
                 state.last_telegram_chat_id = chat_id # Save context
                 latest_message = history[-1]
-                response_text = f"The latest message in '{chat_info.get('chat_name')}' is: {latest_message}"
+                response_text = f"The latest message in '{chat_info.get('chat_name')}' is: {latest_message}\n\nWould you like to reply to this message?"
                 return {"response": response_text, "state": state.dict()}
             else:
                 return {"response": f"I found the chat, but couldn't retrieve its history.", "state": state.dict()}
@@ -700,7 +701,7 @@ class AIOrchestratorService:
                 # Save the context of this latest chat
                 state.last_telegram_chat_id = chat_id
                 
-                response_text = f"Your latest message is in '{chat_name}': {latest_message_text}"
+                response_text = f"Your latest message is in '{chat_name}': {latest_message_text}\n\nWould you like to reply to this message?"
                 return {"response": response_text, "state": state.dict()}
             else:
                 # This case handles empty summaries or unexpected formats
@@ -796,39 +797,42 @@ class AIOrchestratorService:
         This approach is more robust than relying on a perfect search query from the first LLM.
         """
         print("\n--- HANDLING FIND_EMAIL INTENT ---")
-        if not intent.query:
-            print("LOG: Intent has no query. Aborting.")
+        if not intent.email_query:
+            print("LOG: Intent has no email_query. Aborting.")
             return {"response": "I can help find an email, but I need to know what to search for. For example, 'the email from my manager' or 'the email about the quarterly report'.", "state": state.dict()}
 
         # Step 1: Fetch a broad list of recent emails (e.g., last 30 days)
         # The user's original query (e.g., 'from:Samson') is still useful for a first-pass filter.
-        print(f"LOG: Step 1 - Searching for candidate emails with initial query: '{intent.query}'")
-        candidate_emails = await list_emails.coroutine(query=intent.query, max_results=10, user_context=user_context, testing=testing) # Increased max_results
+        print(f"LOG: Step 1 - Searching for candidate emails with initial query: '{intent.email_query}'")
+        candidate_emails = await list_emails.coroutine(query=intent.email_query, max_results=10, user_context=user_context, testing=testing) # Increased max_results
 
         if not candidate_emails:
             print("LOG: list_emails tool returned no results.")
-            return {"response": f"I couldn't find any emails matching your search: '{intent.query}'. You could try being less specific to see more results.", "state": state.dict()}
+            return {"response": f"I couldn't find any emails matching your search: '{intent.email_query}'. You could try being less specific to see more results.", "state": state.dict()}
 
         print(f"LOG: Found {len(candidate_emails)} candidate email(s).")
 
-        # If there's only one result, we can skip the reasoning step.
+        # --- NEW: Skip Resolver step for a single, unambiguous match ---
         if len(candidate_emails) == 1:
-            best_match_id = candidate_emails[0]['id']
+            best_match_id = candidate_emails[0].get('id')
             print("LOG: Step 2 - Only one candidate found. Skipping LLM resolver.")
         else:
             # Step 2: Use a resolver LLM to reason over the list of candidates
-            print(f"LOG: Step 2 - Multiple candidates found. Engaging LLM to resolve the best match.")
+            print(f"LOG: Step 2 - Multiple candidates found. Engaging LLM to resolve the best match based on user input: '{user_input}'.")
+            
+            # Get today's date for providing context to the LLM
+            today = datetime.now(pytz.timezone('Asia/Kuala_Lumpur')).strftime('%B %d, %Y')
+            
             resolver_prompt = ChatPromptTemplate.from_messages([
                 ("system",
-                 "You are a reasoning engine. Below is a user's request and a list of JSON objects representing their recent emails. "
-                 "Your task is to analyze the request and identify the `id` of the single email from the list that best matches. "
-                 "Pay close attention to relative terms like 'latest', 'newest', 'first', or 'oldest'. "
-                 "To determine the 'latest' or 'newest', you MUST compare the `date` field of each email object. A more recent date is later. "
-                 "Respond ONLY with the `id` of the single best matching email, or 'null' if no single email is a clear match."),
+                 f"You are a reasoning engine. Your task is to analyze the user's request and a list of JSON email objects to find the single best match. "
+                 f"For context, today's date is {today}. "
+                 "Pay close attention to relative terms like 'latest', 'newest', 'first', or 'oldest'. To determine this, you MUST compare the 'date' field of each email object; a more recent date is later. "
+                 "Also consider ordinal numbers like 'the first one' or 'the second email'. "
+                 "Respond ONLY with a JSON object containing the key 'matched_email_id' and the string value of the best matching email's id, or 'null' if no single email is a clear match."),
                 ("human", "User Request: {user_input}\n\nEmail List:\n{email_list}")
             ])
             
-            # A Pydantic model for the resolver's response
             class _EmailResolverResponse(BaseModel):
                 matched_email_id: Optional[str] = Field(description="The 'id' of the single email object that best matches the user's request.")
 
@@ -871,13 +875,28 @@ class AIOrchestratorService:
             print("LOG: LLM resolver could not determine a best match or returned null.")
             # Create a user-friendly list of options if the resolver fails
             options_list = "\n".join([f"- From: {email.get('sender', {}).get('name', 'N/A')}, Subject: {email.get('subject', 'N/A')}" for email in candidate_emails])
-            return {"response": f"I found a few emails matching '{intent.query}', but I'm not sure which one you meant. Here are the top results:\n{options_list}\n\nCould you be more specific?", "state": state.dict()}
+            return {"response": f"I found a few emails matching '{intent.email_query}', but I'm not sure which one you meant. Here are the top results:\n{options_list}\n\nCould you be more specific?", "state": state.dict()}
 
-    async def _handle_compose_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
-        """Handles the 'compose_email' intent by creating a draft."""
+    async def _handle_compose_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> List[Dict[str, Any]]:
+        """Handles the 'compose_email' intent by creating a draft and returning a multi-action response."""
+        # If 'to' and 'subject' are present, but 'body' is not, ask for the body.
+        if intent.email_to and intent.email_subject and not intent.email_body:
+            state.pending_action = "awaiting_email_body_for_compose"
+            state.partial_draft = {"to": intent.email_to, "subject": intent.email_subject}
+            return [{
+                "type": "text",
+                "response": f"Okay, drafting an email to {intent.email_to} about \"{intent.email_subject}\". What should the message be?",
+                "state": state.dict()
+            }]
+
+        # If any of the main components are missing, ask for all of them.
         if not intent.email_to or not intent.email_subject or not intent.email_body:
-            return {"response": "To compose an email, I need to know who it's for, the subject, and the message. Could you provide those details?", "state": state.dict()}
-            
+            return [{
+                "type": "text",
+                "response": "To compose an email, I need to know who it's for, the subject, and the message. Could you provide those details?",
+                "state": state.dict()
+            }]
+
         draft_details = await create_draft_email.coroutine(
             to=intent.email_to,
             subject=intent.email_subject,
@@ -885,47 +904,62 @@ class AIOrchestratorService:
             user_context=user_context,
             testing=testing
         )
-        
-        # This is a special response type the frontend will look for
-        return {
-            "type": "draft_review",
-            "details": draft_details,
-            "state": state.dict()
-        }
 
-    async def _handle_reply_to_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
-        """Handles replying to an email by creating a draft reply."""
+        if not draft_details or "error" in draft_details:
+            return [{
+                "type": "text",
+                "response": draft_details.get("error", "Sorry, I couldn't create the draft."),
+                "state": state.dict()
+            }]
+        
+        state.last_draft_id = draft_details.get("draft_id")
+
+        return [
+            {
+                "type": "text",
+                "response": "I've drafted that email for you. Please review it below."
+            },
+            {
+                "type": "draft_review",
+                "details": draft_details,
+                "state": state.dict()
+            }
+        ]
+
+    async def _handle_reply_to_email_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> List[Dict[str, Any]]:
+        """Handles replying to an email by creating a draft and returning a multi-action response."""
         thread_id = state.last_thread_id
         email_to_reply_to = None
 
         if not thread_id:
-            # If no thread is in context, we must find the email first.
-            # Default to finding the 'latest' email if no query is provided by the extractor.
-            find_query = intent.email_query or "in:inbox" 
-            
+            find_query = intent.email_query or "in:inbox"
             found_emails = await list_emails.coroutine(query=find_query, max_results=1, user_context=user_context, testing=testing)
             if not found_emails:
-                return {"response": f"I couldn't find an email to reply to based on your request: '{user_input}'.", "state": state.dict()}
+                return [{"type": "text", "response": f"I couldn't find an email to reply to based on your request: '{user_input}'.", "state": state.dict()}]
             
             email_to_reply_to = await get_email_details.coroutine(message_id=found_emails[0]['id'], user_context=user_context, testing=testing)
             thread_id = email_to_reply_to.get('thread_id')
             state.last_thread_id = thread_id
             state.last_email_id = email_to_reply_to.get('id')
         else:
-            # We have a thread, get the details of the last message to prepare the reply
             email_to_reply_to = await get_email_details.coroutine(message_id=state.last_email_id, user_context=user_context, testing=testing)
 
         if not email_to_reply_to or not thread_id:
-            return {"response": "I seem to have lost track of the email we were talking about. Could you specify which one you'd like to reply to?", "state": state.dict()}
+            return [{"type": "text", "response": "I seem to have lost track of the email we were talking about. Could you specify which one you'd like to reply to?", "state": state.dict()}]
 
-        # The 'To' for the reply should be the 'From' of the original email.
+        # NEW: Check if the email body is missing.
+        if not intent.email_body:
+            state.pending_action = "awaiting_email_body_for_reply"
+            return [{
+                "type": "text",
+                "response": "Of course. What would you like to say in your reply?",
+                "state": state.dict()
+            }]
+
         reply_to_address = email_to_reply_to['sender']['email']
-        
-        # Prepend "Re: " to subject if it's not already there
         original_subject = email_to_reply_to['subject']
         reply_subject = f"Re: {original_subject}" if not original_subject.lower().startswith('re:') else original_subject
         
-        # IMPROVEMENT: Use LLM to expand the user's core message into a polite email body.
         body_generation_prompt = f"A user wants to reply to an email with the subject '{original_subject}'. Their core instruction is: '{intent.email_body}'. Expand this into a polite, professional email body. For example, if the user says 'I'll be there', you could write 'Thank you for the invitation. I would be happy to attend. Looking forward to it!'. Start directly with the body, do not include a subject line, and sign off with 'Best regards, [Your Name]'."
         
         llm = self.chat_llm
@@ -941,25 +975,45 @@ class AIOrchestratorService:
             testing=testing
         )
         
-        # Save the new draft_id to state for potential refinement
         if draft_details and "draft_id" in draft_details:
             state.last_draft_id = draft_details["draft_id"]
-            state.last_recipient_email = reply_to_address # Remember who we're replying to
+            state.last_recipient_email = reply_to_address
+        else:
+             return [{"type": "text", "response": "Sorry, I failed to create a draft for the reply.", "state": state.dict()}]
 
-        return {
-            "type": "draft_review",
-            "details": draft_details,
-            "state": state.dict()
-        }
+        return [
+            {
+                "type": "text",
+                "response": "I've drafted a reply for you. Please take a look."
+            },
+            {
+                "type": "draft_review",
+                "details": draft_details,
+                "state": state.dict()
+            }
+        ]
 
     async def _handle_send_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles sending a previously created draft."""
-        # The user can either click the button (passing draft_id in the intent) or say 'send it' (using draft_id from state).
-        draft_id_to_send = intent.draft_id or state.last_draft_id
+        draft_id_to_send = None
         
+        # Attempt to parse draft_id from JSON input first, as it's more reliable
+        try:
+            input_data = json.loads(user_input)
+            if isinstance(input_data, dict) and 'draft_id' in input_data:
+                draft_id_to_send = input_data['draft_id']
+                print(f"DEBUG: Extracted draft_id '{draft_id_to_send}' from JSON input.")
+        except (json.JSONDecodeError, TypeError):
+            # Fallback for natural language or if parsing fails
+            pass
+
         if not draft_id_to_send:
+            # The user can either click the button (passing draft_id in the intent) or say 'send it' (using draft_id from state).
+            draft_id_to_send = intent.draft_id or state.last_draft_id
+
+        if not draft_id_to_send or draft_id_to_send == '[draft_id]': # Added check for placeholder
             return {"response": "I'm sorry, I don't have a draft to send. Please create a draft first.", "state": state.dict()}
-        
+
         send_result = await send_draft.coroutine(draft_id=draft_id_to_send, user_context=user_context, testing=testing)
         
         if send_result and send_result.get('id'):
@@ -972,21 +1026,18 @@ class AIOrchestratorService:
         else:
             return {"response": "I encountered an error trying to send the email. Please check your drafts in Gmail.", "state": state.dict()}
 
-    async def _handle_refine_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
-        """Handles refining an existing draft."""
+    async def _handle_refine_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> List[Dict[str, Any]]:
+        """Handles refining an existing draft and returns a multi-action response."""
         draft_id = state.last_draft_id
         if not draft_id:
-            return {"response": "I'm not sure which draft you want to refine. Please start by creating a reply or new email.", "state": state.dict()}
+            return [{"type": "text", "response": "I'm not sure which draft you want to refine. Please start by creating a reply or new email.", "state": state.dict()}]
 
-        # Acknowledging the limitation and providing a path forward:
-        # Step 1: Get the current draft details
         gmail_service = GmailService(user_id=user_context.user_id, testing=testing)
         try:
             original_draft_details = await gmail_service.get_draft_details(draft_id)
         except Exception as e:
-            return {"response": f"Sorry, I couldn't retrieve the original draft to modify it. Error: {e}", "state": state.dict()}
+            return [{"type": "text", "response": f"Sorry, I couldn't retrieve the original draft to modify it. Error: {e}", "state": state.dict()}]
 
-        # Step 2: Create a prompt for the LLM to refine the body
         refinement_prompt = (
             f"A user wants to refine an email draft they are writing. "
             f"Their instruction is: '{intent.email_body}'.\n\n"
@@ -998,15 +1049,12 @@ class AIOrchestratorService:
         refined_body_response = await self.chat_llm.ainvoke(refinement_prompt)
         refined_body = refined_body_response.content if refined_body_response else original_draft_details.body_plain
 
-        # Step 3: Delete the old draft
         await delete_draft.coroutine(draft_id=draft_id, user_context=user_context, testing=testing)
         
-        # Get recipient from state to avoid parsing issues
         recipient_email = state.last_recipient_email
         if not recipient_email:
-            return {"response": "I'm sorry, I've lost track of who this email was for. Please start the reply again.", "state": state.dict()}
+            return [{"type": "text", "response": "I'm sorry, I've lost track of who this email was for. Please start the reply again.", "state": state.dict()}]
 
-        # Step 4: Create a new draft with the refined body
         new_draft_details = await create_draft_email.coroutine(
             to=recipient_email,
             subject=original_draft_details.subject,
@@ -1016,17 +1064,22 @@ class AIOrchestratorService:
             testing=testing
         )
 
-        # Step 5: Update state and return for review
         if new_draft_details and "draft_id" in new_draft_details:
             state.last_draft_id = new_draft_details["draft_id"]
         else:
-            state.last_draft_id = None # Clear if new draft creation failed
+            state.last_draft_id = None
 
-        return {
-            "type": "draft_review",
-            "details": new_draft_details,
-            "state": state.dict()
-        }
+        return [
+            {
+                "type": "text",
+                "response": "I've updated the draft for you. Here is the new version."
+            },
+            {
+                "type": "draft_review",
+                "details": new_draft_details,
+                "state": state.dict()
+            }
+        ]
 
     async def _handle_cancel_email_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles cancelling and deleting the current draft."""
@@ -1291,13 +1344,18 @@ class AIOrchestratorService:
             "preview_type": "document_edit"
         }
         
-        return {
-            "type": "tool_draft",
-            "tool_name": "create_document_suggestion",
-            "tool_input": suggestion_data,
-            "assistant_message": f"Here's a more professional version of the text:",
-            "state": state.dict()
-        }
+        return [
+            {
+                "type": "text",
+                "response": "I've drafted a suggestion to improve the document. Please review it below."
+            },
+            {
+                "type": "tool_draft",
+                "tool_name": "create_document_suggestion",
+                "tool_input": suggestion_data,
+                "state": state.dict()
+            }
+        ]
 
     async def _handle_apply_suggestion_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
         """Handles applying a document suggestion."""
@@ -1388,19 +1446,17 @@ class AIOrchestratorService:
         else:
             return {"response": f"An unexpected error occurred during document creation.", "state": state.dict()}
 
-    async def _handle_refine_telegram_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> Dict[str, Any]:
+    async def _handle_refine_telegram_draft_intent(self, intent: Intent, user_context: UserContext, state: ConversationState, user_input: str, testing: bool = False) -> List[Dict[str, Any]]:
         """
-        Handles refining a previously drafted Telegram message.
+        Handles refining a previously drafted Telegram message and returns a multi-action response.
         """
         chat_id = state.last_telegram_chat_id
         if not chat_id:
-            return {"response": "I'm sorry, I don't know which message you're trying to refine. Please start by replying to a chat first.", "state": state.dict()}
+            return [{"type": "text", "response": "I'm sorry, I don't know which message you're trying to refine. Please start by replying to a chat first.", "state": state.dict()}]
 
         if not intent.message_body:
-            return {"response": "What should the new message be?", "state": state.dict()}
+            return [{"type": "text", "response": "What should the new message be?", "state": state.dict()}]
 
-        # We need the chat name for the response, so we'll have to find it.
-        # This is slightly inefficient but required for a good user experience.
         db = get_database()
         telegram_service = TelegramService(db)
         active_chats = await telegram_service.get_active_chats_for_search(user_context.user_id)
@@ -1409,18 +1465,24 @@ class AIOrchestratorService:
         if matched_chat:
             chat_name = matched_chat['chat_name']
 
-        # Update the state and return a new draft
         state.last_message_body = intent.message_body
-        return {
-            "type": "telegram_draft",
-            "response": f"Okay, new draft for '{chat_name}': \"{intent.message_body}\". Does this look right?",
-            "details": {
-                "chat_id": chat_id,
-                "chat_name": chat_name,
-                "body": intent.message_body
+        
+        return [
+            {
+                "type": "text",
+                "response": "I've updated the draft for you:"
             },
-            "state": state.dict()
-        }
+            {
+                "type": "telegram_draft",
+                "response": f"Okay, new draft for '{chat_name}': \"{intent.message_body}\". Does this look right?",
+                "details": {
+                    "chat_id": chat_id,
+                    "chat_name": chat_name,
+                    "body": intent.message_body
+                },
+                "state": state.dict()
+            }
+        ]
 
     # --- MAIN ENTRY POINT ---
     async def process_message(self, request: ChatRequest, testing: bool = False) -> Dict[str, Any]:
@@ -1440,88 +1502,142 @@ class AIOrchestratorService:
         print(f"Initial State: {request.conversation_state.dict()}")
 
         try:
+            response = {}
             # --- Handle Pending Actions ---
             if request.conversation_state.pending_action == "awaiting_document_title":
-                # User is providing a title for the document
-                # Create a synthetic intent with the user's input as the title
+                request.conversation_state.pending_action = None
                 intent = Intent(intent="create_document", title=request.input)
-                # Call the handler directly, bypassing the classifier and extractor
                 response = await self._handle_create_document_intent(intent, request.user_context, request.conversation_state, request.input, testing=testing)
-                print(f"4. FINAL State: {response.get('state')}")
-                print("---------------------------\n")
-                return {"type": "text", **response}
-            # --------------------------
-
-            # STAGE 1: CLASSIFY INTENT
-            intent_name = await self._classify_intent(request.input, chat_history)
-            print(f"\n--- 🧠 AI Orchestrator ---")
-            print(f"1. CLASSIFIER identified intent as: {intent_name}")
-
-            if intent_name == 'general_chat':
-                final_response = await self.chat_llm.ainvoke(request.input)
-                return {"type": "text", "response": final_response.content, "state": request.conversation_state.dict()}
-
-            # STAGE 2: EXTRACT DETAILS
-            intent = await self._extract_details(intent_name, request.input, chat_history)
-            print(f"2. EXTRACTOR populated details: {intent.dict(exclude_none=True)}")
-
-            # STAGE 3: EXECUTE LOGIC
-            print("3. EXECUTING intent handler...")
-            handler_map = {
-                'find_event': self._handle_find_event_intent,
-                'list_events': self._handle_list_events_intent,
-                'edit_event': self._handle_edit_intent,
-                'create_event': self._handle_create_intent,
-                'list_emails': self._handle_list_emails_intent,
-                'find_email': self._handle_find_email_intent,
-                'compose_email': self._handle_compose_email_intent,
-                'reply_to_email': self._handle_reply_to_email_intent,
-                'send_email_draft': self._handle_send_email_draft_intent,
-                'refine_email_draft': self._handle_refine_email_draft_intent,
-                'cancel_email_draft': self._handle_cancel_email_draft_intent,
-                'find_telegram_chat': self._handle_find_telegram_chat_intent,
-                'summarize_telegram_chat': self._handle_summarize_telegram_chat_intent,
-                'reply_to_telegram': self._handle_reply_to_telegram_intent,
-                'send_telegram_draft': self._handle_send_telegram_draft_intent,
-                'refine_telegram_draft': self._handle_refine_telegram_draft_intent,
-                'get_latest_telegram_message': self._handle_get_latest_telegram_message_intent,
-                'summarize_all_unread_telegram': self._handle_summarize_all_unread_telegram_intent,
-                'list_documents': self._handle_list_documents_intent,
-                'open_document': self._handle_open_document_intent,
-                'close_document': self._handle_close_document_intent,
-                'summarize_document': self._handle_summarize_document_intent,
-                'create_document': self._handle_create_document_intent,
-                'edit_document': self._handle_edit_document_intent,
-                'apply_suggestion': self._handle_apply_suggestion_intent,
-                'reject_suggestion': self._handle_reject_suggestion_intent,
-            }
-
-            handler = handler_map.get(intent.intent)
             
-            if handler:
-                response = await handler(intent, request.user_context, request.conversation_state, request.input, testing=testing)
-            else: 
-                # Fallback for unhandled intents
-                final_response = await self.chat_llm.ainvoke(request.input)
-                response = {"response": final_response.content, "state": request.conversation_state.dict()}
-            
-            print(f"4. FINAL State: {response.get('state')}")
+            elif request.conversation_state.pending_action == "awaiting_event_update":
+                request.conversation_state.pending_action = None
+                print("--- 🧠 Pending Action: awaiting_event_update ---")
+                intent = await self._extract_details("edit_event", request.input, chat_history)
+                print(f"2. EXTRACTOR (from pending action) populated details: {intent.dict(exclude_none=True)}")
+                response = await self._handle_edit_intent(intent, request.user_context, request.conversation_state, request.input, testing=testing)
+
+            elif request.conversation_state.pending_action == "awaiting_email_body_for_reply":
+                request.conversation_state.pending_action = None
+                intent = Intent(intent="reply_to_email", email_body=request.input)
+                response = await self._handle_reply_to_email_intent(intent, request.user_context, request.conversation_state, request.input, testing=testing)
+
+            elif request.conversation_state.pending_action == "awaiting_email_body_for_compose":
+                partial_draft = request.conversation_state.partial_draft
+                request.conversation_state.pending_action = None
+                request.conversation_state.partial_draft = None
+                intent = Intent(
+                    intent="compose_email", 
+                    email_to=partial_draft.get('to'),
+                    email_subject=partial_draft.get('subject'),
+                    email_body=request.input
+                )
+                response = await self._handle_compose_email_intent(intent, request.user_context, request.conversation_state, request.input, testing=testing)
+
+            elif request.conversation_state.pending_action == "awaiting_telegram_message_body":
+                request.conversation_state.pending_action = None
+                intent = Intent(intent="reply_to_telegram", message_body=request.input)
+                response = await self._handle_reply_to_telegram_intent(intent, request.user_context, request.conversation_state, request.input, testing=testing)
+
+            else:
+                # --- Standard Flow: No Pending Action ---
+                # STAGE 1: CLASSIFY INTENT
+                intent_name = await self._classify_intent(request.input, chat_history)
+                print(f"\n--- 🧠 AI Orchestrator ---")
+                print(f"1. CLASSIFIER identified intent as: {intent_name}")
+
+                if intent_name == 'general_chat':
+                    # Inject a more specific prompt for general chat to establish personality
+                    general_chat_prompt = ChatPromptTemplate.from_messages([
+                        ("system",
+                         "You are Minus AI, a helpful and friendly assistant. Your purpose is to assist users with their tasks within this application. "
+                         "If you are asked to introduce yourself, explain that you are Minus AI, and you can help with things like managing emails, documents, and calendar events. Keep your introduction brief and concise. "
+                         "If you don't understand a user's request, politely say so and ask them to rephrase it. "
+                         "You can use markdown for formatting."),
+                        ("placeholder", "{chat_history}"),
+                        ("human", "{input}")
+                    ])
+                    chain = general_chat_prompt | self.chat_llm
+                    final_response = await chain.ainvoke({"input": request.input, "chat_history": chat_history})
+                    response = {"type": "text", "response": final_response.content, "state": request.conversation_state.dict()}
+                else:
+                    # STAGE 2: EXTRACT DETAILS
+                    intent = await self._extract_details(intent_name, request.input, chat_history)
+                    print(f"2. EXTRACTOR populated details: {intent.dict(exclude_none=True)}")
+
+                    # STAGE 3: EXECUTE LOGIC
+                    print("3. EXECUTING intent handler...")
+                    handler_map = {
+                        'find_event': self._handle_find_event_intent,
+                        'list_events': self._handle_list_events_intent,
+                        'edit_event': self._handle_edit_intent,
+                        'create_event': self._handle_create_intent,
+                        'list_emails': self._handle_list_emails_intent,
+                        'find_email': self._handle_find_email_intent,
+                        'compose_email': self._handle_compose_email_intent,
+                        'reply_to_email': self._handle_reply_to_email_intent,
+                        'send_email_draft': self._handle_send_email_draft_intent,
+                        'refine_email_draft': self._handle_refine_email_draft_intent,
+                        'cancel_email_draft': self._handle_cancel_email_draft_intent,
+                        'find_telegram_chat': self._handle_find_telegram_chat_intent,
+                        'summarize_telegram_chat': self._handle_summarize_telegram_chat_intent,
+                        'reply_to_telegram': self._handle_reply_to_telegram_intent,
+                        'send_telegram_draft': self._handle_send_telegram_draft_intent,
+                        'refine_telegram_draft': self._handle_refine_telegram_draft_intent,
+                        'get_latest_telegram_message': self._handle_get_latest_telegram_message_intent,
+                        'summarize_all_unread_telegram': self._handle_summarize_all_unread_telegram_intent,
+                        'list_documents': self._handle_list_documents_intent,
+                        'open_document': self._handle_open_document_intent,
+                        'close_document': self._handle_close_document_intent,
+                        'summarize_document': self._handle_summarize_document_intent,
+                        'create_document': self._handle_create_document_intent,
+                        'edit_document': self._handle_edit_document_intent,
+                        'apply_suggestion': self._handle_apply_suggestion_intent,
+                        'reject_suggestion': self._handle_reject_suggestion_intent,
+                    }
+                    handler = handler_map.get(intent.intent)
+
+                    # Special condition for 'apply_suggestion' to prevent misuse
+                    if intent.intent == 'apply_suggestion' and not request.conversation_state.last_suggestion_id:
+                        response = {"type": "text", "response": "I don't have a suggestion to apply. Please make an edit first.", "state": request.conversation_state.dict()}
+                    elif handler:
+                        response = await handler(intent, request.user_context, request.conversation_state, request.input, testing=testing)
+                    else:
+                        # Fallback for unhandled intents
+                        final_response = await self.chat_llm.ainvoke(request.input)
+                        response = {"type": "text", "response": final_response.content, "state": request.conversation_state.dict()}
+
+            # This line is for debugging, can be removed in production
+            print(f"4. FINAL Response from handler: {response}")
             print("---------------------------\n")
 
-            # Handle multi-part responses
-            if response.get("type") == "telegram_draft":
-                 return {
-                    "type": "telegram_draft",
-                    "details": response["details"],
-                    "response": response["response"],
-                    "state": response["state"]
+            # Handle multi-part responses by wrapping them in a multi_action type
+            if isinstance(response, list):
+                # Ensure the latest state is propagated correctly
+                final_state = {}
+                # The state is attached to the last action in the list.
+                # We pop it from there and attach it to the top-level response.
+                if response and 'state' in response[-1]:
+                    final_state = response[-1].pop('state')
+                
+                return {
+                    "type": "multi_action",
+                    "actions": response,
+                    "state": final_state
                 }
+            
+            # Ensure single responses are also well-formed
+            if not response.get('type'):
+                 response['type'] = 'text'
 
-            return {"type": "text", **response}
+            return response
 
         except Exception as e:
-            logging.error(f"Error in process_message: {e}", exc_info=True)
-            return {"type": "error", "response": "Sorry, I encountered an internal error."}
+            logging.error(f"Error processing message in AI Orchestrator: {e}", exc_info=True)
+            return {
+                "type": "error",
+                "response": "I'm sorry, but I encountered an internal error. My technical team has been notified. Please try again later.",
+                "state": request.conversation_state.dict() if request else {}
+            }
 
 # --- Singleton Instantiation ---
 ai_orchestrator = AIOrchestratorService()

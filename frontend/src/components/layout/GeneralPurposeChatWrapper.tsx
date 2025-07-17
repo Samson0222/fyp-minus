@@ -1,7 +1,9 @@
-import React, { useState, Dispatch, SetStateAction } from 'react';
+import React, { useState, Dispatch, SetStateAction, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ChatSidebarUI, { Message, DraftReviewDetails, ToolDraftDetails } from './ChatSidebarUI';
 import { useAuth } from '../../hooks/use-auth';
+import { useVoiceRecording } from '../../hooks/useVoiceRecording';
+import { toast } from '@/components/ui/use-toast';
 
 // Define the shape of the conversation state object
 interface ConversationState {
@@ -23,6 +25,15 @@ export interface TelegramDraft {
   chat_name: string;
   body: string;
 }
+
+// Define a union type for all possible AI actions
+type AiAction = 
+  | { type: 'text', response: string, verbal_response?: string }
+  | { type: 'tool_draft', tool_name: string, tool_input: ToolDraftDetails['tool_input'], assistant_message: string, verbal_response?: string }
+  | { type: 'draft_review', details: DraftReviewDetails, verbal_response?: string }
+  | { type: 'navigation', target_url: string, response: string, verbal_response?: string }
+  | { type: 'telegram_draft', details: TelegramDraft, response: string, verbal_response?: string };
+
 
 interface GeneralPurposeChatWrapperProps {
   setTelegramDraft: Dispatch<SetStateAction<TelegramDraft | null>>;
@@ -70,25 +81,181 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationState, setConversationState] = useState<ConversationState>({});
+  
+  // Voice integration state
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  
+  const { startRecording, stopRecording, transcribeAudio, synthesizeSpeech, clearError } = useVoiceRecording();
 
   const handleClearChat = () => {
     setMessages([]);
     setConversationState({}); // Also reset conversation state if needed
   };
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || !user) return;
+  const handleStartListening = async () => {
+    // Stop any currently playing speech before starting to listen.
+    handleStopSpeaking();
+    setError(null);
+    clearError();
+    
+    try {
+      await startRecording();
+      setIsListening(true); // Set listening state only after recording has successfully started
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to start voice recording';
+      setError(errorMessage);
+      toast({
+        title: "Voice Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  };
 
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      sender: 'user',
-      timestamp: new Date(),
-      content: { type: 'text', text: inputValue },
-    };
+  const handleStopListening = () => {
+    if (!isListening) return;
+    console.log("User stopped listening via tap.");
+    handleStopAndProcess();
+  };
 
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
-    setInputValue('');
+  const handleCancelListening = async () => {
+    console.log("User cancelled listening.");
+    setIsListening(false);
+    await stopRecording(); // Stop and discard audio blob
+  };
+
+  const handleStopAndProcess = async () => {
+    if (!isListening) return; // Prevent multiple triggers
+    setIsListening(false); // This will trigger the useEffect cleanup
+    
+    const audioBlob = await stopRecording();
+    if (!audioBlob || audioBlob.size === 0) {
+      console.log("No audio captured, aborting processing.");
+      return;
+    }
+    
+    try {
+      const transcript = await transcribeAudio(audioBlob);
+      if (transcript.trim()) {
+        const userMessage: Message = {
+          id: `user-${Date.now()}`,
+          sender: 'user',
+          timestamp: new Date(),
+          content: { type: 'text', text: transcript },
+        };
+        setMessages(prev => [...prev, userMessage]);
+        await processTextMessage(transcript);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to process voice input';
+      setError(errorMessage);
+    }
+  };
+
+  const handleStopSpeaking = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.currentTime = 0; // Reset audio to the beginning
+      currentAudioRef.current = null;
+    }
+    setIsSpeaking(false);
+  };
+
+  const processAndDisplayMessage = async (action: AiAction) => {
+    let aiMessage: Message | null = null;
+    if (action.type === 'text') {
+      aiMessage = {
+        id: `ai-${Date.now()}-${Math.random()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: { type: 'text', text: action.response }
+      };
+    } else if (action.type === 'tool_draft') {
+      aiMessage = {
+        id: `ai-${Date.now()}-${Math.random()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: { 
+          type: 'tool_draft', 
+          tool_name: action.tool_name,
+          tool_input: action.tool_input,
+          assistant_message: action.assistant_message
+        }
+      };
+    } else if (action.type === 'draft_review') {
+      aiMessage = {
+        id: `ai-${Date.now()}-${Math.random()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: {
+          type: 'draft_review',
+          details: action.details
+        }
+      };
+    } else if (action.type === 'navigation') {
+      if (action.target_url) {
+        navigate(action.target_url);
+      }
+      aiMessage = {
+        id: `ai-${Date.now()}-${Math.random()}`,
+        sender: 'ai',
+        timestamp: new Date(),
+        content: { type: 'text', text: action.response || 'Navigating...' }
+      };
+    } else if (action.type === 'telegram_draft') {
+        setTelegramDraft(action.details);
+        aiMessage = {
+          id: `ai-${Date.now()}-${Math.random()}`,
+          sender: 'ai',
+          timestamp: new Date(),
+          content: {
+            type: 'text', // Display as a simple text message in the chat history
+            text: action.response 
+          }
+        };
+    }
+
+
+    if (aiMessage) {
+        setMessages((prev) => [...prev, aiMessage as Message]);
+        
+        const verbalResponse = (action.verbal_response || (aiMessage.content.type === 'text' ? aiMessage.content.text : null));
+        if (verbalResponse) {
+            try {
+                handleStopSpeaking(); 
+                setIsSpeaking(true);
+                const audio = await synthesizeSpeech(verbalResponse);
+                currentAudioRef.current = audio;
+                
+                return new Promise<void>((resolve) => {
+                  audio.play();
+                  audio.onended = () => {
+                      handleStopSpeaking();
+                      resolve();
+                  };
+                  audio.onerror = () => {
+                      console.error("Error playing TTS audio.");
+                      handleStopSpeaking();
+                      resolve();
+                  }
+                });
+
+            } catch (speechError) {
+                console.error('TTS synthesis error:', speechError);
+                handleStopSpeaking();
+            }
+        }
+    }
+    // If no audio, resolve immediately
+    return Promise.resolve();
+  };
+
+
+  const processTextMessage = async (text: string) => {
+    if (!user) return;
+
     setIsLoading(true);
     setError(null);
 
@@ -99,7 +266,7 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          input: inputValue,
+          input: text,
           chat_history: chat_history,
           user_context: { user_id: user.id }, 
           conversation_state: conversationState,
@@ -109,6 +276,8 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
           }
         }),
       });
+
+      setIsLoading(false);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -124,74 +293,38 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
         setConversationState(data.state);
       }
 
-      if (data.type === 'telegram_draft') {
-        setTelegramDraft(data.details);
-        const confirmationMessage: Message = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        timestamp: new Date(),
-        content: {
-            type: 'text',
-            text: data.response
-          }
-        };
-        setMessages((prev) => [...prev, confirmationMessage]);
-
-      } else {
-        let aiMessage: Message | null = null;
-      if (data.type === 'text') {
-          aiMessage = {
-            id: `ai-${Date.now()}`,
-            sender: 'ai',
-            timestamp: new Date(),
-            content: { type: 'text', text: data.response }
-          };
-      } else if (data.type === 'tool_draft') {
-          aiMessage = {
-            id: `ai-${Date.now()}`,
-            sender: 'ai',
-            timestamp: new Date(),
-            content: { 
-            type: 'tool_draft', 
-            tool_name: data.tool_name,
-            tool_input: data.tool_input,
-            assistant_message: data.assistant_message
-            }
-        };
-      } else if (data.type === 'draft_review') {
-          aiMessage = {
-            id: `ai-${Date.now()}`,
-            sender: 'ai',
-            timestamp: new Date(),
-            content: {
-            type: 'draft_review',
-            details: data.details
-            }
-        };
-      } else if (data.type === 'navigation') {
-          // Handle navigation commands from AI
-          if (data.target_url) {
-            navigate(data.target_url);
-          }
-          aiMessage = {
-            id: `ai-${Date.now()}`,
-            sender: 'ai',
-            timestamp: new Date(),
-            content: { type: 'text', text: data.response || 'Navigating...' }
-        };
-      }
-
-        if (aiMessage) {
-            setMessages((prev) => [...prev, aiMessage as Message]);
+      if (data.type === 'multi_action') {
+        for (const action of data.actions) {
+          await processAndDisplayMessage(action);
+          // Optional: add a small delay between messages for a more natural feel
+          await new Promise(resolve => setTimeout(resolve, 500)); 
         }
+      } else {
+        await processAndDisplayMessage(data);
       }
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to get a response.';
       setError(errorMessage);
-    } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || !user) return;
+
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      timestamp: new Date(),
+      content: { type: 'text', text: inputValue },
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    const currentInput = inputValue;
+    setInputValue('');
+    
+    await processTextMessage(currentInput);
   };
 
   const handleSendDraft = async (draftId: string) => {
@@ -334,6 +467,13 @@ const GeneralPurposeChatWrapper: React.FC<GeneralPurposeChatWrapperProps> = ({ s
       onSendDraft={handleSendDraft}
       onCancelDraft={handleCancelDraft}
       onClearChat={handleClearChat}
+      // Voice integration props
+      isListening={isListening}
+      isSpeaking={isSpeaking}
+      onStartListening={handleStartListening}
+      onStopListening={handleStopListening}
+      onCancelListening={handleCancelListening}
+      onStopSpeaking={handleStopSpeaking}
     />
   );
 };

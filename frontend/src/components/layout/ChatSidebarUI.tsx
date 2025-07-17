@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from "react";
-import { Send, ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft, AlertTriangle, X, Trash2 } from "lucide-react";
+import { Send, ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft, AlertTriangle, X, Trash2, Mic, MicOff } from "lucide-react";
+import "@/styles/voice-animations.css";
 import MessageBubble from "@/components/ai/MessageBubble";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -80,6 +81,14 @@ export interface ChatSidebarUIProps {
   title?: string;
   placeholder?: string;
   emptyStateMessage?: string;
+
+  // Voice integration props
+  isListening?: boolean;
+  isSpeaking?: boolean;
+  onStartListening?: () => void;
+  onStopListening?: () => void; // <-- New handler for tap-to-stop
+  onCancelListening?: () => void;
+  onStopSpeaking?: () => void;
 }
 
 // Helper component for rendering document edit suggestions
@@ -231,6 +240,13 @@ const ChatSidebarUI: React.FC<ChatSidebarUIProps> = ({
   placeholder = "Type your message...",
   emptyStateMessage = "No messages yet. Start the conversation!",
   onClearChat,
+  // Voice integration props
+  isListening = false,
+  isSpeaking = false,
+  onStartListening,
+  onStopListening, // <-- New handler
+  onCancelListening,
+  onStopSpeaking,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -356,6 +372,63 @@ const ChatSidebarUI: React.FC<ChatSidebarUIProps> = ({
         <div ref={messagesEndRef} />
       </div>
       <div className="p-4 border-t border-white/5 w-full">
+        {/* Voice controls row above text area */}
+        <div className="flex justify-center items-center mb-3">
+          <div className="flex items-center space-x-4">
+            {/* Microphone button - always in same position */}
+            {!isListening && !isSpeaking && onStartListening && (
+              <Button
+                type="button"
+                size="icon"
+                className="h-10 w-10 rounded-full bg-dark-secondary hover:bg-dark-tertiary text-violet border-2 border-violet hover:border-violet-light voice-button"
+                onClick={onStartListening}
+                disabled={isLoading}
+                title="Start voice input"
+              >
+                <Mic size={18} />
+              </Button>
+            )}
+            
+            {/* Listening state - pulsing mic (tap to stop) with cancel button */}
+            {isListening && (
+              <>
+                <Button
+                  type="button"
+                  size="icon"
+                  className="h-10 w-10 rounded-full bg-dark-secondary hover:bg-dark-tertiary text-violet border-2 border-violet hover:border-violet-light voice-listening"
+                  onClick={onStopListening} // <-- Tap the mic again to stop
+                  title="Stop recording"
+                >
+                  <Mic size={18} />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  className="h-10 w-10 rounded-full bg-red-500 hover:bg-red-600 text-white border-2 border-red-400 voice-button"
+                  onClick={onCancelListening}
+                  title="Cancel voice input"
+                >
+                  <X size={18} />
+                </Button>
+              </>
+            )}
+            
+            {/* Speaking state - stop button centered */}
+            {isSpeaking && (
+              <Button
+                type="button"
+                size="icon"
+                className="h-10 w-10 rounded-full bg-red-500 hover:bg-red-600 text-white border-2 border-red-400 voice-button"
+                onClick={onStopSpeaking}
+                title="Stop speaking"
+              >
+                <X size={18} />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Text input form */}
         <form onSubmit={handleSubmit} className="relative flex items-center w-full">
           <Textarea
             ref={textareaRef}
@@ -365,13 +438,24 @@ const ChatSidebarUI: React.FC<ChatSidebarUIProps> = ({
             placeholder={placeholder}
             rows={1}
             className="w-full bg-dark-tertiary border-white/10 rounded-lg p-3 pr-12 resize-none scrollbar-thin scrollbar-thumb-dark-primary"
-            disabled={isLoading}
+            disabled={isLoading || isListening || isSpeaking}
           />
-          <Button type="submit" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 bg-violet hover:bg-violet-light" disabled={isLoading || !inputValue.trim()}>
-            <Send size={18} />
-          </Button>
+          
+          {/* Send button - shows when not in voice mode */}
+          {!isListening && !isSpeaking && (
+            <Button 
+              type="submit" 
+              size="icon" 
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-violet hover:bg-violet-light" 
+              disabled={isLoading || !inputValue.trim()}
+            >
+              <Send size={18} />
+            </Button>
+          )}
         </form>
       </div>
+
+
     </div>
   );
 };

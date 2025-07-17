@@ -125,25 +125,41 @@ class GoogleCalendarService:
             logger.error(f"An error occurred creating Google event: {error}")
             return None
 
-    def update_event(self, user_id: str, event_id: str, event_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Updates an existing event on Google Calendar."""
-        logger.info(f"Attempting to update Google Calendar event {event_id} for user {user_id}")
-        service = self._get_service(user_id)
-        if not service:
-            logger.error("Cannot update event: Google Calendar service not available.")
-            return None
-
+    def update_event(self, user_id: str, event_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Updates an existing event in the user's Google Calendar.
+        First fetches the event, then applies updates.
+        """
         try:
+            logger.info(f"Attempting to update Google Calendar event {event_id} for user {user_id}")
+            service = self._get_service(user_id)
+            if not service:
+                return {"error": "Could not authenticate with Google Calendar."}
+
+            # Step 1: Get the existing event. This is required by the API.
+            existing_event = service.events().get(calendarId='primary', eventId=event_id).execute()
+
+            # Step 2: Apply the updates to the existing event object.
+            for key, value in updates.items():
+                if value is not None:
+                    existing_event[key] = value
+
+            # Step 3: Update the event with the modified body.
             updated_event = service.events().update(
-                calendarId='primary', 
-                eventId=event_id, 
-                body=event_data
+                calendarId='primary',
+                eventId=event_id,
+                body=existing_event
             ).execute()
-            logger.info(f"Successfully updated Google event {updated_event['id']}")
+            
+            logger.info(f"Successfully updated Google event {updated_event.get('id')}")
             return updated_event
+
         except HttpError as error:
-            logger.error(f"An error occurred updating Google event {event_id}: {error}")
-            return None
+            logger.error(f"An error occurred updating Google event {event_id}: {error}", exc_info=True)
+            return {"error": f"Failed to update the event: {error.reason}"}
+        except Exception as e:
+            logger.error(f"Failed to update Google event {event_id}: {e}", exc_info=True)
+            return {"error": f"An error occurred while updating the event: {e}"}
 
     def delete_event(self, user_id: str, google_event_id: str) -> bool:
         """Deletes an event from Google Calendar."""

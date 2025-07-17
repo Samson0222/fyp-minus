@@ -17,5 +17,8 @@ GOOGLE_SCOPES = [
     # Docs & Drive Scopes
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/drive",          # Full Drive scope for write operations
-    "https://www.googleapis.com/auth/drive.readonly"  # Included to prevent scope mismatch during OAuth
+    "https://www.googleapis.com/auth/drive.readonly",  # Included to prevent scope mismatch during OAuth
+
+    # Cloud Platform Scopes (for STT/TTS)
+    "https://www.googleapis.com/auth/cloud-platform"
 ] 

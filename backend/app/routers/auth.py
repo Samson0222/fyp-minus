@@ -19,8 +19,6 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# The old get_current_user stub is no longer needed.
-
 def create_google_oauth_flow(redirect_uri: str) -> Flow:
     """Create Google OAuth flow for Calendar authentication."""
     credentials_path = os.getenv("GOOGLE_OAUTH_CREDENTIALS_PATH")

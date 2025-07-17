@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import ChatSidebarUI, { Message, ToolDraftDetails } from "@/components/layout/ChatSidebarUI";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useVoiceRecording } from "@/hooks/useVoiceRecording";
 
 interface ConversationState {
   last_event_id?: string | null;
@@ -16,6 +17,14 @@ interface ConversationState {
   last_document_title?: string | null;
   last_suggestion_id?: string | null;
 }
+
+// Define a union type for all possible AI actions
+type AiAction =
+  | { type: 'text'; response: string; verbal_response?: string }
+  | { type: 'tool_draft'; tool_name: string; tool_input: ToolDraftDetails['tool_input']; assistant_message: string; verbal_response?: string }
+  | { type: 'document_closed'; response: string; verbal_response?: string }
+  | { type: 'navigation'; target_url: string, response: string, verbal_response?: string };
+
 
 interface DocsChatProps {
   isCollapsed: boolean;
@@ -37,6 +46,13 @@ const DocsChat: React.FC<DocsChatProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationState, setConversationState] = useState<ConversationState>({});
+  
+  // Voice integration state
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  
+  const { startRecording, stopRecording, transcribeAudio, synthesizeSpeech, clearError } = useVoiceRecording();
 
   const getWelcomeMessage = () => ({
     id: 'welcome',
@@ -57,28 +73,147 @@ const DocsChat: React.FC<DocsChatProps> = ({
     setConversationState({});
   };
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || !documentId) {
-        if (!documentId) setError("No document is open.");
+  const handleStartListening = async () => {
+    // Stop any currently playing speech before starting to listen.
+    handleStopSpeaking();
+    setError(null);
+    clearError();
+    
+    try {
+      await startRecording();
+      setIsListening(true); // Set listening state only after recording has successfully started
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to start voice recording';
+      setError(errorMessage);
+      toast({
+        title: "Voice Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleStopListening = () => {
+    if (!isListening) return;
+    console.log("User stopped listening via tap.");
+    handleStopAndProcess();
+  };
+
+  const handleCancelListening = async () => {
+    console.log("User cancelled listening.");
+    setIsListening(false); // This will trigger the useEffect cleanup
+    await stopRecording(); // Stop and discard audio blob
+  };
+
+  const handleStopAndProcess = async () => {
+    if (!isListening) return; // Prevent multiple triggers
+    setIsListening(false); // This will trigger the useEffect cleanup
+    
+    const audioBlob = await stopRecording();
+    if (!audioBlob || audioBlob.size === 0) {
+      console.log("No audio captured, aborting processing.");
+      return;
+    }
+    
+    try {
+      const transcript = await transcribeAudio(audioBlob);
+      if (transcript.trim()) {
+        const userMessage: Message = {
+          id: `user-${Date.now()}`,
+          sender: 'user',
+          timestamp: new Date(),
+          content: { type: 'text', text: transcript },
+        };
+        setMessages(prev => [...prev, userMessage]);
+        await processTextMessage(transcript);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to process voice input';
+      setError(errorMessage);
+    }
+  };
+
+  const handleStopSpeaking = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.currentTime = 0;
+      currentAudioRef.current = null;
+    }
+    setIsSpeaking(false);
+  };
+
+  const processAndDisplayMessage = async (action: AiAction) => {
+    const aiMessage: Message = {
+      id: `ai-${Date.now()}-${Math.random()}`,
+      sender: 'ai',
+      timestamp: new Date(),
+      content: { type: 'text', text: 'An unexpected response was received.' } // Default
+    };
+
+    if (action.type === 'text') {
+      aiMessage.content = { type: 'text', text: action.response };
+    } else if (action.type === 'tool_draft') {
+      aiMessage.content = { 
+        type: 'tool_draft', 
+        tool_name: action.tool_name,
+        tool_input: action.tool_input,
+        assistant_message: action.assistant_message
+      };
+    } else if (action.type === 'document_closed') {
+      aiMessage.content = { type: 'text', text: action.response };
+      toast({ title: 'Document Closed', description: 'Returning to dashboard...', duration: 3000 });
+      navigate('/docs');
+    } else if (action.type === 'navigation') {
+        if (action.target_url) {
+            navigate(action.target_url);
+        }
+        aiMessage.content = { type: 'text', text: action.response || 'Navigating...' };
+    }
+    
+    setMessages(prev => [...prev, aiMessage]);
+    
+    const verbalResponse = (action.verbal_response || (aiMessage.content.type === 'text' ? aiMessage.content.text : null));
+    if (verbalResponse) {
+        try {
+            handleStopSpeaking();
+            setIsSpeaking(true);
+            const audio = await synthesizeSpeech(verbalResponse);
+            currentAudioRef.current = audio;
+            
+            return new Promise<void>((resolve) => {
+              audio.play();
+              audio.onended = () => {
+                  handleStopSpeaking();
+                  resolve();
+              };
+              audio.onerror = () => {
+                  console.error("Error playing TTS audio.");
+                  handleStopSpeaking();
+                  resolve();
+              };
+            });
+
+        } catch (speechError) {
+            console.error('TTS synthesis error:', speechError);
+            handleStopSpeaking();
+        }
+    }
+    return Promise.resolve();
+  };
+
+
+  const processTextMessage = async (text: string) => {
+    if (!documentId) {
+      setError("No document is open.");
       return;
     }
 
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      sender: "user",
-      timestamp: new Date(),
-      content: { type: 'text', text: inputValue },
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    const currentInput = inputValue;
-    setInputValue('');
     setIsLoading(true);
     setError(null);
 
     const conversation_history = messages.map(m => ({
-        role: m.sender,
-        content: m.content.type === 'text' ? m.content.text : JSON.stringify(m.content)
+      role: m.sender,
+      content: m.content.type === 'text' ? m.content.text : JSON.stringify(m.content)
     }));
 
     try {
@@ -86,7 +221,7 @@ const DocsChat: React.FC<DocsChatProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          input: currentInput,
+          input: text,
           chat_history: conversation_history,
           user_context: { user_id: user?.id },
           conversation_state: conversationState,
@@ -98,11 +233,13 @@ const DocsChat: React.FC<DocsChatProps> = ({
         })
       });
 
+      setIsLoading(false);
+
       if (!response.ok) {
         const errorData = await response.json();
         if (Array.isArray(errorData.detail)) {
-            const errorMessages = errorData.detail.map((err: { loc: string[], msg: string }) => `${err.loc.join(' → ')}: ${err.msg}`).join('; ');
-            throw new Error(errorMessages);
+          const errorMessages = errorData.detail.map((err: { loc: string[], msg: string }) => `${err.loc.join(' → ')}: ${err.msg}`).join('; ');
+          throw new Error(errorMessages);
         }
         throw new Error(errorData.detail || 'An unknown server error occurred');
       }
@@ -113,37 +250,41 @@ const DocsChat: React.FC<DocsChatProps> = ({
         setConversationState(data.state);
       }
 
-      const aiMessage: Message = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-          timestamp: new Date(),
-        content: { type: 'text', text: 'An unexpected response was received.' } // Default
-      };
-
-      if (data.type === 'text') {
-        aiMessage.content = { type: 'text', text: data.response };
-      } else if (data.type === 'tool_draft') {
-        // This will render the "Approve/Reject" card in the UI
-        aiMessage.content = { 
-            type: 'tool_draft', 
-            tool_name: data.tool_name,
-            tool_input: data.tool_input,
-            assistant_message: data.assistant_message
-        };
-      } else if (data.type === 'document_closed') {
-        aiMessage.content = { type: 'text', text: data.response };
-        toast({ title: 'Document Closed', description: 'Returning to dashboard...', duration: 3000 });
-        navigate('/docs');
+      if (data.type === 'multi_action') {
+        for (const action of data.actions) {
+          await processAndDisplayMessage(action);
+          await new Promise(resolve => setTimeout(resolve, 500)); 
+        }
+      } else {
+        await processAndDisplayMessage(data);
       }
       
-      setMessages((prev) => [...prev, aiMessage]);
     } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to get a response.';
-        setError(errorMessage);
-        toast({ title: 'Error', description: errorMessage, variant: 'destructive', duration: 3000 });
-    } finally {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to get a response.';
+      setError(errorMessage);
+      toast({ title: 'Error', description: errorMessage, variant: 'destructive', duration: 3000 });
       setIsLoading(false);
     }
+  };
+
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || !documentId) {
+      if (!documentId) setError("No document is open.");
+      return;
+    }
+
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      sender: "user",
+      timestamp: new Date(),
+      content: { type: 'text', text: inputValue },
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    const currentInput = inputValue;
+    setInputValue('');
+    
+    await processTextMessage(currentInput);
   };
 
   const handleApproveTool = async (toolName: string, toolInput: ToolDraftDetails['tool_input']) => {
@@ -312,6 +453,13 @@ const DocsChat: React.FC<DocsChatProps> = ({
       title="Docs Assistant"
       placeholder="Type your message here..."
       emptyStateMessage="I'm ready to help you with this document!"
+      // Voice integration props
+      isListening={isListening}
+      isSpeaking={isSpeaking}
+      onStartListening={handleStartListening}
+      onStopListening={handleStopListening}
+      onCancelListening={handleCancelListening}
+      onStopSpeaking={handleStopSpeaking}
     />
   );
 };

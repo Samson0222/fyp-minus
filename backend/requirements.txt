@@ -28,3 +28,7 @@ google-generativeai>=0.8.0
 websockets>=12.0
 pytz==2024.1
 dateparser==1.2.0
+
+# Google Cloud Services for Voice
+google-cloud-speech==2.21.0
+google-cloud-texttospeech==2.16.3
